@@ -1,0 +1,28 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Test",
+            "type": "shell",
+            "command": "g++",
+            "args": [
+                "-g",
+                "-m96bit-long-double", // 80-битная точность для long double
+                "${file}", // Текущий тестовый файл из tests
+                "${workspaceFolder}/src/*.cpp", // Все .cpp файлы из src
+                "${workspaceFolder}/external/*.h", // Все .h файлы из external
+                "-I${workspaceFolder}/external/eigen", // Путь к Eigen
+                "-o",
+                "${fileDirname}/${fileBasenameNoExtension}.exe" // Выходной файл
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "detail": "Compile test with main function"
+        }
+    ]
+}
