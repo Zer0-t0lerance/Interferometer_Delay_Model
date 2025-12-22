@@ -1,0 +1,2015 @@
+      SUBROUTINE READ_CAT42corr( nobs, ista, isor, j_time,Array_bad_sou, 
+     *  Kol_sou, DYEAR, mjd_mean, utc_mean, t_mean)
+     
+C
+C   SUBROUTINE READ_CAT checks whether the sources and stations 
+C   contained in the data file are included in the catalogs, 
+C   reads the catalogs of the sites ocean and atmospheric loading, 
+C   EOP file and creates the structures-arrays of sites, sources, 
+C   observed parameters for "good" observation. 
+C   Coordinates of the sources are converted to radians.
+C
+C   The midpoint time of the observing session is calculated
+C   for "good" the first and last observation. All corrections that
+C   will be found during reduction procedure are related with this
+C   midpoint time !!!!!
+C
+C
+C   The names of catalogs and position are pointed out in main program
+C
+C    Input variables : 
+C         None
+C
+C    Output variables: 
+C         1. NOBS     - number of records in the data file
+C                       (maximum value is n_bases * n_sou )
+C         2. ISTA     - number of stations
+C         3. ISOR     - number of sources
+C         4. J_TIME   - number of epoch of observations 
+C  5. Array_bad_sou(n_sou) - numbers of "bad" sources
+C  6. Kol_sou(n_sou)  - how many times each source was observed
+C         7. DYEAR    - difference of epoch of observation 
+C                       and epoch of the station catalog (YEAR)
+C         8. mjd_mean - The midpoint time of the observing session (MJD)
+C         9. utc_mean - The midpoint time of the observing session (UTC fraction of day)
+C        10. t_mean   - The midpoint time of the observing session (MJD+UTC fraction of day) 
+C    Arrays:
+C         1. COMMON /OCEAN/
+C            1) AMP_OCEAN(11,3,N) - ocean loading amplitudes for 11 tides in
+C               next order: M2  S2  N2  K2  K1  O1  P1  Q1  MF  MM SSA
+C               at each VLBI site.(M)
+C               J = 1,...,11- number of tide
+C               K = 1,2,3   - Vertical, East-West, North-South components !!!!
+C               L = 1,...N  - number of sites
+C            2) PHS_OCEAN(11,3,N) - ocean loading phases. (RAD)
+C         2. COMMON /UT1UTC/ 
+C            1) UT1_UTC(I_INT,J) -   dates closest to date of observation
+C               I_INT =  7, J = 7 
+C               UT1_UTC(I_INT,1) = MJD 
+C               UT1_UTC(I_INT,2) = UT1-UTC (Sec)
+C               UT1_UTC(I_INT,3) = UT1-TAI (Sec)
+C               UT1_UTC(I_INT,4) = x       (Arcsec)
+C               UT1_UTC(I_INT,5) = y       (Arcsec)
+C               UT1_UTC(I_INT,6) = Dpsi    (Arcsec)
+C               UT1_UTC(I_INT,7) = Deps    (Arcsec)
+C         3. COMMON /ATMLOAD/
+C            1) AMP_ATM(J,K,N) - atmosphere loading amplitudes for 3 terms in
+C               next order: A_1  B_1  A_2  B_2  A_3  B_3  Const  b_0  b_1
+C               at each VLBI site. (Millimeter)
+C               J = 1,...,9 - coefficients
+C               K = 1,2,3   - Vertical, East, North components (VEN)
+C               L = 1,...N  - number of sites
+C            METHOD:
+C Total displacement is Sum of three harmonic terms (annual,
+C semiannual and diurnal) and constant term:
+C Const + Sum[A_i*Cos(omega_i*t)+B_i*Sin(omega_i*t)]
+C
+C where t = MJD_obs - 44239.0,  MJD_obs is Modified JD of observation,
+C omega_1 = 2Pi / 365.2422
+C omega_2 = 2Pi / 182.12
+C omega_3 = 2Pi / 1.0
+C
+C Vertical displacement has to be corrected for local pressure
+C variations Delta P = P(MJD_obs) - P_mean:
+C Delta r = b_0 + b_1*Delta P
+C           
+C    Structures:
+C         1. STA(ista)   - list of station
+C         2. SOU(isor)   - list of sources
+C         3. NSCAN(nobs) - list of the observed parameters
+C         4. DEF_PAR(250)- list of the 250 antennas parameters
+C----------------------------------------------------------------------
+C   SUBROUTINE READ_CAT was written by V.Zharov 
+C
+C   VERSION 1.0   21 May 2005
+C
+C   VERSION 1.1   21 August 2005
+C     Block "Sort ty Time" was added
+C     Parameter J_TIME   - number of epoch of observations was added 
+C 
+C   VERSION 1.2   
+C     05 January 2006
+C     Block "Reading of EOP" was changed
+C
+C     The Earth Orientation Parameters are stored in 
+C     file EOPc04_62-now.cat, that can be obtained from 
+C     the EOP Product Center (http://hpiers.iers.obspm.fr)
+C
+C     11 January 2006
+C     They were changed:
+C     COMMON block /CATS1/ : path_sou3 was added 
+C     Arrays Badsour(200), Array_bad_sou(n_sou)
+C     Kol_sou(n_sou)
+C     Block "Reading of bad sources" was added
+C
+C     28 January 2006
+C     Correction of number of station was done
+C     As example file 05JAN03XA was used: station SESHAN25 was removed
+C      
+C     30 April 2007
+C     New array scan_time() was added (in module main)
+C     In I-th row the parameter J_TIME are written (1:n_good)
+C     (the bad scans (with nscan(i)%k == 0) are not included)
+C     17 April 2008
+C     Format of sessions with 9999 or more records is different
+C     from short sessions. Field with number 74 can contain 0 or not. 
+C     27 June 2008
+C     Correct reading of ocean loading file
+C
+C   VERSION 3.0   
+C     16 June 2008
+C     1) Earth orientation parameters: x/y pole, UT1-UTC, LOD, dPsi, dEpsi 
+C     (smoothed values at 1-day intervals) with respect to 
+C     IAU 1976/1980 precession/nutation model and consistent with ITRF2005 (!!!)
+C     are stored in file EOPc04_62-now.cat but new format is used.
+C     2) New format is used for reading of coordinates of the sites 
+C     (model ITRF2005).
+C     28 July 2008
+C     1) Seismic and other motions of stations were used 
+C     2) Values of ocean loading were changed (as in OCCAM)
+C     12 May 2009
+C     For SINEX file two new values were determined:
+C     domes (Unique Monument Identification) and
+C     descr_n (description of the site, longitude,latitude,height)
+C     18 January 2010
+C----------------------------------------------------------------------
+C  In versions 4.0 and later 
+C  terrestrial reference frame is realized by catalog VTRF2008a,
+C  celestial reference frame is realized by 
+C  ICRF2-non-vcs as main catalog and ICRF2-vcs-only as additional catalog.
+C  As additional option reading of catalog icrf2000_my1.cat with
+C  the source velocities is possible
+C-----------------------------------------------------------------------
+C     1) New format is used for reading of coordinates of the sites 
+C     (model VTRF2008a).
+C     2) New format is used for reading of coordinates of the sources 
+C     (ICRF2-non-vcs as main catalog and ICRF2-vcs-only as additional catalog).
+C     23 April 2010
+C     C  ICRFname, constructed from J2000.0 coordinates with the format
+C     JHHMMSS.s+DDMMSS or JHHMMSS.s-DDMMSS
+C     IAUname, constructed from J2000.0 coordinates with the format
+C     JHHMM+DDMM or JHHMM-DDMM
+C     Format of ADD_SOURCE catalog was changed: ICRFname were added
+C     12 December 2012
+C     1. Block "Reading of EOP" was corrected: if date of observation
+C     is out of dates of the EOPC04 catalog the preliminary catalog
+C     finals2000A.daily.txt will be open and read 
+C
+C     2. Path of catalog: path_pred 
+C----------------------------------------------------------------------
+      USE main
+C
+      IMPLICIT NONE
+C
+c        type t_def
+c          character(8) name
+c          real(8) hf, hp, hv, hs, hd
+c	    integer focus
+c	    real(8) t_0
+c        end type t_def
+
+c        type t_def
+c          character(8) name
+c          real(8) t_0, p_0, ant_diam
+c          real(8) hf, gamma_hf           ! foundation parameters
+c          real(8)	hp, gamma_hp, AO, gamma_AO ! axis parameters
+c          real(8)	hv, gamma_hv, hs, gamma_hs
+c        end type t_def	        
+C
+      INTEGER NOBS
+	INTEGER, parameter :: i_int = 7
+c	INTEGER, parameter :: n_ant = 250
+      INTEGER i,j, ios, ios1, ios2, ierr, l, k, m, idelt, lk
+      INTEGER j_bad_sou, k_not, i_bad_sta, i_alt
+      INTEGER ISTA, ISOR
+	INTEGER KREAD1, KREAD2, KREAD22, KREAD3 
+	INTEGER KREAD4, KREAD5, KREAD6, KREAD7, KREAD8, Kread0
+      INTEGER IRAH,IRAM,IDECD,IDECM
+      INTEGER MJD, mjd_mean, jyear, month, Date, iho, IMIN
+      INTEGER N_dome1, N_dome2, Idn, Idn2
+      INTEGER	N_sei, K_y1, K_d1, K_s1, K_y2, K_d2, K_s2
+
+
+	INTEGER i_good, j_time, j_base, j_base_cop, n_Total, n_tri, b1, b2
+	INTEGER	Array_bad_sou(n_sou), Kol_sou(n_sou), Not_obs_sour(100)
+	INTEGER	Kol_sta(n_sta) !, Arr_time(max_obs)
+C
+      REAL(8) EPOCH, DYEAR, DJUL, DJUL0, t_mean, utc_mean, sec, utc
+      REAL(8) XCOR,YCOR,ZCOR, SX,SY,SZ, OFFST1 
+      REAL(8) XVEL,YVEL,ZVEL, SVX,SVY,SVZ
+      REAL(8) STA_COO(n_sta,3), XYZ(3), STA_OFF_V(n_sta), OFF_V
+      REAL(8) MJD_BEG, MJD_START, MJD_END
+      REAL(8) CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT      
+C
+      REAL(8) RA,DEC, RAS,DECS, SRA, SDEC, dot_al, dot_del, CORR
+      REAL(8) PI, TWOPI, HALFPI
+      REAL(8) RECD(6), REC_ERR(6)
+      REAL(8) amp_ocean(11,3,n_sta), phs_ocean(11,3,n_sta)
+	REAL(8) amp_atm(9,3,n_sta), sig
+	REAL(8) ut1_utc(i_int,7)
+	REAL(8) D_time, D6_time, dmjd	
+C
+      CHARACTER(8) :: BLANK='        '
+      CHARACTER(6) :: Y1962='1962 '
+      CHARACTER(8) STA1, STA2, site_IVS, SOUR, SOUCAT
+      CHARACTER(8) FULSTA(n_sta),FULSOR(n_sou)
+      CHARACTER(4) AXTYPE, PLATE
+      CHARACTER(4) STA_OFF_T(n_sta), OFF_T, TECH
+      CHARACTER(1) SIGN, astr, bl, zero, fl, First_site, SOLN, DEF
+      CHARACTER     TEMP2*37, Mon*4, First_year*5  !TEMP1*8,
+      character(280) path_data, path_sta1, path_sta2   
+      character(280) path_sou1,path_sou2, path_sou3, path_sou4,path_sou5
+      character(280) path_eop, path_atm, path_tel, path_oc 
+	character(280) path_geop, path_orb, path_pred      
+      CHARACTER(96) next_line
+      character(130) str
+      character(150) str2
+      character(200) str3, line
+	CHARACTER(8)  site_name, END_card
+	CHARACTER(8)  Badsour(500), IAU1950(500), Altname(500) 
+	CHARACTER(16) site_IERS, ICRF_name
+	CHARACTER(10) IAU_name
+	CHARACTER(12) DATA_START, DATA_END
+	CHARACTER(9)  site_dom
+	CHARACTER(54) descr_n
+	CHARACTER(9) INF_END	
+	CHARACTER(9) :: META2='META_STOP'	
+	CHARACTER(8), allocatable :: All_sour(:)
+      LOGICAL FLAG, ALT, correlator
+C
+C  COMMON BLOCKS for transmission of the paths to catalogs
+      COMMON /CATS1/ path_data, path_sta1, path_sta2, 
+     *               path_sou1,path_sou2,path_sou3,path_sou4,path_sou5
+      COMMON /CATS2/ path_oc, path_eop, path_atm
+	COMMON /CATS3/ path_tel 	 
+	COMMON /CATS4/ path_geop, path_orb, path_pred		
+      COMMON /MATH1/ PI, TWOPI, HALFPI
+      COMMON /MATH2/ CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT      
+C  Output throught Common blocks
+	COMMON /OCEAN/ amp_ocean, phs_ocean
+	COMMON /UT1UTC/ ut1_utc
+      COMMON /ATMLOAD/ amp_atm
+      data END_card /'$END    '/
+      data bl/' '/, zero/'0'/
+C
+C *********************************************************
+C
+C  Open the data file     
+       OPEN(4,FILE=path_data,STATUS='old',IOSTAT=ios)
+       if (ios/= 0) stop ' Can not open the data file'
+C
+C  Open the  catalog of stations
+C  Main catalog
+       OPEN (7, FILE=path_sta1, STATUS='old', IOSTAT=ios)
+       if (ios/= 0) stop ' Can not open the catalog of stations'
+C  Additional information
+       OPEN (6, FILE=path_sta2, STATUS='old', IOSTAT=ios)
+       if (ios/= 0) stop ' Can not open additional catalog of stations'
+C
+C  Open the  catalogs of sources
+C  Main catalog
+       OPEN (8, FILE=path_sou1, STATUS='old', IOSTAT=ios)
+       if (ios/= 0) stop ' Can not open main catalog of sources'
+C
+C  Additional catalog
+       OPEN (9, FILE=path_sou2, STATUS='old', IOSTAT=ios)
+       if (ios/= 0) stop ' Can not open additional catalog of sources'
+C
+C  Catalog of "bad" sources
+c       OPEN (11, FILE=path_sou3, STATUS='old', IOSTAT=ios)
+c       if (ios/= 0) stop ' Can not open catalog of "bad" sources'
+C
+C  Catalog of stable sources
+       OPEN (13, FILE=path_sou4, STATUS='old', IOSTAT=ios)
+       if (ios/= 0) stop ' Can not open catalog of stable sources'
+C
+C  Catalog of stable sources
+       OPEN (15, FILE=path_sou5, STATUS='old', IOSTAT=ios)
+       if (ios/= 0) stop ' Can not open catalog of  sources NAMES'
+C --------------------------------------------------------------
+C  Allocate Structure(station)
+       ALLOCATE (sta(n_sta),STAT=ierr)
+       if ( ierr/= 0 ) Stop ' Can not allocate memory for array STA '
+C  Allocate Structure(source)
+       ALLOCATE (sou(n_sou),STAT=ierr)
+       if ( ierr/= 0 ) Stop ' Can not allocate memory for array SOU '
+C  Allocate Structure(source)
+       ALLOCATE (def_par(n_sta),STAT=ierr)
+       if ( ierr/= 0 ) Stop ' Can not allocate memory for array DEF_PAR'
+C --------------------------------------------------------------
+C     INITIALIZE THE CHARACTER VARIABLES
+         FULSTA=BLANK
+         FULSOR=BLANK
+         correlator = .false.
+C
+C  Get the epoch of the catalog of stations
+          EPOCH = 2000.0d0
+C  ITRF2005 STATION POSITIONS ARE GIVEN AT EPOCH 2000.0 
+C  VTRF2008 STATION POSITIONS ARE GIVEN AT EPOCH 2000.0
+C **************
+C  Original catalog ITRF2005_VLBI_SSC has to be corrected:
+C  1) MJD of coordinates shifts has to be added
+C  2) stations not included in list has to be added
+C
+C  Read first two strings from data file
+           READ (4,'(A96)') line
+           READ (LINE,'(a4,92x)') TECH
+           if ( TECH == 'TEST' ) correlator = .true.
+           READ (4,'(A96)') line
+
+C  Determine number of stations
+         do i = 1, n_sta
+           READ (4,'(A96)') LINE
+           READ (LINE,'(a8,2x,3f15.5,1x,a4,f10.5)') STA1,XYZ,OFF_T,OFF_V
+	     if ( STA1 /= END_card ) then
+	       FULSTA(i) = STA1
+	       do j = 1, 3
+		     STA_COO(i,j) = XYZ(j)
+	       enddo
+	       STA_OFF_T(i) = OFF_T
+	       STA_OFF_V(i) = OFF_V
+	     else
+	       ista = i-1
+	       go to 10
+	     endif
+         enddo
+  10   continue
+C  Stop if number of stations exceeds n_sta
+         IF (ista > n_sta) GO TO 1000
+C
+C  Determine number of sources
+         do i = 1, 1000
+             READ (4,'(A96)') LINE
+             READ (LINE,'(a8)') SOUR
+	       if ( SOUR /= END_card ) then
+C  Stop if number of sources exceeds n_sou
+               if (i > n_sou) GO TO 1001
+               FULSOR(i)=SOUR
+	       else
+	         isor = i-1
+	         go to 12
+	       endif
+         enddo
+  12   continue
+C
+C   NOBS - number of records in the data file
+         do while (.not. eof(4))	       
+             READ (4,'(A96)') line
+c
+             READ (line,'(73x,i5,i2)') nobs, ios
+	       if ( nobs == 1 .and. ios == 1 ) then
+             READ (line,'(29x,i4,3i3,31x,i5)') jyear,month,Date,iho,nobs
+
+              CALL JULIAN(jyear,month,Date, DJUL)
+	        MJD_BEG = DJUL+dfloat(iho)/24.d0 - 2400000.5d0
+	       endif
+         enddo
+C
+	if ( nobs > max_obs ) then
+      STOP 'The number of records more than obs_time value'
+	endif
+C
+C---------------------------------------------------------------------
+C  CHECK STATIONS, CREATE the structure type(station).
+C
+        do i = 1, ista
+C
+C  Read additional catalog
+C
+C  Catalog ITRF2002_2 contains all necessary information
+C  about the VLBI station including # domes, IVS and IERS names,
+C  number in IVS, tectonic plate, type of mount and axis offset,
+C  number of shifts due to seismisity, placement and approximate coordinates
+C
+C  Axis offsets were taken from file 2000ext1.txt (OCCAM)
+C  Authors wrote that some of them were recommended by IVS 08.12.04
+
+
+         do while (.not. eof(6))	       
+             READ (6,'(A130)') str
+             READ (str,'(11x,a8)') site_IVS
+	       if ( site_IVS == FULSTA(i) ) then
+               READ (str,15) 
+     *         site_dom,site_IVS,Idn2,N_sei,PLATE,AXTYPE,OFFST1,descr_n
+  15           format(1x,a9,1x,a8,20x,i4,i2,1x,a4,3x,a4,f10.5,2x,a54)
+c         write(*,15) site_IVS, Idn2, N_sei, PLATE, AXTYPE, OFFST1
+               exit
+             else   
+		     if (eof(6)) then        
+		     PRINT *,
+     *	   ' Catalog of stations does not contain '//trim(FULSTA(i))
+             STOP ' Correct your station catalog ITRF2005_2'
+	         endif
+	       endif
+         enddo
+C  Read first comment lines
+         do j = 1, 20
+             READ (7,'(A130)') str
+             READ (str,'(a1)') First_site
+	       if ( First_site /= '#' ) exit
+         enddo
+	backspace(7)
+C
+         do while (.not. eof(7))
+C  Read the first line with coordinates of stations
+          READ (7,'(A150)') str2
+c       write(*,'(A140)') str2
+          READ (str2, 26, IOSTAT=ios1)
+     *    N_dome1, site_IERS, TECH, Idn, XCOR,YCOR,ZCOR, SX,SY,SZ,  
+     *    SOLN, MJD_START, MJD_END, DATA_START, DATA_END
+cc 26       FORMAT (i5,5x,a16,1x,a4,i5,3f13.3,3f6.3,2x,a1,2f8.1,2(1x,a12))   ! for ITRF
+ 26       FORMAT (i5,5x,a16,1x,a4,i5,3f13.3,3f8.5,2x,a1,2f8.1,2(1x,a12))   ! for VTRF
+C  Read the second line with velocities of stations
+          Read (7,27) N_dome2, XVEL,YVEL,ZVEL, SVX,SVY,SVZ
+cc 27       Format (i5,31x, 3f13.4, 3f6.4)  ! for ITRF
+ 27       Format (i5,31x, 3f13.4, 3f8.5)  ! for VTRF
+C
+          IF (Idn2 == Idn) THEN
+C  Test of seismic motion
+            if ( SOLN /= bl ) then
+              j = 1
+ 31           continue
+	        read (str2, '(96x,2f8.1)' ) MJD_START, MJD_END
+c       write(*,*) MJD_BEG, MJD_START, MJD_END
+C
+	        if ( MJD_BEG <= MJD_END .and. MJD_BEG > MJD_START ) then
+	          MJD = MJD_START
+	          go to 33
+	        else
+	          j = j + 1
+	          if ( j > N_sei ) go to 33
+C  Read two next records
+                READ (7,'(A140)') str2
+c       write(*,'(A140)') str2
+                READ (str2, 26)
+     *    N_dome1, site_IERS, TECH, Idn, XCOR,YCOR,ZCOR, SX,SY,SZ,  
+     *    SOLN, MJD_START, MJD_END, DATA_START, DATA_END
+                Read (7,27) N_dome2, XVEL,YVEL,ZVEL, SVX,SVY,SVZ
+                go to 31
+              endif
+
+            endif  ! SOLN
+ 33    continue
+            sta(i)%Id    = Idn
+            sta(i)%name  = FULSTA(i)
+            sta(i)%x     = XCOR
+            sta(i)%y     = YCOR
+            sta(i)%z     = ZCOR
+            sta(i)%axsty = AXTYPE
+            sta(i)%offs  = OFFST1
+            sta(i)%plate = PLATE
+            sta(i)%vx    = XVEL
+            sta(i)%vy    = YVEL
+            sta(i)%vz    = ZVEL
+            sta(i)%domes = site_dom
+            sta(i)%descr = descr_n
+C
+c        write(*,*) i, sta(i)%Id, sta(i)%name     
+            exit
+          else   
+		  if (eof(7)) then        
+		   PRINT *,
+     *	   ' Catalog of stations does not contain '//trim(FULSTA(i))
+             STOP ' Correct your station catalog ITRF2005'
+	      endif
+          ENDIF	
+	enddo  ! while (.not. eof(7))
+C  
+          REWIND 6
+          REWIND 7
+c          READ (7, '(a96)') line
+        enddo  !i
+C   The structure  STA(i), i=1,..ista is determined !
+C --------------------------------------------------------------------  
+C --------------------------------------------------------------------   
+C     CHECK SOURCES, CREATE structure type(source).
+C
+C Reading of the catalog of the alternative names
+        i = 0
+        do while (.not.eof(15))
+	    i = i + 1
+          READ (15,'(1X,A8,2X,A8)') SOUR, SOUCAT  ! Alt and 1950
+	    Altname(i) = SOUR
+	    IAU1950(i) = SOUCAT  
+c	write(*,'(i5,2x,a8,2x,a8)') i, Altname(i), IAU1950(i)
+        enddo
+C
+	  i_alt = i
+C
+        do i = 1, isor
+C
+	    ALT = .true.
+	    do j = 1, i_alt
+	    if ( FULSOR(i) == Altname(j) ) then
+             FULSOR(i) = IAU1950(j)
+		   ALT = .false.
+		   exit 	      
+	    endif
+	    enddo
+c	write(*,*) j, FULSOR(i), Altname(j)
+c      pause
+ 55     Continue
+C*************************************************
+C   Reading of main catalog ICRF2-non-vcs  
+          READ (8,57,IOSTAT=ios1) ICRF_name, SOUCAT, DEF, 
+     *    IRAH,IRAM,RAS,SIGN,IDECD,IDECM,DECS, SRA,SDEC, CORR, TEMP2  
+ 57       FORMAT ( 5X,A16,2X,A8,2X,A1,1X,2I3,F12.8,2X,A1,I2,I3,F11.7,  ! for ICRF2
+     *             F12.8,F10.7, F8.3, A39)
+
+C   COMMENT for catalog  icrf2000_my1.cat !!!!!!
+        dot_al = 0.d0
+	  dot_del = 0.d0
+C    
+          IF (ios1 /= -1) go to 65
+C*************************************************
+C   Reading of additional catalog ICRF2-vcs-only
+ 58     Continue    
+          READ (9,59,IOSTAT=ios2) ICRF_name, SOUCAT,
+     *    IRAH,IRAM,RAS,SIGN,IDECD,IDECM,DECS, SRA,SDEC, CORR, TEMP2
+ 59       FORMAT ( 5X,A16,2X,A8, 1X,2I3,F12.8,2X,A1,I2,I3,F11.7,  ! for ICRF2
+     *             F12.8,F10.7, F8.3, A39)	 
+C
+          IF (ios2 == -1) THEN
+          PRINT *,
+     *	' Catalogs of sources does not contain '//trim(FULSOR(I))
+          STOP ' Correct your source catalog'
+          ENDIF
+C      
+ 65       Continue
+            
+		IF (SOUCAT == FULSOR(I)) THEN
+C
+C   Convert coordinates to radians        
+            RA = (IRAH+IRAM/60.D0+RAS/3600.D0)*twopi/24.D0
+            DEC = (IDECD+IDECM/60.D0+DECS/3600.D0)*twopi/360.D0
+            IF (SIGN.EQ.'-') DEC=-DEC
+C
+            if (ALT) then 
+            sou(i)%name = FULSOR(i) 
+            sou(i)%name1950 = FULSOR(i) 
+            else
+            sou(i)%name = Altname(j) 
+            sou(i)%name1950 = IAU1950(j) 
+            endif
+            sou(i)%ICRFname = ICRF_name
+	      IAU_name = ICRF_name(1:5)//ICRF_name(10:14)
+            sou(i)%IAUname = IAU_name
+C
+            sou(i)%al   = RA
+            sou(i)%del  = DEC
+C  Velocities of sources
+            sou(i)%dot_al   = dot_al
+            sou(i)%dot_del  = dot_del
+C     
+          ELSE
+            IF ( ios1 /= -1 ) GO TO 55
+            IF ( ios1 == -1 ) GO TO 58
+          ENDIF
+
+        REWIND 8
+        REWIND 9
+
+        enddo
+C !!!  The structure  SOU(j), j=1,..isor is determined !!!!
+C ---------------------------------------------------------------------
+C ---------------------------------------------------------------------
+C ---  Block "Reading of stable sources and finding of bad sources" ---
+	  Array_bad_sou = 0
+        i = 0
+C
+        do while (.not.eof(13))
+	    i = i + 1
+          READ (13,'(A8)') SOUR
+	    Badsour(i) = SOUR  ! Now Badsour(i) is stable sources
+C
+        enddo
+C  Test of presence of "bad" sources among the observed sources
+        j_bad_sou = 0
+C
+        do j = 1, isor
+      	m = 1
+C  If names are determined in ICRF2 then they are sou(i)%name1950
+ccc          do while (  sou(j)%name /= Badsour(m) )
+          do while (  sou(j)%name1950 /= Badsour(m) )
+	      m = m + 1
+	      if ( m > i ) go to 71
+	    enddo
+	    cycle
+  71    continue !
+        j_bad_sou = j_bad_sou + 1
+	  Array_bad_sou(j_bad_sou) = j
+C
+        enddo	  
+C
+c	write(*,*) j_bad_sou
+c	write(*,*) '  Array_bad_sou '	      
+c	write(*,*) Array_bad_sou(1:j_bad_sou)
+C
+C   Positioning on the first record of data
+         REWIND 4  
+C----------------------------------------------------------------------
+       Allocate (All_sour(nobs))
+C
+      if ( .not. correlator ) then
+C      
+C ---- Block "NOT observed sources and do not operated stations " -----
+       All_sour = BLANK
+C
+C   Kol_sou(n_sou) - how many times each source was observed
+C   Kol_sta(n_sta) - how many times name of station appeares in ngs-file
+C   If sources were observed but ALL observations were excluded
+C   then their order numbers are stored in array Not_obs_sour(1:k_not)
+       Kol_sou = 0
+       Kol_sta = 0
+C  
+         do while (.not. eof(4))
+           READ (4,'(a96)') line
+           READ (line,'(73X,I5,I2)') i, j
+C
+             if ( j == 1 ) then
+               READ (line,'(a8,2x,a8,2x,a8)') STA1, STA2, SOUR
+               READ (4,'(a96)') next_line
+               READ (next_line,'(61X,a1)') fl
+C
+               if ( fl == bl .or. fl == zero ) then
+			   All_sour(i) = SOUR
+c	write(*,*) i, All_sour(i)
+                 do i = 1, isor
+                   if ( sou(i)%name == SOUR ) Kol_sou(i)=Kol_sou(i) + 1
+                 enddo  
+C			   
+                 do i = 1, ista
+                   if ( sta(i)%name == STA1 .or. 
+     *                  sta(i)%name == STA2 ) Kol_sta(i)=Kol_sta(i) + 1
+                 enddo 			                    
+	         endif
+C
+	       endif
+C
+         enddo
+C----------------------------------
+         k_not = 0
+C
+         do i = 1, isor
+           do j = 1, nobs   
+C
+           if ( sou(i)%name == All_sour(j) ) then
+	       exit
+	     else
+	       if ( j >= nobs ) go to 77
+	     endif
+	   
+           enddo
+C
+	   cycle
+  77     continue 
+C  NOT observed sources   
+           k_not = k_not + 1  
+           Not_obs_sour(k_not) = i		        
+C
+        enddo	 
+C------------------------------------------------------------------
+C   For Debug output KREAD0 /= 0
+       KREAD0 = 0
+C   Debug output 0  
+       if ( Kread0 /= 0 ) then
+	   write(*,*) '  Debug output for subroutine READ_CAT (0)'	   
+	write(*,*) ' ------- '	      
+	write(*,*) k_not, Not_obs_sour(1:k_not)
+	write(*,*) ' Names of NOT observed sources '
+	write(*,'(2x,a8)') (sou(Not_obs_sour(i))%name, i=1,k_not)
+	write(*,*) ' Each source was observed ... times '
+	write(*,'(6(2x,a8,i5))') 	(sou(i)%name, Kol_sou(i), i=1,isor)
+	write(*,*) ' Each station is in ngs-file ... times '
+	write(*,'(2x,a8,17x,i6)') (sta(i)%name, Kol_sta(i), i=1,ista)
+	pause
+C
+	endif ! Kread0 /= 0
+C------------------------------------------------------------------
+C  For correlator
+      else
+       Kol_sou(1:isor) = nobs
+       Kol_sta(1:ista) = nobs
+       k_not = 0
+      endif                  ! ( .not. correlator )
+C -----------
+C
+       i_bad_sta = 0
+C  Correct number of station
+       do i = 1, ista
+         if ( Kol_sta(i) == 0 ) go to 85
+       enddo          
+C
+       go to 87
+C
+  85   continue 
+C  If one of station did not operated I move it toward end of list
+	 j = i
+       i_bad_sta = 1
+C  Copy "bad" station parameters
+       N_dome1 = sta(i)%Id       
+          STA1 = sta(i)%name   
+          XCOR = sta(i)%x         
+          YCOR = sta(i)%y         
+          ZCOR = sta(i)%z         
+        AXTYPE = sta(i)%axsty 
+        OFFST1 = sta(i)%offs   
+         Plate = sta(i)%plate 
+          XVEL = sta(i)%vx       
+          YVEL = sta(i)%vy       
+          ZVEL = sta(i)%vz 
+      site_dom = sta(i)%domes
+       descr_n = sta(i)%descr 	
+	 write(*,86)  STA1
+  86   format('  Station ', a8, '  does not operated correctly!!!')	  
+C
+       if ( j /= ista ) then
+C
+         do i = j, ista-1
+           sta(i)%Id   = sta(i+1)%Id    
+           sta(i)%name = sta(i+1)%name  
+           sta(i)%x    = sta(i+1)%x     
+           sta(i)%y    = sta(i+1)%y     
+           sta(i)%z    = sta(i+1)%z     
+           sta(i)%axsty= sta(i+1)%axsty 
+           sta(i)%offs = sta(i+1)%offs  
+           sta(i)%plate= sta(i+1)%plate 
+           sta(i)%vx   = sta(i+1)%vx    
+           sta(i)%vy   = sta(i+1)%vy    
+           sta(i)%vz   = sta(i+1)%vz	
+           sta(i)%domes= sta(i+1)%domes
+           sta(i)%descr= sta(i+1)%descr			  
+         enddo
+	 endif
+C  Move toward end of list
+           sta(ista)%Id   = N_dome1    
+           sta(ista)%name = STA1  
+           sta(ista)%x    = XCOR     
+           sta(ista)%y    = YCOR     
+           sta(ista)%z    = ZCOR     
+           sta(ista)%axsty= AXTYPE 
+           sta(ista)%offs = OFFST1  
+           sta(ista)%plate= Plate 
+           sta(ista)%vx   = XVEL   
+           sta(ista)%vy   = YVEL    
+           sta(ista)%vz   = ZVEL
+           sta(ista)%domes= site_dom 
+           sta(ista)%descr= descr_n			  
+C
+  87     continue 
+
+       deallocate	(All_sour)
+C
+C------------------------------------------------------------------
+C   For Debug output KREAD1 /= 0
+       KREAD1 = 1
+C   Debug output 1  
+       if ( KREAD1 /= 0 ) then
+	   write(*,*) '  Debug output for subroutine READ_CAT (1)'
+	   write(*,110) '   NOBS  ', nobs
+         write(*,110) '   ISTA  ', ista
+	   write(*,110) '   ISOR  ', isor
+110      format(a, i8)
+         do i = 1, ista
+         write(*,120) sta(i)%Id, sta(i)%name, sta(i)%plate,
+     *   sta(i)%x,sta(i)%y,sta(i)%z, sta(i)%vx,sta(i)%vy,sta(i)%vz,
+     *   sta(i)%axsty, sta(i)%offs 
+120      FORMAT (i5,1X,A8,2X,A4, 3F13.3, 3F9.4, 2X,A4, F9.5)
+         enddo
+C
+         do i = 1, isor 
+         write(*,125) sou(i)%name,sou(i)%name1950,sou(i)%al,sou(i)%del
+125      FORMAT (1X, A8, 2X, A8, 2F21.15 )
+         enddo
+cc	 pause
+       endif
+C*********************************************************************
+C   CREATE OF Structure  SCAN   
+C*********************************************************************        
+C   Allocate memory for Structure(scan)
+C
+       ALLOCATE (nscan(NOBS),STAT=ierr)
+       if ( ierr/= 0 ) Stop ' Can not allocate memory for array NSCAN '
+C*********************************************************************      
+C   Positioning on the first record of data
+         REWIND 4  
+C   Reading cards for each observation
+       I = 1
+	 j_time = 1
+C  Number of Independent triangles = (n-1)*(n-2)/2 : 
+C  Total = n*(n-1)*(n-2)/6
+       n_Total = ista*(ista-1)*(ista-2)/6
+       n_tri   = (ista-1)*(ista-2) / 2
+C********************************************************************* 
+C  Allocate memory for Array B_conf(n_time,ista,ista)
+       ALLOCATE (B_conf(n_time,ista,ista),STAT=ierr)
+C
+       if ( ierr/= 0 ) Stop ' Can not allocate memory for array B_conf '
+C********************************************************************* 
+	 i_good = 0
+C  Clear array B_conf(n_time,ista,ista)
+       B_conf = 0
+C
+       do while ( i <= NOBS )
+cc	write(*,*) ' i ', i, k_not
+C
+         CALL Read_data( I, ISTA, ISOR, FLAG, correlator )
+C
+C  Data card were read
+C  Now I correct value of nscan(i)%k for specific cases
+C
+C   For NOT observed sources I write -9999 instead number of scan
+         do k = 1, k_not
+           if (Not_obs_sour(k) == nscan(i)%sou) nscan(i)%k = -9999
+	   enddo
+C
+C   For bad scan I write 0 instead number of scan
+         if (.not. flag) nscan(i)%k = 0
+         if (flag) i_good = i_good + 1
+
+c	write(*,*) ' i ', i, nscan(i)%k, nscan(i)%sta1, nscan(i)%sta2
+c	write(*,*) nscan(i)%t1, nscan(i)%t2
+c	pause 
+C
+C----------------------------------------------------------------------
+C                           Block "Sort ty Time"
+C
+C  j_base is counter for baselines
+C  j_time is counter for epoch of observations 
+C
+C   Baseline configuration for the first card
+	   if ( i == 1 ) then
+C  If k = 1 and FLAG = FALSE I change FLAG on TRUE
+C  but increse SIGDEL and SIGRAT (in Read_data)
+C
+cc           if ( nscan(i)%k == 0 ) then
+cc      STOP 'The first record is bad. SEE READ_CAT12'
+cc	     endif
+C
+           j_base = 1
+           b1 = nscan(i)%sta1
+           b2 = nscan(i)%sta2
+           scan_time(1) = nscan(1)%mjd + nscan(1)%utc
+C
+           if ( b2 > b1 ) then 
+	       B_conf(j_time,b2,b1) = +1
+	     else
+		   B_conf(j_time,b1,b2) = -1
+           endif
+c	write(*,*) '  Y ', i, i_good, j_time, j_base, b1, b2
+         endif  ! ( i == 1 )
+C
+	   if ( i /= 1 ) then
+C             
+           if ( nscan(i)%mjd   + nscan(i)%utc == 
+     *          nscan(i-1)%mjd + nscan(i-1)%utc ) then
+C
+              j_base = j_base + 1
+C  Sort by baseline
+              b1 = nscan(i)%sta1
+              b2 = nscan(i)%sta2
+C
+C  Form matrix with baseline configuration
+C  Structure of the baseline configuration matrix B_conf:
+C  B_conf(1,1) = 2 (total baselines for given observation time)
+C  B_conf(1,2) = 1 ( baseline with telescopes 1-2 ) or +1 for SECOND site
+C  B_conf(1,3) =-1 ( baseline with telescopes 3-1 ) or -1 for FIRST site
+
+              if ( b2 > b1 ) then 
+	          B_conf(j_time,b2,b1) = +1
+	        else
+		      B_conf(j_time,b1,b2) = -1
+              endif
+c	write(*,*) '  Z ',j_time, j_base, b1, b2
+            else
+C
+              B_conf(j_time,1,1) = j_base
+c      write(*,127)  B_conf(j_time,1:ista,1:ista) 
+C ----------------------------------------------
+              j_base_cop = j_base
+C
+              do j = i-j_base_cop, i-1
+c            write(*,*) nscan(j)%k
+                if ( nscan(j)%k == 0 ) then
+	            j_base = j_base - 1
+                  b1 = nscan(j)%sta1
+                  b2 = nscan(j)%sta2
+C  
+                 if ( b2 > b1 ) then 
+	             B_conf(j_time,b2,b1) = 0
+	           else
+		         B_conf(j_time,b1,b2) = 0
+                 endif
+                endif
+              enddo
+              B_conf(j_time,1,1) = j_base
+c      if( j_time > 130 ) then
+c      write(*,127)  B_conf(j_time,1:ista,1:ista) 
+c	pause
+c	endif
+C ----------------------------------------------
+
+
+              if ( j_base /= 0 ) then
+			  j_time = j_time + 1
+                scan_time(j_time) = nscan(i)%mjd + nscan(i)%utc
+	        endif
+              j_base = 1
+C 	        
+	if ( j_time > n_time ) then
+      STOP 'The number of observation epochs more than n_time value'
+	endif
+C
+C  Sort by baseline
+              b1 = nscan(i)%sta1
+              b2 = nscan(i)%sta2
+C
+              if ( b2 > b1 ) then 
+	          B_conf(j_time,b2,b1) = +1
+	        else
+		      B_conf(j_time,b1,b2) = -1
+              endif
+
+	      endif
+	   endif  ! i /= 1
+C
+
+c	write(*,*) i, i_good, j_time, nscan(i)%mjd + nscan(i)%utc
+c	write(*,*) i, i_good, j_time, scan_time(j_time)
+c      pause
+
+C     END of Block "Sort ty Time"
+C----------------------------------------------------------------------
+         I = I + 1
+C
+       enddo ! while ( i <= NOBS )
+C
+C   Calculate the midtime point of session
+       t_mean = dfloat(nscan(nobs)%mjd + nscan(1)%mjd)/2.d0 + 
+     +                (nscan(nobs)%utc + nscan(1)%utc)/2.d0
+
+cc       t_mean = dfloat(nscan(9000)%mjd)+nscan(9000)%utc
+C
+       mjd_mean = idint( t_mean )           !  MJD (0^h)
+       utc_mean = t_mean - idint( t_mean )  !  UTC (fraction of day)
+C   
+C   END OF READING THE DATA FILE
+C !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+C  ALL DATA WERE REAd
+C  Correct number of stations
+       if ( i_bad_sta /= 0 ) ista = ista - 1
+C !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+C--------------------------------------------------------------
+C   For Debug output KREAD2 /= 0
+       KREAD2 = 0
+C   Debug output 2  
+       if ( KREAD2 /= 0 ) then
+  	   write(*,*) '  Debug output for subroutine READ_CAT (2)'
+	   do i= 1, 10 ! One can change the values of I
+           write(*,*) nscan(i) 
+	     pause
+	   enddo
+       endif
+C--------------------------------------------------------------
+C   For Debug output KREAD22 /= 0
+       KREAD22 = 0
+C   Debug output 2'2  
+       if ( KREAD22 /= 0 ) then
+  	   write(*,*) '  Debug output for subroutine READ_CAT (22)'
+C
+	   write(*,110) '   j_time  ', j_time
+	   write(*,'(1x,a8)') sta(1:ista)%name
+	   do k = 1, j_time
+	     write(*,*)    k, scan_time(k)
+           write(*,127)  B_conf(k,1:ista,1:ista) 
+  127      format( 8i6 )
+  	 pause
+	   enddo
+C
+       endif
+C**********************************************************************
+C  Open the catalog of the sites ocean loading
+	 OPEN (10, FILE=path_oc, STATUS='old', IOSTAT=ios)
+       if (ios/= 0) stop ' Can not open catalog of sites ocean loading'
+C
+         l = 1
+	 do while ( l <= ista )
+		lk = 0
+C  Search for the site record
+          do while (.not.eof(10))
+             READ (10,'(A96)') line
+             READ (LINE,'(2X,A8)') site_name
+C
+ 	       if ( sta(l)%name == site_name ) then
+	         lk = 1
+C
+               do j = 1, 9
+                 READ (10,'(A96)') line
+C  Three first rows are missed
+C
+C  Create two arrays:
+C  1. AMP_OCEAN(11,3,L) - ocean loading amplitudes for 11 tides in
+C    next order: M2  S2  N2  K2  K1  O1  P1  Q1  MF  MM SSA
+C    at each VLBI site.(M)
+C     J = 1,...11 - number of tide
+C     K = 1,2,3   - Vertical, East-West, North-South components
+C     L = 1,...N  - number of sites
+C  2. PHS_OCEAN(11,3,N) - ocean loading phases. (Degree)
+C
+	           if ( j .ge. 4 .and. j .le. 6 ) then
+			     k = j - 3
+                   READ (LINE,135) (amp_ocean(m,k,l), m=1,11)
+	           endif
+	           if ( j .ge. 7 .and. j .le. 9 ) then
+			     k = j - 6
+                   READ (LINE,137) (phs_ocean(m,k,l), m=1,11)
+	           endif
+               enddo
+             endif  ! sta(l)%name == site_name
+	    enddo     ! while (.not.eof(10))
+C
+	    if ( lk == 0 ) then
+	      write(*,131)  sta(l)%name
+  131       format('Ocean loading for ', a8, '  do not found')
+	      stop  
+	    endif
+	    l = l + 1
+	    rewind(10)
+       enddo
+	 CLOSE(10)
+C ------------------------------------------------------------------------
+C   For Debug output KREAD3 /= 0
+         KREAD3 = 0
+C
+C   Debug output 3  
+       if ( KREAD3 /= 0 ) then
+  	   write(*,*) '  Debug output for subroutine READ_CAT (3)'
+	   do l = 1, ista
+           write(*,*)  sta(l)%name
+           write (*,135) ((amp_ocean(m,k,l), m=1,11), k=1,3)
+ 135       format (1X,11F7.5)
+	     write (*,137) ((phs_ocean(m,k,l), m=1,11), k=1,3)
+ 137       format (1X,11F7.1)
+c           pause
+         enddo
+       endif
+C -------------------------------------------------------------
+C  Open the catalog of the sites atmosphere loading
+	 OPEN (10, FILE=path_atm, STATUS='old', IOSTAT=ios)
+       if (ios/= 0) stop ' Can not open catalog of atmosphere loading'
+C
+         l = 1
+	 do while ( l <= ista )
+		lk = 0
+C  Search for the site record
+          do while (.not.eof(10))
+             READ (10,'(A96)') line
+             READ (line,'(1X,A8)') site_name
+C
+ 	       if ( sta(l)%name == site_name ) then
+		     lk = 1
+C
+               do j = 1, 3
+                 READ (10,'(A96)') line
+                 READ (LINE,138) (amp_atm(m,j,l), m=1,9), sig
+  138            format( 9f7.3, f5.2)
+	         enddo
+C  One empty row is missed
+               READ (10,'(A96)') line
+	       endif
+	    enddo
+	    if ( lk == 0 ) then
+	      write(*,132)  sta(l)%name
+  132       format('Atmospheric loading for ', a8, '  do not found')
+	      stop  
+	    endif
+	    l = l + 1
+	    rewind(10)
+	 enddo
+C
+       CLOSE(10)
+C ------------------------------------------------------------------------
+C   For Debug output KREAD5 /= 0
+         KREAD5 = 0
+C
+C   Debug output 5  
+       if ( KREAD5 /= 0 ) then
+  	   write(*,*) '  Debug output for subroutine READ_CAT (5)'
+	   do l = 1, ista
+           write(*,*)  sta(l)%name
+           write (*,139) ((amp_atm(m,k,l), m=1,9), k=1,3)
+  139      format( 9f7.3)
+         enddo
+       pause
+       endif
+C
+C ------------------------------------------------------------------------
+C                     Block "Reading of EOP" 
+C
+C  Open the catalog of EOPC04 
+C  and read I_INT=7 records more close to the date of observation
+C    !!!!!!!!!!!!!  ATTENTION  !!!!!!!!!!!!!!!!
+C  If date of observation is out of range of EOPC04 dates 
+C  additional catalog will be read 
+C
+	 OPEN (10, FILE=path_eop, STATUS='old', IOSTAT=ios)
+       if (ios/= 0) stop ' Can not open catalog of EOP'
+	   REWIND(10) 
+C
+         do i = 1, 20
+             READ (10,'(A200)') LINE
+             READ (LINE,'(a5)') First_year
+	       if ( First_year == Y1962 ) exit
+         enddo
+C
+C  Read the first record
+C  EOP C 04_IAU2000 series of the Earth orientation parameters 
+C  with respect to IAU2000 nutation model
+
+          READ( 10, 140) jyear, month, date, mjd, RECD, REC_ERR
+ 140      FORMAT(3(I4),I7,2(F11.6),2(F12.7),2(F11.6),2(F11.6),
+     *           2(F11.7),2F12.6)
+C
+C  Format of record  (on 0h UTC)
+C ******************************************************************************
+C  
+C  Date [yyyy mm dd], 
+C  MJD, x ["], y ["], UT1-UTC [s], LOD [s], dX ["], dY ["], 
+C  x Err ["], y Err ["], UT1-UTC Err [s], LOD Err [s], dX Err ["], dY Err ["]
+C ******************************************************************************
+C
+C	    RECD(1) =  X,        RECD(2) =  Y,     (Arcsecond)
+C	    RECD(3) =  UT1-UTC,  RECD(4) =  LOD    (Second)
+C         RECD(5) =  Dpsi,     RECD(6) =  Deps   (Arcsecond)
+C
+C
+          do while ( dfloat(mjd) .lt. nscan(1)%mjd - 1.d0 )
+	    READ( 10, 140, END=142) jyear, month, date, mjd, RECD, REC_ERR
+          enddo
+C  Create array of I_INT records
+          do k = 1, i_int
+               ut1_utc(k,1) = dfloat(mjd)
+               ut1_utc(k,2) = recd(3)
+C  Calculation  UT1 - TAI = (UT1-UTC)-(TAI-UTC) to remove leap second
+			 CALL NSEC (dfloat(mjd), idelt)
+C
+	         ut1_utc(k,3) = recd(3) - dfloat(idelt) ! UT1 - TAI
+               ut1_utc(k,4) = recd(1)
+               ut1_utc(k,5) = recd(2)
+               ut1_utc(k,6) = recd(5)
+               ut1_utc(k,7) = recd(6)
+	    if ( k == 7 ) go to 150
+C  Read next record
+	    READ( 10, 140, END=142) jyear, month, date, mjd, RECD, REC_ERR
+	    enddo
+C ----------------------------------------------------------------------------
+C  If EOP for date of observation are absent in the EOP C04 file
+C  program will read the EOP prediction file
+ 142      continue
+          write(*,*) '   EOF of the catalog of EOPC04 was read'
+          write(*,*) '   The catalog of Finals.data is used'
+C  Open and Read the first line
+       OPEN (22, FILE=path_pred, STATUS='old')
+	    REWIND(22)
+          READ (22,'(A186)') str3
+          READ (str3,144) jyear, month, date, dmjd, RECD
+C
+          do while ( dmjd .lt. nscan(1)%mjd - 1.d0 )
+
+             READ (22,'(A186)') str3
+             READ (str3,144) jyear, month, date, dmjd, RECD
+ 144         FORMAT(3I2,f9.2, 2x,f10.6, 9x,f10.6, 12x,f10.7, 
+     *              10x,f8.4, 10x,f10.3, 9x,f10.3)
+c             write (*,144) jyear, month, date, dmjd, RECD
+c	pause
+          enddo
+C  Create array of I_INT records
+          do k = 1, i_int
+c	write(*,*) k
+               ut1_utc(k,1) = dmjd
+               ut1_utc(k,2) = recd(3)
+C  Calculation  UT1 - TAI = (UT1-UTC)-(TAI-UTC) to remove leap second
+			 CALL NSEC (dmjd, idelt)
+C
+	         ut1_utc(k,3) = recd(3) - dfloat(idelt) ! UT1 - TAI
+               ut1_utc(k,4) = recd(1)
+               ut1_utc(k,5) = recd(2)
+               ut1_utc(k,6) = recd(5)*1.d-3
+               ut1_utc(k,7) = recd(6)*1.d-3
+	    if ( k == 7 ) go to 150
+C  Read next record
+             READ (22,'(A186)') str3
+             READ (str3,144) jyear, month, date, dmjd, RECD
+	    enddo
+c        STOP ' STOP( EOF of the catalog of EOPC04 was read ).'
+        CLOSE(22)
+C  End of extrapolation block
+C ---------------------------------------------------------------------
+ 150      continue 
+ 	  CLOSE(10)
+C ---------------------------------------------------------------------
+C   For Debug output KREAD4 /= 0
+         KREAD4 = 0
+C
+C   Debug output 4  
+       if ( KREAD4 /= 0 ) then
+  	   write(*,*) '  Debug output for subroutine READ_CAT (4)'
+         write(*,*) '  Array ut1_utc' 
+	   write(*,'(F9.1,2F12.7,2F9.6,2F10.6)'), 
+     *        ((ut1_utc(k,m), m=1,7), k=1,i_int)
+	   pause
+       endif
+C *********************************************************************
+C
+C  Read catalog of telescope parameters
+C  Store in TYPE "def_par" parameters of telescopes that observed 
+C
+       OPEN (11, FILE=path_tel, STATUS='old', IOSTAT=ios)
+       if(ios/=0) stop ' Can not open file of the telescopes parameters'
+C
+       m = 0
+       do while (.not. EOF(11))
+C
+         READ (11,'(A200)') str3
+C
+	    if (str3(1:1) == 'A') then
+          READ( str3, '(14x,a8)') site_name
+c	write(*,'(14x,a8)') site_name 
+            do k = 1, ista
+	        if ( sta(k)%name == site_name ) then
+
+	    m = m + 1
+          READ( str3, 155) def_par(k)%name, 
+     *    def_par(k)%t_0, def_par(k)%p_0, def_par(k)%ant_diam,     	   
+     *    def_par(k)%hf, def_par(k)%gamma_hf,
+     *    def_par(k)%hp, def_par(k)%gamma_hp, 
+     *    def_par(k)%AO, def_par(k)%gamma_AO,
+     *    def_par(k)%hv, def_par(k)%gamma_hv, 
+     *    def_par(k)%hs, def_par(k)%gamma_hs        	           
+
+ 155     format( 14x,a8,35x,f6.1,8x,f9.1,f7.1,f8.4,7x,d9.2, 
+     *   4(f8.4,d9.2) )
+              else
+	        cycle
+	        endif
+            enddo
+          endif
+       enddo   ! do while (.not. EOF(11))
+	 if ( m /= ista ) 
+     * STOP 'One of telescopes does not exist in ANTENNA-INFO file'  
+C
+       Close(11)
+C ---------------------------------------------------------------------
+C   For Debug output KREAD6 /= 0
+         KREAD6 = 0
+C
+C   Debug output 6  
+       if ( KREAD6 /= 0 ) then
+  	   write(*,*) '  Debug output for subroutine READ_CAT40(6)'
+	   do k = 1, ista
+         write( *, 156) def_par(k)%name, 
+     *   def_par(k)%t_0, def_par(k)%p_0, def_par(k)%ant_diam,     	   
+     *   def_par(k)%hf, def_par(k)%gamma_hf,
+     *   def_par(k)%hp, def_par(k)%gamma_hp, 
+     *   def_par(k)%AO, def_par(k)%gamma_AO,
+     *   def_par(k)%hv, def_par(k)%gamma_hv, 
+     *   def_par(k)%hs, def_par(k)%gamma_hs
+ 156     format( 2x,a8,2x,f6.1,f9.1,f7.1, f8.4,2x,d9.2, 
+     *   4(f8.4,d9.2) )
+         enddo
+       pause
+       endif
+C ---------------------------------------------------------------------
+C                         Block 
+C   "Reading of the file with the position and velocity of satellite"
+C
+C  Block is fulfilled only for observation of a satellite 
+C    
+	 do l= 1, ista
+ 	   if ( sta(l)%name == Space_tel ) then
+C----------------------------------------------------------------------
+C  Allocate Structure(station)
+       ALLOCATE (space_sta(n_obs_sat),STAT=ierr)
+       if ( ierr/= 0 ) 
+     * Stop ' Can not allocate memory for array SPACE_STA '
+C----------------------------------------------------------------------
+C
+         open(unit=11,file=path_orb,status='old',IOSTAT=ios)
+         if(ios/=0) stop 
+     * ' Can not open file of the satellite positions'
+C  Read information block    
+         do while (.not. eof(11))
+C 
+           READ (11,'(A114)') line
+C
+           READ (line,152) INF_END  
+  152      format(a9)            
+           if (INF_END == META2 ) exit            
+         enddo  ! read information block
+C  Read empty row
+           READ (11,'(A114)') line   
+C  Begin read data                      
+         i = 0
+         do while (.not. eof(11))
+C  Read the file with coordinates (km) and velocities (km/s) of satellite
+           READ (11,'(A114)') line
+C
+           READ (line,157) jyear,month,Date,iho,imin,sec, 
+     *                     XCOR,YCOR,ZCOR, XVEL,YVEL,ZVEL
+c 4.07.11 ?? 157       FORMAT (i4,1x,i2,1x,i2,1x,i2,1x,i2,1x,f6.3,
+c     *             3f12.3,3f12.6)
+c??157       FORMAT (i4,1x,i2,1x,i2,1x,i2,1x,i2,1x,f6.3,     ! Radioastron
+C??     *             3f12.3,3f12.6)
+157       FORMAT (i4,1x,i2,1x,i2,1x,i2,1x,i2,1x,f6.3,     ! Radioastron
+     *             3f15.6,3f15.9)
+     
+     
+	     i = i + 1
+C
+C   Calculation of Julian date at 0h UTC
+           CALL JULIAN(jyear,month,Date, DJUL)
+C   MJD - Modified Julian date
+           MJD = DJUL - 2400000.5D0
+C   UTC - THE UTC FRACTION OF THE UTC DAY. (HOUR/HOUR)
+           UTC = (dfloat(IHO)+dfloat(IMIN)/60.d0+SEC/3600.d0)/24.d0            
+C
+           space_sta(i)%j   = i
+           space_sta(i)%mjd = mjd
+           space_sta(i)%utc = utc
+C
+           space_sta(i)%x   = XCOR     
+           space_sta(i)%y   = YCOR     
+           space_sta(i)%z   = ZCOR     
+C 
+           space_sta(i)%vx  = XVEL    
+           space_sta(i)%vy  = YVEL    
+           space_sta(i)%vz  = ZVEL	
+C
+         enddo  ! do while (.not. eof(11))
+C   Calculation of acceleration
+C   D_time in seconds
+       D_time = nint(
+     *    dfloat(space_sta(2)%mjd - space_sta(1)%mjd)*secday + 
+     +          (space_sta(2)%utc - space_sta(1)%utc)*secday )
+       D6_time = 1.d0/(6.d0*D_time)
+c	 write(*,*) i, D_time
+C
+C   Use four-point differentiation formula 
+C   k = 1
+        space_sta(1)%ax = D6_time*
+     *  (-11.d0*space_sta(1)%vx + 18.d0*space_sta(2)%vx -
+     -     9.d0*space_sta(3)%vx +  2.d0*space_sta(4)%vx)
+C
+        space_sta(1)%ay = D6_time*
+     *  (-11.d0*space_sta(1)%vy + 18.d0*space_sta(2)%vy -
+     -     9.d0*space_sta(3)%vy +  2.d0*space_sta(4)%vy)
+C
+        space_sta(1)%az = D6_time*
+     *  (-11.d0*space_sta(1)%vz + 18.d0*space_sta(2)%vz -
+     -     9.d0*space_sta(3)%vz +  2.d0*space_sta(4)%vz)
+C
+	  do k = 2, i-2
+         space_sta(k)%ax = D6_time*
+     *  (-2.d0*space_sta(k-1)%vx - 3.d0*space_sta(k)%vx +
+     +    6.d0*space_sta(k+1)%vx -      space_sta(k+2)%vx)
+C
+         space_sta(k)%ay = D6_time*
+     *  (-2.d0*space_sta(k-1)%vy - 3.d0*space_sta(k)%vy +
+     +    6.d0*space_sta(k+1)%vy -      space_sta(k+2)%vy)
+C
+         space_sta(k)%az = D6_time*
+     *  (-2.d0*space_sta(k-1)%vz - 3.d0*space_sta(k)%vz +
+     +    6.d0*space_sta(k+1)%vz -      space_sta(k+2)%vz)
+	  enddo  ! k
+C
+         k = i-1
+         space_sta(k)%ax = D6_time*
+     *  (      space_sta(k-2)%vx - 6.d0*space_sta(k-1)%vx +
+     +    3.d0*space_sta(k)%vx   + 2.d0*space_sta(k+1)%vx)
+C
+         space_sta(k)%ay = D6_time*
+     *  (      space_sta(k-2)%vy - 6.d0*space_sta(k-1)%vy +
+     +    3.d0*space_sta(k)%vy   + 2.d0*space_sta(k+1)%vy)
+C
+         space_sta(k)%az = D6_time*
+     *  (      space_sta(k-2)%vz - 6.d0*space_sta(k-1)%vz +
+     +    3.d0*space_sta(k)%vz   + 2.d0*space_sta(k+1)%vz)
+C
+         k = i
+         space_sta(k)%ax = D6_time*
+     *  (-2.d0*space_sta(k-3)%vx + 9.d0*space_sta(k-2)%vx -
+     -   18.d0*space_sta(k-1)%vx +11.d0*space_sta(k)%vx)
+C
+         space_sta(k)%ay = D6_time*
+     *  (-2.d0*space_sta(k-3)%vy + 9.d0*space_sta(k-2)%vy -
+     -   18.d0*space_sta(k-1)%vy +11.d0*space_sta(k)%vy)
+C
+         space_sta(k)%az = D6_time*
+     *  (-2.d0*space_sta(k-3)%vz + 9.d0*space_sta(k-2)%vz -
+     -   18.d0*space_sta(k-1)%vz +11.d0*space_sta(k)%vz)
+C
+	   CLOSE(11)
+C ---------------------------------------------------------------------
+C   For Debug output KREAD8 /= 0
+         KREAD8 = 0
+C 
+C   Debug output 8  
+         if ( KREAD8 /= 0 ) then
+  	     write(*,*) '  Debug output for subroutine READ_CAT (8)'
+C
+           do i = 1435, 1440
+	       write (*, 160) 
+     *       space_sta(i)%j, space_sta(i)%mjd, space_sta(i)%utc 
+  	     write(*,*) '  Position (km) '
+	       write (*, 162)
+     *       space_sta(i)%x, space_sta(i)%y, space_sta(i)%z
+  	     write(*,*) '  Velocity (km/s) '
+	       write (*, 163)
+     *       space_sta(i)%vx, space_sta(i)%vy, space_sta(i)%vz
+  	     write(*,*) '  Acceleration (km/s^2) '
+	       write (*, 164)
+     *       space_sta(i)%ax, space_sta(i)%ay, space_sta(i)%az
+         pause
+	     enddo
+ 160       format(i5, i7, f20.16)
+ 162       format(3f12.3)
+ 163       format(3f12.6)
+ 164       format(3f12.6)
+         pause
+         endif
+C--------------------------------------------------------------------
+	   endif
+	 enddo ! do l= 1, ista           
+C ------------------------------------------------------------------------
+C   Find DYEAR - difference of epoch of the first observation 
+C   and epoch of the station catalog (necessary for calculation of 
+C   tectonic motion of the sites)
+C   Calculation of Julian date at EPOCH 0h UTC
+        CALL JULIAN(idint(EPOCH),1,1, DJUL)
+C   MJD - Modified Julian date of EPOCH
+        MJD = DJUL - 2400000.5D0
+        DYEAR = ( nscan(1)%mjd + nscan(1)%utc - mjd )/365.25d0
+C ---------------------------------------------------------------------
+C   For Debug output KREAD7 /= 0
+         KREAD7 = 0
+C
+C   Debug output 7  
+       if ( KREAD7 /= 0 ) then
+  	   write(*,*) '  Debug output for subroutine READ_CAT (7)'
+        write (*, 190) dyear, epoch
+ 190    format(' Time (in years)', f15.9,' from ', 
+     *          f7.1,' to the observation')
+	  write (*, 195) '  t_mean ', t_mean
+ 195    format(a, f23.16 )
+       pause
+       endif
+C
+        GO TO 1019
+C
+C     WARNING MESSAGES FROM THE PROGRAM TO THE USER
+
+1000   WRITE (*,999)
+ 999   FORMAT (///' ***** WARNING !!! *****'//' Your data file contains'
+     *,' more than 25 stations'//' You have to increase value of'
+     *,' parameter n_sta in module MAIN')
+       STOP ' Increase number of stations'
+C
+1001   WRITE (*,1002)
+1002   FORMAT (///' ***** WARNING !!! *****'//' Your data file contains'
+     *,' more than 260 sources'//' You have to increase value of'
+     *,' parameter n_sou in module MAIN')
+       STOP ' Increase number of sources'
+C
+1019    CONTINUE
+C
+        CLOSE(4)
+        CLOSE(6)
+        CLOSE(7)
+        CLOSE(8)
+        CLOSE(9)
+	  CLOSE(10)
+	  CLOSE(13)
+	  CLOSE(15)
+        RETURN
+C -------------------------------------------------------------------
+       contains
+C 
+       Subroutine Read_data ( K, ISTA, ISOR, FLAG, correl )
+C
+C   Subroutine READ_DATA reads EIGHT cards of each scan 
+C   and forms main array - structure "nscan"
+C
+C    Input variables :
+C          1. K        - scan with number "k"
+C          2. ISTA     - number of stations
+C          3. ISOR     - number of sources
+C
+C    Output variables: 
+C          1. FLAG     - logical value (TRUE if scan is good
+C                        or FALSE if scan is bad)
+C          2. nscan(k) - the k-th record of observed parameters
+C
+C
+C   VERSION 1.2   05 January 2006
+C     CARD # 9 with observed delay and observed delay rate
+C     was added beginning 2005 (???) with formal errors (???) 
+C       
+C       
+C ********************************************************************
+C        Description of the DATA Cards of the NGS VLBI Formats
+C ********************************************************************
+C
+C    1. Header - ASCII descriptor for the data set
+C
+C    2. Site cards
+C        Col 1-8:   Eight character site name
+C        Col 11-25: X-component of the site position (m)
+C        Col 26-40: Y-component of the site position (m)
+C        Col 41-55: Z-component of the site position (m)
+C        Col 57-60: Axis type (AZEL, EQUA, X-YN (for X axis N), X-YE)
+C        Col 61-70: Axis offset (m)
+C       End card (in Col 1-4)
+C    Station coordinates are given in Greenwich right-hand Cartesian
+C    coordinate system ( Z axis toward the CIO pole, X axis toward the
+C    Greenwich meridian, Y axis toward the 90 deg East meridian).
+C    
+C    3. Radio source position cards
+C        Col 1-8:   Eight character source name
+C       Right ascension
+C        Col 11-12: Hours
+C        Col 14-15: Minutes
+C        Col 17-28: Seconds
+C       Declination
+C        Col 30:    Sign
+C        Col 31-32: Degrees
+C        Col 34-35: Minutes
+C        Col 37-48: Seconds 
+C       End card (in Col 1-4)
+C    Source coordinates are given in J2000.0 coordinates using IAU1984
+C    definitions for precession, nutation, aberration, etc.
+C    
+C    4. Auxiliary parameters
+C        Col 1-20:  Reference frequency (MHz)
+C        Col 21-30: Group delay ambituity spacing (nsec)
+C        Col 32-33: Delay type (GR-group, PH-phase)
+C       End card (in Col 1-4)
+C
+C    5. Data cards
+C
+C    CARD # 1: 
+C        Col 1-8:   Eight character site name for Site 1
+C        Col 11-18: Eight character site name for Site 2
+C        Col 21-28: Eight character source name
+C    The epoch of observation (the UTC epoch at which the signal
+C    arrived at site 1, i.e., the site identified in Col 1-8 of Card #1)   
+C        Col 30-33: Year
+C        Col 35-36: Month
+C        Col 38-39: Hour
+C        Col 41-42: Minute
+C        Col 47-60: Seconds
+C        Col 61-70: Run Identification Code
+C        Col 71-78: Sequence Number
+C        Col 79-80: 01(=number of card)
+C    The sequence number in Col 71-78 is to be the same number for each 
+C    data card associated with a given observation. The numbers in
+C    Col 79-80 serve to sequence the cards within a given observation.
+C
+C    CARD # 2: 
+C        Col  1-20: Observed delay (ns)
+C        Col 21-30: Formal Error for the observed delay (ns)
+C        Col 31-50: Observed Delay Rate (ps/sec)
+C        Col 51-60: Formal Error for the observed delay rate (ps/sec)
+C        Col 61-62: DATA QUALITY FLAG (blank or 0 indicates good data)
+C        Col 64-65: Delay type (blank if the same as in Aux. Par.)
+C        Col 67-68: Delay rate type (blank if the same as in Aux. Par.)
+C  ??      Col 69-69: I if ionospheric calibration applied
+C  ??      Col 70-70: C if cable calibration applied
+C        Col 71-78: Sequence Number
+C        Col 79-80: 02(=number of card)
+C    The delay is TAU=T2-T1, where 
+C    T1=time of signal arrival at site 1 as measured by the site 1 clock,
+C    T2=time of signal arrival at site 2 as measured by the site 2 clock.
+C
+C    NO calibration corrections should be added to or subtracted from
+C    these values.
+C    The delay rate is defined as the derivative of delay with respect 
+C    to time as measured by the clock at site 1.
+C
+C    CARD # 3: 
+C        Col  1-10: Correlation coefficient (0 - 1)
+C        Col 11-20: Formal error for correlation coefficient
+C        Col 21-30: Fringe amplitude (J)and formal error (J)
+C        Col 31-40: Formal error for fringe amplitude (J)
+C        Col 41-60: Total fringe phase (rad)
+C        Col 61-70: Formal error for total fringe phase (rad)
+C        Col 71-78: Sequence number
+C        Col 79-80: 03(=number of card)
+C   
+C    CARD # 4: 
+C        Col  1-10: System temperature at site 1  (K)
+C        Col 11-15: Formal error for system temperature at site 1 (K)
+C        Col 16-25: System temperature at site 2  (K)
+C        Col 26-30: Formal error for system temperature at site 2 (K)
+C        Col 31-40: Antenna temperature at site 1 (K)
+C        Col 41-45: Formal error for antenna temperature at site 1 (K)
+C        Col 46-55: Antenna temperature at site 2 (K)
+C        Col 56-60: Formal error for antenna temperature at site 2 (K)
+C        Col 71-78: Sequence number
+C        Col 79-80: 04(=number of card)
+C
+C    CARD # 5: 
+C        Col  1-10: Cable calibration correction (one-way) for site 1 (ns)
+C        Col 11-20: Cable calibration correction (one-way) for site 2 (ns)
+C        Col 21-30: Water vapor radiometer parameter at site 1 (ns)
+C        Col 31-40: Formal error for Water vapor radiometer at site 1 (ns)
+C        Col 41-50: Water vapor radiometer parameter at site 2 (ns)
+C        Col 51-60: Formal error for Water vapor radiometer at site 2 (ns)
+C        Col    62: WVR parameter definition code for site 1:
+C                 0 - parameter is zenith path delay
+C                 1 - parameter is path delay along line-of-sight
+C        Col    64: WVR parameter definition code for site 2 (see above) 
+C        Col 71-78: Sequence number
+C        Col 79-80: 05(=number of card)    
+C    The sense of the cable calibration is that an increase means
+C    an increase in the (one-way) electrical length of the cable 
+C    carrying the phase calibration signal to the receiver box.
+C
+C    CARD # 6:  
+C        Col  1-10: Ambient atmospheric temperature at site 1 (deg. C) 
+C        Col 11-20: Ambient atmospheric temperature at site 2 (deg. C) 
+C        Col 21-30: Ambient atmospheric barometric pressure at site 1 (mb)
+C        Col 31-40: Ambient atmospheric barometric pressure at site 2 (mb)
+C        Col 41-50: Ambient atmospheric humidity at sites 1 
+C        Col 51-60: Ambient atmospheric humidity at sites 2
+C        Col    62: Humidity parameter definition code for site 1
+C                   0 - Humidity parameter is relative humidity (%)
+C                   1 - Humidity parameter is dew point (deg. C)
+C                   2 - Humidity parameter is wet bulb temperature (deg. C)
+C        Col    64: Humidity parameter definition code for site 2 (see above)
+C        Col 71-78: Sequence number
+C        Col 79-80: 06(=number of card)
+C    The barometric pressure should not be corrected to sea level.
+C    It is not necessary to include blank data cards for missing data.
+C    If no meteorological data are available, card#6 may be deleted.
+C
+C    CARD # 7: 
+C        Col  1-10: Time difference between reference epoch (card 1) and the 
+C                   start of observation (sec)
+C        Col 11-20: Duration of observation (sec)
+C        Col 21-30: A priori UTC offset at site 1 (if any) (sec)
+C        Col 31-50: Observation frequency (MHz)
+C        Col 51-60: Group delay ambiguity (ns)
+C        Col 71-78: Sequence number
+C        Col 79-80: 07(=number of card)
+C
+C    CARD # 8: 
+C        Col  1-20: Delay ionosphere correction (ns)
+C        Col 21-30: Formal error of ionospheric delay (ns)
+C        Col 31-50: Delay rate ionosphere correction (ps/sec)
+C        Col 51-60: Formal error of ionospheric delay rate (ps/sec)
+C        Col 62-63: Ionosphere error flag (0=ionosphere correction OK) 
+C        Col 71-78: Sequence number
+C        Col 79-80: 08(=number of card)
+C
+C    CARD # 9:
+C        Col  1-70: Comment text
+C        Col 71-78: Sequence number
+C        Col 79-80: 09(=number of card) 
+C
+       IMPLICIT NONE
+C       
+       INTEGER K, J1,J2,J3, IQC, IQCION, KW1,KW2
+       INTEGER ICD0, ICD1, ICD0_c
+       INTEGER ISTA, ISOR, j
+       INTEGER IYEAR,IMON,IDAY,IHOU,IMIN, MJD
+C
+       REAL(8) SEC, DJUL, UTC
+       REAL(8) DELAY,SIGDEL,RATE,SIGRAT
+       REAL(8) CAB1,CAB2, CORCAB
+       REAL(8) TDRY1,TDRY2,PRESS1,PRESS2,HUM1,HUM2
+       REAL(8) DELION,SGDION,RATION,SGRION,CORIDE,CORIRA,CORSGD,CORSGR
+       CHARACTER(8) STA1,STA2,SOUR
+       CHARACTER(96) line
+	 CHARACTER(2) blank, zero, del_fl, eig
+	 CHARACTER(10) SDEL_T, SRAT_T, SGDION_T, SGRION_T, CAB1_T, CAB2_T
+	 CHARACTER(20) DELION_T, RATION_T, DELAY_T
+	 CHARACTER Star*10 /'**********'/
+	 CHARACTER Stars*20 /'********************'/
+       CHARACTER(4) TECH
+       LOGICAL FLAG, correl
+C 
+       Data blank/'  '/, zero/' 0'/, eig/' 8'/
+C     
+       FLAG = .TRUE.
+C  Positioning on the first data record when ICD0 = 1
+       ICD0 = 0
+       IF ( K == 1 ) THEN
+         do while ( ICD0 /= K )
+             READ (4,'(A96)') LINE
+             READ (LINE,'(74X,I4,I2)') ICD0,ICD1
+         enddo
+       ENDIF
+C
+C   Begin reading of data 
+C-------------------------------------------------------------------    
+C        CARD 1, Names of stations, source and time of observation
+C  Read first string from data file
+         READ (LINE,15) STA1,STA2,SOUR,IYEAR,IMON,IDAY,IHOU,IMIN,SEC,
+     *                  ICD0,ICD1
+15       FORMAT (A8,2X,A8,2X,A8,1X,I4,4(1X,I2),1X,F14.10,13x,i5,i2)
+c      write (*,15) STA1,STA2,SOUR,IYEAR,IMON,IDAY,IHOU,IMIN,SEC
+
+C   Calculation of Julian date at 0h UTC
+         CALL JULIAN(IYEAR,IMON,IDAY, DJUL)
+C   MJD - Modified Julian date
+         MJD = DJUL - 2400000.5D0
+C   UTC - THE UTC FRACTION OF THE UTC DAY. (HOUR/HOUR)
+         UTC = (dfloat(IHOU)+dfloat(IMIN)/60.d0+SEC/3600.d0)/24.d0    
+C       
+       J1 = 1
+       do while ( STA1 /= sta(j1)%name )
+         J1 = J1 + 1
+       enddo
+C    
+       J2 = 1
+       do while ( STA2 /= sta(j2)%name )
+         J2 = J2 + 1
+       enddo
+C    
+       J3 = 1
+       do while ( SOUR /= sou(j3)%name )
+         J3 = J3 + 1
+       enddo
+C
+      if ( .not. correl ) then
+C-------------------------------------------------------------------  
+C        CARD  2, OBSERVED VALUES
+           READ (4,'(A96)') LINE
+           if ( i <= 9999 ) then
+             READ (LINE,'(74X,I4,I2)') icd0,icd1
+           else           
+             READ (LINE,'(73X,I5,I2)') icd0,icd1	
+           endif		   	 
+
+           ICD0_c = icd0
+C
+           IF (ICD1.EQ.2) THEN
+C  80Jul27X (asterisk instead of SIGDEL and SIGRAT)
+             READ (LINE,18) DELAY_T,SDEL_T,RATE,SRAT_T,del_fl
+c             write (*,18) DELAY,SDEL_T,RATE,SRAT_T,del_fl
+18           FORMAT(a20,a10,F20.10,a10,a2)
+             If ( SDEL_T /= Star ) then
+	          read(SDEL_T, '(f10.5)') SIGDEL
+	          read(SRAT_T, '(f10.5)') SIGRAT
+C
+	       else
+C  If asterisk are poined out instead of values of SIGDEL and SIGRAT
+C  I assign the very large values
+               SIGDEL = 1.d3
+               SIGRAT = 1.d3
+	       Endif
+C  87dec07X (asterisk instead of DELAY)
+             If ( DELAY_T /= Stars ) then
+	          read(DELAY_T, '(f20.8)') DELAY
+C
+	       else
+C  If asterisk are poined out instead of value of DELAY
+C  I assign the bad card
+               DELAY = 1.d8
+               del_fl = eig
+	       Endif
+
+c      if ( k > 2020 ) then
+c      write (*,20) DELAY,SIGDEL,RATE,SIGRAT,del_fl  !IQC
+20             FORMAT(F20.8,F10.5,F20.10,F10.5,a2)
+c	pause
+c	endif
+C
+C  CHECK THE QUALITY CODE OF THE OBSERVATION. 
+C  IN THE FUTURE WE SHOULD BE ABLE TO DISCERN THE MEANINGS OF 
+C  THE DIFFERENT CODES TO MAKE A BETTER SELECTION OF THE DATA DESIRED 
+
+ccccc!!!!         
+             IF (del_fl /= blank .and. del_fl /= zero) ! .and. del_fl /= eig) 
+     *       FLAG = .FALSE.
+C
+           ENDIF
+C-------------------------------------------------------------------  
+C         CARD  3, FRINGE AMPLITUDE AND PHASE
+           READ (4,'(A96)') LINE
+           READ (LINE,'(74X,I4,I2)') icd0,icd1
+C             IF (ICD1 /= 3) GO TO 100 
+C-------------------------------------------------------------------      
+C         CARD  4, SYSTEM AND ANTENNA TEMPERATURE
+           READ (4,'(A96)') LINE
+           READ (LINE,'(74X,I4,I2)') icd0,icd1
+C             IF (ICD1.EQ.4) CONTINUE
+C-------------------------------------------------------------------  
+C         CARD  5, CABLE CAL. AND WVR CORRECTIONS
+           READ (4,'(A96)') LINE
+           READ (LINE,'(74X,I4,I2)') icd0,icd1  
+             IF (ICD1.EQ.5) THEN
+C  05Augo1XA (asterisk instead of CAB1,CAB2)
+             READ (LINE,22) CAB1_T, CAB2_T
+22           FORMAT(2a10)
+             If ( CAB1_T /= Star ) then
+	          read(CAB1_T, '(f10.5)') CAB1
+	       else 
+               CAB1 = 0.0d0
+	       Endif
+C
+             If ( CAB2_T /= Star ) then
+	          read(CAB2_T, '(f10.5)') CAB1
+	       else 
+               CAB2 = 0.0d0
+	       Endif
+C
+             ELSE
+              FLAG = .FALSE.
+             ENDIF
+C-------------------------------------------------------------------  
+C         CARD  6, METEOROLOGICAL DATA.
+
+           READ (4,'(A96)') LINE
+           READ (LINE,'(74X,I4,I2)') icd0,icd1
+           IF (ICD1.EQ.6) THEN
+             READ (LINE,28) TDRY1,TDRY2,PRESS1,PRESS2,HUM1,HUM2,KW1,KW2
+c      write (*,28) TDRY1,TDRY2,PRESS1,PRESS2,HUM1,HUM2,KW1,KW2
+c      write (*,38) TDRY1,TDRY2,PRESS1,PRESS2,HUM1,HUM2
+28           FORMAT (6F10.3,1X,I1,1X,I1)
+38           FORMAT (2d23.16)
+           ELSE
+           FLAG = .FALSE.  
+           ENDIF
+c	pause
+C-------------------------------------------------------------------  
+C         CARD  7, TIME INFORMATION
+c           READ (4,'(A96)') LINE
+c           READ (LINE,'(74X,I4,I2)') icd0,icd1
+c             IF (ICD1.EQ.7) CONTINUE
+C-------------------------------------------------------------------  
+C         CARD  8, IONOSPHERIC CORRECTION
+           READ (4,'(A96)') LINE
+           READ (LINE,'(74X,I4,I2)') icd0,icd1
+           IF (ICD1.EQ.8) THEN
+C  80Oct18 (asterisk instead of DELION and RATION)
+C
+             READ (LINE,29) DELION_T,SGDION_T,RATION_T,SGRION_T,IQCION 
+29           FORMAT (a20,a10,a20,a10,I3)
+C
+             If ( DELION_T /= Stars ) then
+	          read(DELION_T, '(f20.5)') DELION
+	          read(RATION_T, '(f20.5)') RATION
+C
+	       else
+C  If asterisk are poined out instead of values of DELION and RATION
+C  I assign zero values and very large values of their errors
+               DELION = 0.d0
+               RATION = 0.d0
+               SGDION = SGDION*1.d3
+               SGRION = SGRION*1.d3
+	       Endif
+C  82Oct18 (asterisk instead of SGDION)
+C  85Jan08 (asterisk instead of SGRION)
+             If ( SGDION_T /= Star ) then
+	          read(SGDION_T, '(f10.5)') SGDION
+	       else
+C  I assign zero values and very large values of their errors
+               SGDION = 1.d3
+	       Endif
+C
+             If ( SGRION_T /= Star ) then
+	          read(SGRION_T, '(f10.5)') SGRION
+	       else
+C  I assign zero values and very large values of their errors
+               SGRION = 1.d3
+	       Endif
+
+c      if ( k > 545 ) then
+c          write(*,30) DELION,SGDION,RATION,SGRION,IQCION
+30              FORMAT (f20.10,F10.5,f20.10,F10.5,I3)
+c	pause
+c	endif
+ccc!!!!!!     
+       IF (IQCION.NE.0) FLAG = .FALSE.
+             ENDIF
+
+       if ( .not. EOF(4) ) then
+cc         if ( IYEAR >= 2006 ) then
+C  Read Card #9 (new format of the NGS VLBI data) 
+C        CARD  9, OBSERVED VALUES WITH CORRECTED FORMAL ERRORS
+           READ (4,'(A96)') LINE
+           READ (LINE,'(74X,I4,I2)') icd0,icd1
+             IF (ICD1.EQ.9) THEN
+ccc                READ (LINE,20) DELAY,SIGDEL,RATE,SIGRAT,del_fl
+c                write (*,20) DELAY,SIGDEL,RATE,SIGRAT,del_fl
+
+C  89Jul25X_ (asterisk instead of SIGDEL and SIGRAT)
+             READ (LINE,18) DELAY_T,SDEL_T,RATE,SRAT_T,del_fl
+c             write (*,18) DELAY,SDEL_T,RATE,SRAT_T,del_fl
+C
+             If ( SDEL_T /= Star ) then
+	          read(SDEL_T, '(f10.5)') SIGDEL
+	          read(SRAT_T, '(f10.5)') SIGRAT
+C
+	       else
+C  
+               SIGDEL = 1.d3
+               SIGRAT = 1.d3
+	       Endif
+C  
+             If ( DELAY_T /= Stars ) then
+	          read(DELAY_T, '(f20.8)') DELAY
+C
+	       else
+C  
+               DELAY = 1.d8
+               del_fl = eig
+	       Endif
+C
+	       Else
+	          Backspace(4)
+             ENDIF
+cc         endif
+       endif ! .not. EOF(4)
+C 
+      endif  !( .not. correl )
+C-------------------------------------------------------------------           
+C  Fill Structure SCAN 
+c      if ( flag ) then
+C
+C  If k = 1 and FLAG = FALSE I change FLAG on TRUE
+C  but increse SIGDEL and SIGRAT to consider this record
+C  as good but with very small weight
+          if ( k == 1 .and. .not.flag ) then
+	       FLAG = .TRUE.
+             sigdel = 1.d3
+             sigrat = 1.d3
+	    endif
+      if ( .not. correl ) then
+          nscan(k)%k    = icd0_c
+          nscan(k)%sta1 = j1
+          nscan(k)%sta2 = j2
+          nscan(k)%sou  = j3
+          nscan(k)%mjd  = mjd
+          nscan(k)%utc  = utc
+          nscan(k)%tau  = delay
+          nscan(k)%dtau = sigdel
+          nscan(k)%f    = rate
+          nscan(k)%df   = sigrat
+	    nscan(k)%cab1 = cab1
+	    nscan(k)%cab2 = cab2
+	    nscan(k)%d_ion =    DELION
+	    nscan(k)%sg_d_ion = SGDION
+	    nscan(k)%r_ion =    RATION
+	    nscan(k)%sg_r_ion = SGRION
+C  Fill METEO parameters                        
+          nscan(k)%t1  = tdry1
+          nscan(k)%p1  = press1
+          nscan(k)%e1  = hum1
+          nscan(k)%t2  = tdry2
+          nscan(k)%p2  = press2
+          nscan(k)%e2  = hum2
+          nscan(k)%kw1 = kw1
+          nscan(k)%kw2 = kw2
+C
+      else
+C
+          nscan(k)%k    = icd0
+          nscan(k)%sta1 = j1
+          nscan(k)%sta2 = j2
+          nscan(k)%sou  = j3
+          nscan(k)%mjd  = mjd
+          nscan(k)%utc  = utc
+          nscan(k)%tau  = 0.d0
+          nscan(k)%dtau = 1.d-2
+          nscan(k)%f    = 0.d0
+          nscan(k)%df   = 1.d-2
+	    nscan(k)%cab1 = 0.d0
+	    nscan(k)%cab2 = 0.d0
+	    nscan(k)%d_ion =    0.d0
+	    nscan(k)%sg_d_ion = 1.d-2
+	    nscan(k)%r_ion =    0.d0
+	    nscan(k)%sg_r_ion = 1.d-2
+C                        
+          nscan(k)%t1  = -999.d0
+          nscan(k)%p1  = -999.d0
+          nscan(k)%e1  = -99900.d0
+          nscan(k)%t2  = -999.d0
+          nscan(k)%p2  = -999.d0
+          nscan(k)%e2  = -99900.d0
+          nscan(k)%kw1 = 0
+          nscan(k)%kw2 = 0
+       endif
+C   Read end-of-file
+       if ( EOF(4) ) return
+C   Read the first card of next scan
+       READ (4,'(A96)') LINE
+C          
+       RETURN
+C
+      end subroutine Read_data
+
+
+      END Subroutine READ_CAT42corr
+C************************************************************************

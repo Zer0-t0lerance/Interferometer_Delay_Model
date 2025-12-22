@@ -1,0 +1,113 @@
+      SUBROUTINE CUBSPL (NX, X, Y, C, M, U, S, SS, IERR)
+C
+C  SUBROUTINE CUBSPL compute the cubic spline coefficients
+C  to a set of data points (xi, yi) for i = 1,2, ..., NX
+C  and evaluate a cubic spline for a given points.
+C ---------------------------------------------------------------------------------
+C  Input variables:
+C
+C   1. NX   — Number of data points.
+C   2. X    — Array of length NX containing the data point abscissas.
+C   3. Y    — Array of length NX containing the data point ordinates.
+C   4. C    — Matrix of size 3 by NX-1 containing the local 
+C             coefficients of the cubic pieces. 
+C   5. M    - Length of vector U. 
+C   6. U    - Array of length M containing the points at which 
+C             the cubic spline is to be evaluated.
+C             The points in U should be strictly increasing.
+C   
+C  Output variables:
+C   1. S    — Array of length M containing the values of the 
+C             cubic spline at the points in XVEC.
+C   1. SS   — Array of length M containing the values of the 
+C             first derivative of the cubic spline at the points in XVEC.
+C   2. IERR - Information about errors
+C ---------------------------------------------------------------------------------
+C
+      IMPLICIT None
+C
+      Integer NX,M,IERR,JER,KER,I,K,MAX0,J,IER1,NXM1
+      Integer Kcub1
+C                             
+      Real(8) X(NX),Y(NX),C(3,NX-1),U(M),S(M), SS(M)                                                 
+      Real(8) D,DD,ZERO                                          
+      DATA  I/1/,ZERO/0.0/         
+	                                     
+      IF(M.LE.0) GO TO 14                                               
+      IER1=IERR                                                         
+      IERR=0                                                            
+      JER=0                                                             
+      KER=0                                                             
+      NXM1=NX-1                                                         
+      IF(IER1.EQ.111111) GO TO 2                                        
+      IF(NX.LT.2) GO TO 11                                              
+      DO 1 J=1,NXM1                                                     
+      D=X(J+1)-X(J)                                                     
+      IF(D.LE.ZERO) GO TO 12                                            
+    1 CONTINUE                                                          
+    2 CONTINUE                                                          
+      IF(I.GT.NXM1) I=1                                                 
+      DO 10 K=1,M                                                       
+      D=U(K)-X(I)                                                       
+      IF(D) 3,7,5                                                       
+    3 IF(I.EQ.1) GO TO 8                                                
+      I=I-1                                                             
+      D=U(K)-X(I)                                                       
+      IF(D) 3,7,6                                                       
+    4 I=I+1                                                             
+      D=DD                                                              
+    5 IF(I.GE.NX) GO TO 9                                               
+      DD=U(K)-X(I+1)                                                    
+      IF(DD.GE.ZERO) GO TO 4                                            
+      IF(D.EQ.ZERO) GO TO 7                                             
+    6 S(K)=((C(3,I)*D+C(2,I))*D+C(1,I))*D+Y(I)
+      SS(K)=C(3,I)*D*D*3.d0+C(2,I)*D*2.d0+C(1,I)                                
+      GO TO 10                                                          
+    7 S(K)=Y(I) 
+      SS(K)=0.d0                                                        
+      GO TO 10                                                          
+    8 JER=1                                                             
+      GO TO 6                                                           
+    9 IF(DD.GT.ZERO) KER=2                                              
+      D=U(K)-X(NXM1)                                                    
+      I=NXM1                                                            
+      GO TO 6                                                           
+   10 CONTINUE                                                          
+      IERR=MAX0(JER,KER)                                                
+      IF(IER1.EQ.111111) GO TO 14                                       
+      IERR=JER                                                          
+      IF(IERR.NE.0) CALL UTII10(IERR,4)                                 
+      IERR=KER                                                          
+      IF(IERR.NE.0) CALL UTII10(IERR,4)                                 
+      GO TO 14                                                          
+   11 IERR=65                                                           
+      GO TO 13                                                          
+   12 IERR=66                                                           
+   13 CONTINUE                                                          
+      IF(IER1.EQ.111111) GO TO 14                                       
+      CALL UTII10(IERR,4)                                               
+                                                            
+
+
+C----------------------------------
+
+C------------------------------------------------------------------
+C   For debug output Kpol1 /= 0 
+       Kcub1 = 0
+C   Check Kcub1 for debug output.
+      if ( Kcub1 /= 0 ) then
+        WRITE ( *, 77)
+  77    FORMAT (1X, "Debug (1) output for utility POLCUR." )
+        call PR_ARR(' Array x(n)', 1, nx, x, 1, 0, 
+     *              '(f20.16)', 'Number', 'Number')
+        call PR_ARR(' Array y(n)', 1, nx, y, 1, 0,
+     *   '(f20.16)', 'Number', 'Number')  
+        call PR_ARR(' Solution ', 1, nxm1, c, 1, 0,
+     *   '(f20.16)', 'Number', 'Number')   
+	  pause
+	endif
+C
+   14   RETURN
+      END
+C
+C---------------------------------------------------

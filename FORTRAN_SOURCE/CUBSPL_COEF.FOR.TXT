@@ -1,0 +1,258 @@
+      SUBROUTINE CUBSPL_COEF (NX, X, Y, C, IERR)
+C
+C  SUBROUTINE CUBSPL compute the cubic spline coefficients
+C  to a set of data points (xi, yi) for i = 1,2, ..., NX
+C  S(x) = yi + c_1 i ( x - xi ) + c2 i ( x - xi )2 + c3 i ( x - xi )3 ,
+C  x in [xi, xi + 1] ,    i = 1,2, ..., N - 1  
+C ---------------------------------------------------------------------------------
+C  Input variables:
+C
+C   1. NX   ó Number of data points. 
+C   2. X    ó Array of length NX containing the data point abscissas.
+C   3. Y    ó Array of length NX containing the data point ordinates.
+C   4. BPAR - Vector of length 4 that contains the boundary conditions
+C             for the second derivatives:
+C             put b1=0, b2=2*y"1, b3=0, b4=2*y"N if they are known             
+C             (put all zero)
+C  Output variables:
+C   1. C    ó Matrix of size 3 by NX-1 containing the local 
+C             coefficients of the cubic pieces. 
+C   2. IERR - Information about errors
+C ---------------------------------------------------------------------------------
+C
+      IMPLICIT None
+C
+      INTEGER NX,IERR,NXM1,J,I
+	INTEGER Kcub1
+      Real(8) X(NX),Y(NX),BPAR(4),C(3,1)
+      REAL(8) DXJ,YPPB,PJ,SIXI,DXJP1,YPPA,ZERO,HALF,
+     1ONE,TWO,SIX,DXP,DYJP1,DYJ,DX
+C
+      EQUIVALENCE(DXJ,YPPB),(PJ,SIXI),(DXJP1,YPPA)
+      DATA  ZERO/0.0/,HALF/0.5/,ONE/1.0/,TWO/2.0/,SIX/6.0/
+C
+      BPAR = 0.d0
+C
+      IERR=0
+      NXM1=NX-1
+      IF(NX.LT.2) GO TO 6
+      IF(NX.EQ.2) GO TO 2
+      DXJ=X(2)-X(1)
+      IF(DXJ.LE.ZERO) GO TO 7
+      DYJ=Y(2)-Y(1)
+      DO 1 J=2,NXM1
+      DXJP1=X(J+1)-X(J)
+      IF(DXJP1.LE.ZERO) GO TO 7
+      DYJP1=Y(J+1)-Y(J)
+      DXP=DXJ+DXJP1
+      C(1,J)=DXJP1/DXP
+      C(2,J)=ONE-C(1,J)
+      C(3,J)=SIX*(DYJP1/DXJP1-DYJ/DXJ)/DXP
+      DXJ=DXJP1
+      DYJ=DYJP1
+    1 CONTINUE
+    2 C(1,1)=-BPAR(1)*HALF
+      C(2,1)=BPAR(2)*HALF
+      IF(NX.EQ.2) GO TO 4
+      DO 3 J=2,NXM1
+      PJ=C(2,J)*C(1,J-1)+TWO
+      C(1,J)=-C(1,J)/PJ
+      C(2,J)=(C(3,J)-C(2,J)*C(2,J-1))/PJ
+    3 CONTINUE
+    4 YPPB=(BPAR(4)-BPAR(3)*C(2,NXM1))/(BPAR(3)*C(1,NXM1)+
+     1TWO)
+      SIXI=ONE/SIX
+      DO 5 I=1,NXM1
+      J=NX-I
+      YPPA=C(1,J)*YPPB+C(2,J)
+      DX=X(J+1)-X(J)
+      C(3,J)=SIXI*(YPPB-YPPA)/DX
+      C(2,J)=HALF*YPPA
+      C(1,J)=(Y(J+1)-Y(J))/DX-(C(2,J)+C(3,J)*DX)*DX
+      YPPB=YPPA
+    5 CONTINUE
+      GO TO 9
+    6 IERR=65
+      GO TO 8
+    7 IERR=66
+    8 CONTINUE
+      CALL UTII10(IERR,3)
+
+C------------------------------------------------------------------
+C   For debug output Kpol1 /= 0 
+       Kcub1 = 0
+C   Check Kcub1 for debug output.
+      if ( Kcub1 /= 0 ) then
+        WRITE ( *, 77)
+  77    FORMAT (1X, "Debug (1) output for utility POLCUR." )
+        call PR_ARR(' Array x(n)', 1, nx, x, 1, 0, 
+     *              '(f20.16)', 'Number', 'Number')
+        call PR_ARR(' Array y(n)', 1, nx, y, 1, 0,
+     *   '(f20.16)', 'Number', 'Number')  
+        call PR_ARR(' Solution ', 3, nxm1, c, 1, 0,
+     *   '(f20.16)', 'Number', 'Number')   
+	  pause
+	endif
+
+    9 RETURN
+      END
+C---------------------------------------------------
+      SUBROUTINE UTII10(IERR,N)
+      IF(N.EQ.1)GOTO 1
+      IF(N.EQ.2)GO TO 2
+      IF(N.EQ.3)GOTO 3
+      IF(N.EQ.4)GOTO 4
+      IF(N.EQ.5)GO TO 5
+      IF(N.EQ.6)GOTO 6
+      IF(N.EQ.7)GOTO 7
+      IF(N.EQ.8) GO TO 8
+      IF (N.EQ.9) GO TO 9
+      IF(N.EQ.20)GO TO 20
+      IF(N.EQ.21)GOTO 21
+      IF(N.EQ.22)GO TO 22
+      RETURN
+    1 PRINT 101
+  101 FORMAT(' ¡»¡À»OTEKA H»B÷ M√Y,œOƒœPO√PAMMA IIS1R:‘ATAÀ‹HAﬂ Oÿ»¡KA')
+      PRINT 102
+  102 FORMAT(' N 1 - TO◊KA »HTEPœOÀ»POBAH»ﬂ HE œP»HAƒÀE∆»T «AƒAHHOMY'/
+     *'        œOÀY»HTEPBAÀY')
+      RETURN
+    2 PRINT 201
+  201 FORMAT(' ¡»¡À»OTEKA H»B÷ M√Y,œOƒœPO√PAMMA IIS2R:‘ATAÀ‹HAﬂ Oÿ»¡KA')
+      PRINT 202
+  202 FORMAT(' N 1 - «AƒAHHAﬂ TO◊KA HE ÀE∆»T BHYTP»'/
+     *'        HEPABHOMEPHO… CETK»')
+      RETURN
+    3 PRINT 301
+  301 FORMAT(' ¡»¡À»OTEKA H»B÷ M√Y,œOƒœPO√PAMMA IIS3R:‘ATAÀ‹HAﬂ Oÿ»¡KA')
+      I=IERR-64
+      GOTO (302,305),I
+  302 PRINT 303
+  303 FORMAT(' N 1 - «AƒAHHOE ◊»CÀO Y«ÀOB CETK» MEH‹ÿE 2')
+      RETURN
+  305 PRINT 304
+  304 FORMAT(' N 2 - ›ÀEMEHT€ BEKTOPA X HE YœOPﬂƒO◊EH€ œO BO«PACTAH»ﬁ')
+      RETURN
+    4 IF(IERR.GT.64)GO TO 406
+      PRINT 401
+  401 FORMAT(' ¡»¡À»OTEKA H»B÷ M√Y,œOƒœPO√PAMMA IIS4R:',
+     1'HE‘ATAÀ‹HAﬂ Oÿ»¡KA')
+      GOTO(402,404),IERR
+  402 PRINT 403
+  403 FORMAT(' N 1 - OƒHA »À» HECKOÀ‹KO «AƒAHH€X TO◊EK MEH‹ÿE X(1)')
+      RETURN
+  404 PRINT 405
+  405 FORMAT(' N 2 - OƒHA »À» HECKOÀ‹KO «AƒAHH€X TO◊EK ¡OÀ‹ÿE X(NX)')
+      RETURN
+  406 PRINT 407
+  407 FORMAT(' ¡»¡À»OTEKA H»B÷ M√Y,œOƒœPO√PAMMA IIS4R:‘ATAÀ‹HAﬂ Oÿ»¡KA')
+      I=IERR-64
+      GOTO(302,305),I
+    5 IF(IERR.GT.64)GO TO 500
+      PRINT 510
+  510 FORMAT(' ¡»¡À»OTEKA H»B÷ M√Y,œOƒœPO√PAMMA IIS5R:',
+     1'HE‘ATAÀ‹HAﬂ Oÿ»¡KA')
+      GOTO(511,513),IERR
+  511 PRINT 512
+  512 FORMAT(' N 1 - OƒHA »À» HECKOÀ‹KO «AƒAHH€X TO◊EK CETK» XL MEH‹ÿE',
+     1' X(1)'/8X,'»À» ¡OÀ‹ÿE X(NX)')
+      RETURN
+  513 PRINT 514
+  514 FORMAT(' N 2 - OƒHA »À» HECKOÀ‹KO «AƒAHH€X TO◊EK CETK» YL MEH‹ÿE',
+     1' Y(1)'/8X,'»À» ¡OÀ‹ÿE Y(NY)')
+      RETURN
+  500 PRINT 501
+  501 FORMAT(' ¡»¡À»OTEKA H»B÷ M√Y,œOƒœPO√PAMMA IIS5R:‘ATAÀ‹HAﬂ Oÿ»¡KA'
+     1)
+      I=IERR-64
+      GOTO(502,504,506,508),I
+  502 PRINT 503
+  503 FORMAT(' N 1 - «AƒAHHOE ◊»CÀO Y«ÀOB CETK» œO X MEH‹ÿE 2')
+      RETURN
+  504 PRINT 505
+  505 FORMAT(' N 2 - «AƒAHHOE ◊»CÀO Y«ÀOB CETK» œO Y MEH‹ÿE 2')
+      RETURN
+  506 PRINT 507
+  507 FORMAT(' N 3 - ›ÀEMEHT€ BEKTOPA X HE YœOPﬂƒO◊EH€ œO BO«PACTAH»ﬁ')
+       RETURN
+  508 PRINT 509
+  509 FORMAT(' N 4 - ›ÀEMEHT€ BEKTOPA Y HE YœOPﬂƒO◊EH€ œO BO«PACTAH»ﬁ')
+      RETURN
+    6 PRINT 601
+  601 FORMAT(' ¡»¡À»OTEKA H»B÷ M√Y,œOƒœPO√PAMMA IIS6R:‘ATAÀ‹HAﬂ Oÿ»¡KA')
+  610 I=IERR-64
+      GOTO(502,504,506,508,602,604),I
+  602 PRINT 603
+  603 FORMAT(' N 5 -«AƒAHHOE ◊»CÀO LX ¡OÀ‹ÿE,PABHO NX »À» MEH‹ÿE 1')
+      RETURN
+  604 PRINT 605
+  605 FORMAT(' N 6 -«AƒAHHOE ◊»CÀO LY ¡OÀ‹ÿE,PABHO NY »À» MEH‹ÿE 1')
+      RETURN
+    7 IF(IERR.GT.64)GOTO 706
+      PRINT 701
+  701 FORMAT(' ¡»¡À»OTEKA H»B÷ M√Y,œOƒœPO√PAMMA IIS7R:',
+     1'HE‘ATAÀ‹HAﬂ Oÿ»¡KA')
+      GOTO(702,704),IERR
+  702 PRINT 703
+  703 FORMAT(' N 1 -A¡C÷»CCA XL «AƒAHHO… TO◊K» (XL,YL) MEH‹ÿE X(LX) ',
+     1'»À»'/8X,'¡OÀ‹ÿE X(LX+1)')
+      RETURN
+  704 PRINT 705
+  705 FORMAT(' N 2 -OPƒ»HATA YL «AƒAHHO… TO◊K» (XL,YL) MEH‹ÿE Y(LY)',
+     1' »À»'/8X,'¡OÀ‹ÿE Y(LY+1)')
+      RETURN
+  706 PRINT 707
+  707 FORMAT(' ¡»¡À»OTEKA H»B÷ M√Y,œOƒœPO√PAMMA IIS7R:‘ATAÀ‹HAﬂ Oÿ»¡KA')
+      GOTO 610
+    9 PRINT 11
+      I=IERR-64
+      GO TO (12,13),I
+   12 PRINT 14
+      RETURN
+   13 PRINT 15
+   11 FORMAT (' ¡»¡À»OTEKA H»B÷ M√Y,œOƒœPO√PAMMA IIS9R:',
+     *'‘ATAÀ‹HAﬂ Oÿ»¡KA.')
+   14 FORMAT (' N 1 - «AƒAHHOE KOÀ»◊ECTBO Y«ÀOB ',
+     *'CETK» MEH‹ÿE ◊ET€PEX.')
+   15 FORMAT (' N 2 - A¡C÷»CC€ TA¡À»◊H€X «HA◊EH»… »H',
+     *'TEPœOÀ»PYEMO… ‘YHK÷»» HE ﬂBÀﬂﬁTCﬂ'/8X,'CTPO√O ',
+     *'MOHOTOHHO BO«PACTAﬁŸ»M».')
+      RETURN
+   20 PRINT 2000
+ 2000 FORMAT(' ¡»¡À»OTEKA H»B÷ M√Y œOƒœPO√PAMMA II20R:',
+     *' ‘ATAÀ‹HAﬂ Oÿ»¡KA'/)
+      IF(IERR.EQ.65) PRINT 2065
+ 2065 FORMAT(' N1 - HA…ƒEHH€… «HAMEHATEÀ‹',
+     *' »MEET KOPEH‹ B «AƒAHHOM »HTEPBAÀE')
+      IF(IERR.EQ.66) PRINT 2066
+ 2066 FORMAT(' N2 - MATP»÷A ƒÀﬂ OœPEƒEÀEH»ﬂ KO›‘‘»÷»EHTOB',
+     *' AœœPOKC»MA÷»» B€PO∆ƒEHA')
+      RETURN
+   21 PRINT 2100
+ 2100 FORMAT(' ¡»¡À»OTEKA H»B÷ M√Y œOƒœPO√PAMMA',
+     *' II21R:‘ATAÀ‹HAﬂ Oÿ»¡KA'/)
+      IF(IERR.EQ.65) PRINT 2165
+      IF(IERR.EQ.66) PRINT 2166
+ 2165 FORMAT(' N 1 Y«À€ »HTEPœOÀﬂ÷»» B€XOƒﬂT «A ',
+     *'»HTEPBAÀ OœPEƒEÀEH»ﬂ B-CœÀA…HOB')
+ 2166 FORMAT(' N2 - MATP»÷A ƒÀﬂ OœPEƒEÀEH»ﬂ',
+     *' KO›‘‘»÷»EHTOB B€PO∆ƒEHA')
+      RETURN
+   22 PRINT 2200
+ 2200 FORMAT(' ¡»¡À»Œ“≈ ¿ Õ»¬÷ Ã√”,œŒƒœ–Œ√–¿ÃÃ¿ II22R:‘¿“¿À‹Õ¿ﬂ ',
+     *'Œÿ»¡ ¿:')
+      I=IERR-64
+      GO TO 2201
+ 2201 GO TO(2202,2203),I
+ 2202 PRINT 2204
+ 2204 FORMAT(' N 1 - »Õ“≈–œŒÀ»–”≈Ã¿ﬂ ‘”Õ ÷»ﬂ »Ã≈≈“ œŒÀﬁ— ¬ «¿ƒ¿ÕÕŒ… ',
+     *'“Œ◊ ≈ X')
+      RETURN
+ 2203 PRINT 2205
+ 2205 FORMAT(' N 2 - ◊»—ÀŒ ”«ÀŒ¬ —≈“ » Ã≈Õ‹ÿ≈ 2*NN+1')
+      RETURN
+    8 PRINT 80
+   80 FORMAT(' ¡»¡À»Œ“≈ ¿ Õ»¬÷ Ã√”,œŒƒœ–Œ√–¿ÃÃ¿ IIS8R:‘¿“¿À‹Õ¿ﬂ ',
+     *'Œÿ»¡ ¿:'/
+     *' N 1 - œŒ  –¿…Õ≈… Ã≈–≈ ƒ¬¿ ”«À¿ —≈“ » —Œ¬œ¿ƒ¿ﬁ“')
+      END

@@ -1,0 +1,250 @@
+      SUBROUTINE ABER_SOURCE (k, r2000, lat_gd1, lat_gd2, 
+     * h_geod1, h_geod2, K_s, Earth, vsta_j2000t, vw, jd, ct,
+     * E, Az)
+C
+C
+C  SUBROUTINE ABER_SOURCE computes the source position 
+C  corrected for the annual and diurnal aberration. 
+C  The elevation angle E of the observed source is calculated 
+C  as apparent geodetic elevation angle, A is the azimuth angle 
+C  in which the signal is received,  measured East of North. 
+C
+C     Input variables:
+C       1. k               - Number of data card
+C       2. r2000(3,3,3)    - The complete crust fixed to J2000.0 rotation
+C                            matrix and its first two CT time derivatives.
+C                            (unitless, 1/sec, 1/sec**2)
+C       3. lat_gd1         - The geodetic latitude at  site 1. (RAD)
+C       4. lat_gd2         - The geodetic latitude at  site 2. (RAD)
+C       5. h_geod1         - Height of site 1 above ellipsoid (Meters)    
+C       6. h_geod2         - Height of site 2 above ellipsoid (Meters)    
+C  NOTE!!!
+C  In  Subroutine NHMF2 height is orthometric height (above geoid)
+C       7. K_s(3)          - The J2000.0 source unit vector. (unitless)
+C       8. Earth(3,3)      - The J2000.0 Baricentric Earth position, velocity,
+C                            and acceleration vectors. (M, M/SEC, M/SEC**2)
+C       9. vsta_j2000t(3,2)- The site velocity vector in the 2000.0
+C                            geocentric system (M/Sec) 
+C      10. vw(3,3,n_sta)   - The matrix of transformation of the VEN geodetic
+C                            system to the Earth-fixed coordinate system
+C      11. jd              - The Julian date at zero hours UTC OF THE DATE  (DAYS)
+C      12. ct              - The coordinate time fraction of the coordinate time day.
+C                             (DAYS)
+C     Output variables:
+C
+C       1. E(2,2)          - The elevation angle of the aberrated source. 
+C                            The first index runs over the sites and  the
+C                            the second over delay and rate. (Rad, Rad/Sec)
+C       2. Az(2,2)         - The azimuth angle of the aberrated source.
+C                            The first index runs over the sites and  the
+C                            the second over delay and rate. (Rad, Rad/Sec)
+C
+C----------------------------------------------------------------------
+C   SUBROUTINE ABER_SOURCE was written by V.Zharov 
+C
+C   VERSION 1.0   21 May 2005
+C   The classical transformation of the first order is used
+C----------------------------------------------------------------------
+      USE main
+C
+      IMPLICIT None
+C  
+      Integer, parameter :: n=3   
+	Integer j1, j2  
+      Integer i, j, k, l, kaber1, kaber2,kaber3
+	Real(8) lat_gd1, lat_gd2, h_geod1, h_geod2, jd, ct
+	Real(8) vw(3,3,n_sta), vw_tr(3,3)
+      Real(8) r2000(3,3,3), K_s(3)
+	Real(8) Earth(3,3), vsta_j2000t(3,2)
+      Real(8) rt2000(3,3,3), V_total(3)
+	Real(8) K_star_aber(3,2),K_unit_aber(3,2)
+	Real(8) Crust_star(3,2), ven_star(3,2)
+	Real(8) Crust_star_der(3,2), ven_star_der(3,2)
+	Real(8) E(2,2), Az(2,2)
+      Real(8) VdotS, epoch, work1(3,3), work2(3), work3(3)
+      Real(8) unit_V(3), rel_p(2), abs_vec_V, ndots, w1, w2
+	Real(8) SCAL_PROD, NORM, DLAPY3
+C
+	Real(8) C, F, AE, AU 
+      Real(8) PI, TWOPI, HALFPI
+      COMMON /PHYS/ C, F, AE, AU 
+      COMMON /MATH1/ PI, TWOPI, HALFPI
+C-------------------------------------------------------------------------------
+C  Beginning
+	      j1 = nscan(k)%sta1
+	      j2 = nscan(k)%sta2
+C-------------------------------------------------------------------------------
+C  Kaber1 for debug output (/= 0)
+       kaber1 = 1
+C-------------------------------------------------------------------------------
+      IF ( kaber1 /= 0 )  Then
+	WRITE (*,'(1x,a)') 'Debug (0) output for subroutine ABER_SOURCE'
+C
+        call PR_ARR(' Earth ', n, n, Earth, n, 0, 
+     *              '(F22.5)', 'Number', 'Number')
+        call PR_ARR(' vsta_j2000t ', n, 2, vsta_j2000t, n, 0, 
+     *              '(F22.5)', 'Number', 'Number')
+        call PR_ARR(' K_star ', 1, n, K_s, 1, 0, 
+     *              '(F22.16)', 'Number', 'Number')
+	Endif
+C
+C  In order to calculate the elevation angle E it is necessary to rotate
+C  the J2000.0 source unit vector to the topocentric system.
+C  FIRST compute the rotation matrix which rotates from the J2000.0 system 
+C  to the geocentric crust fixed system.
+        CALL TRANSP ( r2000(1,1,1), rt2000(1,1,1) ) 
+C
+C  Loop for sites
+C-----------------------------------------------------------------
+      do j = 1,2
+C
+C  Calculation of diurnal and annual aberration 
+C
+        CALL SUM_2VEC(Earth(1,2), vsta_j2000t(1,j), V_total)
+        VdotS = SCAL_PROD(K_s, V_total)
+C
+C  Use Eq.6-41 from my book
+cc        do i = 1,3
+cc          K_star_aber(i,j) = K_s(i)+
+cc     +                       (V_total(i) - VdotS*K_s(i)) / C
+cc        enddo
+C-----------------------------------------------------------------
+C  Use more precise equation (6-66)  
+	  abs_vec_V = NORM(V_total)
+C	
+C  Normalize velocity vector
+        CALL UNIT_VECT(V_total, unit_V)
+        ndotS = SCAL_PROD(K_s, unit_V)
+C  
+	  rel_p(j) = 1.d0/dsqrt( 1.d0 - (abs_vec_V/C)**2 )
+        w1 = ( rel_p(j) - 1.d0 ) / rel_p(j)
+	  w2 = 1.d0 /( 1.d0 + VdotS/C )
+C
+        do i = 1,3
+          K_star_aber(i,j) = 
+     =    w2 * ( K_s(i)/rel_p(j) + V_total(i)/C + w1*ndots*unit_V(i) )
+        enddo
+C
+C  Normalize aberrated vector
+        CALL UNIT_VECT(K_star_aber(1,j), K_unit_aber(1,j))
+C----------------------------------------------------------------------
+C  SECOND compute the rotation matrix which rotates from the geocentric 
+C  crust fixed system to the VEN system.
+        if ( j == 1 ) CALL TRANSP ( vw(1,1,j1), vw_tr )
+        if ( j == 2 ) CALL TRANSP ( vw(1,1,j2), vw_tr )
+C
+C  Rotate the aberrated vector to the crust fixed system:
+        CALL MUL_ARR_VEC(rt2000(1,1,1), K_unit_aber(1,j), 
+     *                   Crust_star(1,j))
+C  Crust_star(3,2) - The aberratted source unit vector in the crust
+C                    fixed geocentric reference system (unitless)
+C
+C  Rotate to the topocentric system:
+        CALL MUL_ARR_VEC(vw_tr, Crust_star(1,j), ven_star(1,j))
+C
+C  VEN_star(3,2)   - The aberrated source unit vector in the VEN
+C                    geocentric reference system  (unitless). 
+C                    The first index runs over the axis projections 
+C                    and the second over the sites
+C
+C  Compute the elevation angle of the aberrated source.
+C  
+        E(j,1) = DASIN ( ven_star(1,j) )    
+C
+C  Compute the azimuth angle (from North to East) of the aberrated source.
+C  
+        Az(j,1) = DATAN2(ven_star(2,j),ven_star(3,j))
+        if (Az(j,1) < 0.0D0) Az(j,1) = Az(j,1) + TWOPI
+C
+C  Compute the CT time derivative of the aberrated source unit vector
+C  in the topocentric system.
+        CALL TRANSP ( r2000(1,1,2), rt2000(1,1,2) )
+        CALL MUL_ARR_VEC(rt2000(1,1,2), K_unit_aber(1,j), 
+     *                   Crust_star_der(1,j))
+C  Crust_star_der(3,2) - The CT time derivative of the aberratted 
+C                        source unit vector in the crust
+C                        fixed geocentric reference system. (1/sec)
+        CALL MUL_ARR_VEC(vw_tr, Crust_star_der(1,j), ven_star_der(1,j))
+C  VEN_star_der(3,2)   - The aberratted source unit vector CT time
+C                        derivative.  (1/sec)
+C
+C     Compute time derivatives of elevation and azimuth
+        E(j,2) = ven_star_der(1,j) / DCOS ( E(j,1) )
+C
+        Az(j,2) = ((ven_star_der(2,j) / ven_star(3,j)) -
+     -  (ven_star(2,j) * ven_star_der(3,j) / ven_star(3,j)**2) )/
+     /  (1.0D0 + (ven_star(2,j) / ven_star(3,j))**2)
+C
+C ---------------------------------------------------------------
+C  Kaber2 for debug output (/= 0)
+       kaber2 = 0
+C----------------------------------------------------------------
+C   Check for debug output.
+      IF ( kaber2 /= 0 )  Then
+	WRITE (*,'(1x,a)') 'Debug (1) output for subroutine ABER_SOURCE'
+C
+  40    format(a, i4, f22.5)
+  43    format(a, i4, d23.16)
+  45    format(a, 3d23.16)
+C
+         WRITE(*,40) '   j,     VdotS ', j, VdotS
+         WRITE(*,40) '   j, abs_vec_V ', j, abs_vec_V
+         WRITE(*,43) '   j,     ndotS ', j, ndotS
+         WRITE(*,45) '  rel_P(j), w1, w2 ', rel_P(j), w1, w2
+C
+        call PR_ARR(' V_total ', 1, n,  V_total, 1, 0, 
+     *              '(F22.5)', 'Number', 'Number')
+        call PR_ARR(' unit_V ', 1, n,  unit_V, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+C      
+	   do i = 1, 3
+	     do l = 1, 3
+	       work1(i,l) = rt2000(i,l,1)
+           enddo
+	   enddo
+        call PR_ARR(' The transposed J2000.0 rotation matrix', 
+     *              n, n, work1, n, 0, '(F22.16)', 'Number', 'Number')
+        call PR_ARR(' The transposed VEN rotation matrix', 
+     *              n, n, vw_tr, n, 0, '(F22.16)', 'Number', 'Number')
+	   do i = 1, 3
+	       work2(i) = K_star_aber(i,j)
+	       work3(i) = K_unit_aber(i,j)         
+	   enddo
+
+        call PR_ARR(' K_star_aber ', 1, n, work2, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' K_unit_aber ', 1, n, work3, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+	  pause
+C
+      Endif
+C
+       enddo  ! Loop on sites
+C
+C ---------------------------------------------------------------
+C  Kaber3 for debug output (/= 0)
+       kaber3 = 1
+C----------------------------------------------------------------
+C   Check for debug output.
+      IF ( kaber3 /= 0 )  Then
+	WRITE (*,'(1x,a)') 'Debug (2) output for subroutine ABER_SOURCE'
+C
+        call PR_ARR(' Crust_star ', n, 2, Crust_star, n, 0, 
+     *              '(F22.16)', 'Number', 'Number')
+        call PR_ARR(' ven_star ', n, 2, ven_star, n, 0, 
+     *              '(F22.16)', 'Number', 'Number')
+        call PR_ARR(' Crust_star_der ', n, 2, Crust_star_der, n, 0, 
+     *              '(F22.16)', 'Number', 'Number')
+        call PR_ARR(' ven_star_der ', n, 2, ven_star_der, n, 0, 
+     *              '(F22.16)', 'Number', 'Number')
+        call PR_ARR(' E ', 2, 2, E, 2, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' Az ', 2, 2, Az, 2, 0, 
+     *              '(d23.16)', 'Number', 'Number') 
+	pause
+      Endif
+C
+C-----------------------------------------------------------------------------
+      RETURN
+      END 
+C

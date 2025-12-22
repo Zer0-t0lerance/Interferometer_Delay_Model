@@ -1,0 +1,488 @@
+      SUBROUTINE SITE_ATM40 ( k, nobs, ista, mjd, utc, dPdt, 
+     * vw, r2000, dx_atm, dv_atm, 
+     * dr1_dA2000,dr1_dB2000,dv1_dA2000,dv1_dB2000,
+     * dr2_dA2000,dr2_dB2000,dv2_dA2000,dv2_dB2000,
+     * dr_dReg2000,dv_dReg2000) 
+C
+C   SUBROUTINE SITE_ATM computes the local sites displacement and velocity
+C   due to atmosphere loading in J2000.0 system.
+C
+C
+C   Input variables :
+C      1. k               - Number of data card
+C      2. nobs            - Number of records in the data file
+C                           (maximum value is n_bases * n_sou )
+C      3. ista            - Number of telescopes
+C      4. mjd             - The MJD at zero hours UTC of the date  (Days)
+C      5. utc             - The UTC fraction of the UTC day. (HOUR/HOUR=SEC/SEC)
+C      6. dPdt(2)         - Pressure time variations on first and second sites(mbar/sec)
+C      7. vw(3,3,n_sta)   - The matrix of transformation of the VEN geodetic
+C                           system to the Earth-fixed coordinate system
+C      8. r2000(3,3,3)    - The complete transformation matrix from crust fixed to 
+C                           J2000.0 system and the first two CT time derivatives of
+C                           that matrix. (Unitless, 1/Sec, 1/Sec**2)
+C    Arrays:
+C      7. COMMON /ATMLOAD/
+C            1) AMP_ATM(J,K,N) - atmosphere loading amplitudes for 3 terms in
+C               next order: A_1  B_1  A_2  B_2  A_3  B_3  Const  b_0  b_1
+C               at each VLBI site. (Millimeter)
+C               J = 1,...,9 - coefficients
+C               K = 1,2,3   - Vertical, East, North components (VEN)
+C               L = 1,...N  - number of sites
+C            METHOD of calculation:
+C            Total displacement is Sum of three harmonic terms (annual,
+C            semiannual and diurnal) and constant term:
+C            Const + Sum[A_i*Cos(omega_i*t)+B_i*Sin(omega_i*t)]
+C
+C            where t = MJD_obs - 44239.0,  MJD_obs is Modified JD of observation,
+C            omega_1 = 2Pi / 365.2422
+C            omega_2 = 2Pi / 182.12
+C            omega_3 = 2Pi / 1.0
+C
+C            Vertical displacement has to be corrected for local pressure
+C            variations Delta P [mb] = P(MJD_obs) - P_mean:
+C            Delta r = b_0 + b_1*Delta P
+C
+C    Output variables :  
+C  1. dx_atm(3,2)  - The vector displacement of the site (J=1,2)
+C                    due to atmosphere loading (M)
+C  2. dv_atm(3,2)  - The velocity vector of the site (J=1,2)
+C                    due to atmosphere loading (M/Sec)
+C
+C  3. dr1_dA2000(4,3,3)  - The partial derivatives of the 1 station POSITION
+C                          with respect to the to the cosine coefficients  (M/M)                         
+C                          (The first index runs over the coefficients,
+C                          the second over the V,E,N- vector components
+C                          and the third over vector dimension.)
+C  4. dr1_dB2000(4,3,3)  - The partial derivatives of the 1 station POSITION
+C                          with respect to the to the sine coefficient  (M/M)
+C  5. dv1_dA2000(4,3,3)  - The partial derivatives of the 1 station VELOCITY
+C                          with respect to the to the cosine coefficient  ((M/Sec)/M)                         
+C  6. dv1_dB2000(4,3,3)  - The partial derivatives of the 1 station VELOCITY
+C                          with respect to the to the sine coefficient  ((M/Sec)/M)
+C  7. dr2_dA2000(4,3,3)  - The partial derivatives of the 2 station POSITION
+C                          with respect to the to the cosine coefficients  (M/M)                         
+C  8. dr2_dB2000(4,3,3)  - The partial derivatives of the 2 station POSITION
+C                          with respect to the to the sine coefficient  (M/M)
+C  9. dv2_dA2000(4,3,3)  - The partial derivatives of the 2 station VELOCITY
+C                          with respect to the to the cosine coefficient  ((M/Sec)/M)                         
+C 10. dv2_dB2000(4,3,3)  - The partial derivatives of the 2 station VELOCITY
+C                          with respect to the to the sine coefficient  ((M/Sec)/M)
+C
+C 11. dr_dReg2000(3,2) - The partial derivatives of the station POSITION
+C                          with respect to the to the 
+C                          regression coefficient  (M/(M/mb))
+C 12. dv_dReg2000(3,2) - The partial derivatives of the station VELOCITY
+C                          with respect to the to the 
+C                          regression coefficient  (M/Sec)/(M/mb)
+C----------------------------------------------------------------------
+C   SUBROUTINE SITE_ATM was written by V.Zharov 
+C
+C   VERSION 1.0   21 May 2005
+C   
+C   VERSION 2.0   08 February 2008
+C
+C   Output variables dr_dAi, dr_dBi, dr_dRegi that are
+C   the partial derivatives of station POSITION were added
+C   Output variables dv_dAi, dv_dBi, dv_dRegi that are
+C   the partial derivatives of station VELOCITY were added
+C----------------------------------------------------------------------
+C
+      USE main
+      IMPLICIT None
+C
+       Integer j1, j2, i, k, j, L, m, n 
+       Integer katm1, katm2, katm3, katm4, katm5, katm6, katm7
+	 Integer nobs, ista, mjd 
+C
+	 Real(8) amp_atm(8,3,n_sta)
+	 Real(8) utc, Dt
+       Real(8) r2000(3,3,3)
+       Real(8) dPdt(2)
+	 Real(8) vw(3,3,n_sta), vw_tr(3,3)
+       Real(8) dr_atm_t(3,2), dr_atm_v(3,2)
+	 Real(8) dx_atm(3,2), dv_atm(3,2)
+       Real(8) CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+       Real(8) PI, TWOPI, HALFPI
+	 Real(8) omega(4), Arg(4), pres(2)
+       Real(8) work(3), dwork(3), temp(3)
+       Real(8) v1(3), v2(3) 
+       Real(8) drdA(3,3), drdB(3,3), dvdA(3,3), dvdB(3,3)
+       Real(8) dr_dAi(4), dr_dBi(4), dr_dRegi(3,2)
+       Real(8) dv_dAi(4), dv_dBi(4), dv_dRegi(3,2)
+       Real(8) dr1_dA2000(4,3,3), dr1_dB2000(4,3,3) 
+       Real(8) dr2_dA2000(4,3,3), dr2_dB2000(4,3,3)
+       Real(8) dv1_dA2000(4,3,3), dv1_dB2000(4,3,3)
+       Real(8) dv2_dA2000(4,3,3), dv2_dB2000(4,3,3)
+       Real(8) dr_dReg2000(3,2), dv_dReg2000(3,2)
+       Real(8) cosArg(4), sinArg(4) 
+C
+      COMMON /ATMLOAD/ amp_atm
+      COMMON /MATH1/ PI, TWOPI, HALFPI
+	COMMON /MATH2/ CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+C
+C  Series from 1984      
+C
+        Dt = dfloat(mjd) - 45700.0d0 + utc    ! 1984
+C
+	  j1 = nscan(k)%sta1
+	  j2 = nscan(k)%sta2
+
+C  Copy METEO parameters                         
+        pres(1)  = nscan(k)%p1  
+        pres(2)  = nscan(k)%p2
+C
+C  Frequencies of three terms
+        omega(1) = TWOPI / 365.2422d0
+        omega(2) = TWOPI / 182.12d0
+        omega(3) = TWOPI / 1.0d0
+C  and subdiurnal term, amplitude of which is unknown apriori 
+        omega(4) = TWOPI / 0.5d0
+C ---------------------------------------------------------------------
+C 
+	  do i = 1, 4
+	    Arg(i) = dmod(omega(i) * Dt, Twopi)
+C
+          cosArg(i) = dcos(Arg(i))
+	    sinArg(i) = dsin(Arg(i))
+C
+C  Convert to m and velocity to m/s
+          dr_dAi(i) = cosArg(i) !* 1.d-3      
+		dr_dBi(i) = sinArg(i) !* 1.d-3
+          dv_dAi(i) = - omega(i)*sinArg(i)/secday !* 1.d-3
+		dv_dBi(i) =   omega(i)*cosArg(i)/secday !* 1.d-3
+C 
+	  enddo
+C
+C   Compute the TOPOCENTRIC displacement dr_atm and dr_atm_V for site (J=1,2)
+C   due to atmosphere loading 
+C
+C      dr_atm(3,2)  - The array of UP (I=1), EAST (I=2), and NORTH (I=3)
+C                     displacements due to atmosphere loading. (M)
+C      dr_atm_v(3,2)- The VELOCITY of site due to atmosphere loading. (M/S)
+C
+        dr_dRegi = 0.d0
+        dv_dRegi = 0.d0
+C
+C  Loop for sites
+      Do j = 1,2
+	  if ( j == 1) L = j1
+	  if ( j == 2) L = j2
+C
+C  Loop for Up, East, North components (m=1,2,3)
+        Do m = 1, 3
+          dr_atm_t(m,j) = 0.0d0
+          dr_atm_v(m,j) = 0.0d0
+C
+C  Loop for three terms
+          Do n = 1,3
+	      i = 2*(n-1) + 1
+C
+            dr_atm_t(m,j) = dr_atm_t(m,j) + 
+     +      amp_atm(i,m,L)*cosArg(n)+amp_atm(i+1,m,L)*sinArg(n) ! mm
+C
+            dr_atm_v(m,j) = dr_atm_v(m,j) - 
+     -      amp_atm(i,m,L)  *omega(n)*sinArg(n) +
+     -      amp_atm(i+1,m,L)*omega(n)*cosArg(n)                 ! mm/day
+C
+          Enddo ! n
+C	write(*,*) j, m, dr_atm_t(m,j)
+C  Correct Vertical displacement and velocity
+          if ( m == 1 ) then
+            dr_atm_t(m,j) = dr_atm_t(m,j) + 
+     +      amp_atm(7,m,L)+amp_atm(8,m,L)*(pres(j)-def_par(L)%p_0)
+C
+            dr_atm_v(m,j) = dr_atm_v(m,j) + amp_atm(8,m,L) * dPdt(j)
+C
+            dr_dRegi(m,j) = pres(j)-def_par(L)%p_0
+            dv_dRegi(m,j) = dPdt(j)
+ 	    endif
+        Enddo   ! m
+C
+	Enddo     ! j
+C
+C-------------------------------------------------------------------------------
+C  KATM3 for debug output (/= 0)
+       katm3 = 0
+C-------------------------------------------------------------------------------
+C  Debug output
+      IF (katm3 /= 0) THEN
+	  WRITE (*,'(1x,a)') 'Debug output (3) for subroutine SITE_ATM'
+C
+        write(*,30)  dr_dAi
+        write(*,30)  dr_dBi
+        write(*,30)  dv_dAi
+        write(*,30)  dv_dBi
+  30    format ( 4d23.16 ) 
+C
+        write(*,*) ' Partials dr_dRegi '
+        write(*, 31) (dr_dRegi(i,1), i = 1,3)
+        write(*, 31) (dr_dRegi(i,2), i = 1,3)
+        write(*,*) ' Partials dv_dRegi '
+        write(*, 31) (dv_dRegi(i,1), i = 1,3)
+        write(*, 31) (dv_dRegi(i,2), i = 1,3)
+  31    format ( 3d23.16 )
+C
+      pause
+	endif
+C
+C-------------------------------------------------------------------------------
+C  Convert displacement to m and velocity to m/s
+C  Loop for sites
+      Do j = 1,2
+C
+	  if ( j == 1) L = j1
+	  if ( j == 2) L = j2
+C  Loop for Up, East, North components
+        Do m = 1, 3
+          dr_atm_t(m,j) = dr_atm_t(m,j)* 1.d-3
+          dr_atm_v(m,j) = dr_atm_v(m,j)/secday * 1.d-3
+C
+          dr_dRegi(m,j) = dr_dRegi(m,j) * 1.d-3
+          dv_dRegi(m,j) = dv_dRegi(m,j)/secday * 1.d-3
+        Enddo   ! m
+C
+C  Compute the rotation matrix which rotates from the geocentric 
+C  crust fixed system to the VEN system.
+C
+        CALL TRANSP ( vw(1,1,L), vw_tr )
+C
+C  Transformation of the displacements from local VEN to the 
+C  Earth-fixed coordinate system
+        CALL MUL_ARR_VEC (vw_tr, dr_atm_t(1,j), work)
+C  Then rotate vectors from crust-fixed to J2000 system.
+        CALL MUL_ARR_VEC (r2000(1,1,1), work, dx_atm(1,j))
+C
+C  Similar transformation for velocity vector
+        CALL MUL_ARR_VEC (vw_tr, dr_atm_v(1,j), dwork)
+C
+        CALL MUL_ARR_VEC (r2000(1,1,1), dwork, v1)
+        CALL MUL_ARR_VEC (r2000(1,1,2),  work, v2)
+        CALL SUM_2VEC    (v1, v2, dv_atm(1,j))
+C
+C---------------------------------------------------------------
+C  Computation of partials of station position and velocity 
+C  with respect to the atmospheric loading parameters
+C
+        drdA = 0.d0
+        drdB = 0.d0
+C
+C  Loop for frequency components
+        do i = 1, 4
+C
+C  Cosine coefficient
+        drdA(1,1) = dr_dAi(i)
+        drdA(2,2) = dr_dAi(i)
+        drdA(3,3) = dr_dAi(i)
+C  Sine coefficient
+        drdB(1,1) = dr_dBi(i)
+        drdB(2,2) = dr_dBi(i)
+        drdB(3,3) = dr_dBi(i)
+C  Copy velocity partials
+        dvdA(1,1) = dv_dAi(i)
+        dvdA(2,2) = dv_dAi(i)
+        dvdA(3,3) = dv_dAi(i)
+C
+        dvdB(1,1) = dv_dBi(i)
+        dvdB(2,2) = dv_dBi(i)
+        dvdB(3,3) = dv_dBi(i)
+
+C
+C  Loop for Up, East, North components
+        do m = 1, 3
+C
+        CALL MUL_ARR_VEC (vw_tr, drdA(1,m), work)
+        CALL MUL_ARR_VEC (r2000(1,1,1), work, temp)
+C	  
+	  do n = 1, 3
+	    if ( j == 1) dr1_dA2000(i,m,n) = temp(n)
+	    if ( j == 2) dr2_dA2000(i,m,n) = temp(n)
+	  enddo
+C
+C-------------------------------------------------------------------------------
+C  KATM5 for debug output (/= 0)
+       katm5 = 0
+C-------------------------------------------------------------------------------
+C  Debug output
+      IF (katm5 /= 0) THEN
+	  WRITE (*,'(1x,a)') 'Debug output (5) for subroutine SITE_ATM40'
+C
+        call PR_ARR(' drdA ', 3, 3, drdA, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' vw_tr ', 3, 3, vw_tr, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' work ', 1, 3, work, 1, 0, 
+     *              '(D23.16)', 'Number', 'Number')
+        call PR_ARR(' temp ', 1, 3, temp, 1, 0, 
+     *              '(D23.16)', 'Number', 'Number')
+      pause
+	endif
+C-------------------------------------------------------------------------------
+C  Similar transformation for velocity vector
+        CALL MUL_ARR_VEC (vw_tr, dvdA(1,m), dwork)
+        CALL MUL_ARR_VEC (r2000(1,1,1), dwork, v1)
+        CALL MUL_ARR_VEC (r2000(1,1,2),  work, v2)
+        CALL SUM_2VEC    (v1, v2, temp)
+C	  
+	  do n = 1, 3
+	    if ( j == 1) dv1_dA2000(i,m,n) = temp(n)
+	    if ( j == 2) dv2_dA2000(i,m,n) = temp(n)
+	  enddo
+C
+C  Sine coefficient
+C
+        CALL MUL_ARR_VEC (vw_tr, drdB(1,m), work)
+        CALL MUL_ARR_VEC (r2000(1,1,1), work, temp)
+C	  
+	  do n = 1, 3
+	    if ( j == 1) dr1_dB2000(i,m,n) = temp(n)
+	    if ( j == 2) dr2_dB2000(i,m,n) = temp(n)
+	  enddo
+C
+C-------------------------------------------------------------------------------
+C  KATM6 for debug output (/= 0)
+       katm6 = 0
+C-------------------------------------------------------------------------------
+C  Debug output
+      IF (katm6 /= 0) THEN
+	  WRITE (*,'(1x,a)') 'Debug output (6) for subroutine SITE_ATM40'
+C
+        call PR_ARR(' drdB ', 3, 3, drdB, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' vw_tr ', 3, 3, vw_tr, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' work ', 1, 3, work, 1, 0, 
+     *              '(D23.16)', 'Number', 'Number')
+        call PR_ARR(' temp ', 1, 3, temp, 1, 0, 
+     *              '(D23.16)', 'Number', 'Number')
+      pause
+	endif
+C-------------------------------------------------------------------------------
+
+C  Similar transformation for velocity vector
+        CALL MUL_ARR_VEC (vw_tr, dvdB(1,m), dwork)
+        CALL MUL_ARR_VEC (r2000(1,1,1), dwork, v1)
+        CALL MUL_ARR_VEC (r2000(1,1,2),  work, v2)
+        CALL SUM_2VEC    (v1, v2, temp)
+C	  
+	  do n = 1, 3
+	    if ( j == 1) dv1_dB2000(i,m,n) = temp(n)
+	    if ( j == 2) dv2_dB2000(i,m,n) = temp(n)
+	  enddo
+C
+	  Enddo     ! m
+C
+	  Enddo     ! i
+C
+C  Regression coefficient
+C
+        CALL MUL_ARR_VEC (vw_tr, dr_dRegi(1,j), work)
+        CALL MUL_ARR_VEC (r2000(1,1,1), work, dr_dReg2000(1,j))
+C
+C  Similar transformation for velocity vector
+        CALL MUL_ARR_VEC (vw_tr, dv_dRegi(1,j), dwork)
+        CALL MUL_ARR_VEC (r2000(1,1,1), dwork, v1)
+        CALL MUL_ARR_VEC (r2000(1,1,2),  work, v2)
+        CALL SUM_2VEC    (v1, v2, dv_dReg2000(1,j))
+C
+C-------------------------------------------------------------------------------
+C  KATM6 for debug output (/= 0)
+       katm7 = 0
+C-------------------------------------------------------------------------------
+C  Debug output
+      IF (katm7 /= 0) THEN
+	  WRITE (*,'(1x,a)') 'Debug output (7) for subroutine SITE_ATM40'
+C
+        write(*,*) '  L = ', j
+        write(*,31) (dr_dRegi(i,j), i = 1,3)
+        call PR_ARR(' vw_tr ', 3, 3, vw_tr, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' work ', 1, 3, work, 1, 0, 
+     *              '(D23.16)', 'Number', 'Number')
+        write(*,31) (dr_dReg2000(i,j), i = 1,3)
+      pause
+	endif
+C
+	Enddo     ! j
+C-------------------------------------------------------------------------------
+C  KATM1 for debug output (/= 0)
+       katm1 = 0 
+C-------------------------------------------------------------------------------
+C  Debug output
+      IF (katm1 /= 0) THEN
+	  WRITE (*,'(1x,a)') 'Debug output (1) for subroutine SITE_ATM40'
+	  write(*,35) '   j1, j2 ', j1,j2
+  35    format (a, 2i6 )
+        WRITE(*,40) '   Dt   ', Dt
+        WRITE(*,42) '  MJD   ', mjd
+  40    FORMAT(a, D25.16)
+  42    FORMAT(a, i10)          
+        write(*,'(2x,a8,2x,a8)') def_par(j1)%name, def_par(j2)%name
+        write(*,45) '    pres(1), pres(2) ', pres(1), pres(2)
+        write(*,45) '  Mean pressure(1,2) ', 
+     *                 def_par(j1)%p_0, def_par(j2)%p_0
+  45    FORMAT(a, 2f15.7)
+        call PR_ARR(' Arg(i) ', 1, 4, Arg, 1, 0, 
+     *              '(D23.16)', 'Number', 'Number')
+        call PR_ARR(' dr_atm_t ', 3, 2, dr_atm_t, 3, 0, 
+     *              '(D23.16)', 'Number', 'Number')
+        call PR_ARR(' dr_atm_v ',  3, 2, dr_atm_v, 3, 0, 
+     *              '(D23.16)', 'Number', 'Number')
+      pause
+	endif
+C-------------------------------------------------------------------------------
+C  KATM2 for debug output (/= 0)
+       katm2 = 0
+C-------------------------------------------------------------------------------
+C  Debug output
+      IF (katm2 /= 0) THEN
+	  WRITE (*,'(1x,a)') 'Debug output (2) for subroutine SITE_ATM'
+C
+	  write(*,35) '   j1, j2 ', j1,j2
+        call PR_ARR(' Displacements DX_ATM ', 3, 2, dx_atm, 3, 0, 
+     *              '(D23.16)', 'Number', 'Number')
+        call PR_ARR(' Velocities  DV_ATM ',  3, 2, dv_atm, 3, 0, 
+     *              '(D23.16)', 'Number', 'Number')
+      pause
+	endif
+C-------------------------------------------------------------------------------
+C  KATM4 for debug output (/= 0)
+       katm4 = 0
+C-------------------------------------------------------------------------------
+C  Debug output
+      IF (katm4 /= 0) THEN
+	  WRITE (*,'(1x,a)') 'Debug output (4) for subroutine SITE_ATM'
+C
+        do i = 1, 4
+C
+	    do m = 1, 3
+	      do n = 1, 3
+              drdA(m,n) = dr1_dA2000(i,m,n)
+              drdB(m,n) = dr1_dB2000(i,m,n)
+              dvdA(m,n) = dv1_dA2000(i,m,n)
+              dvdB(m,n) = dv1_dB2000(i,m,n)
+            enddo
+          enddo
+
+        call PR_ARR(' Partials dr1_dA2000 ', 3, 2, drdA, 3, 0, 
+     *              '(F20.16)', 'Number', 'Number')
+        call PR_ARR(' Partials dr1_dB2000 ', 3, 2, drdB, 3, 0, 
+     *              '(F20.16)', 'Number', 'Number')
+        call PR_ARR(' Partials dv1_dA2000 ', 3, 2, dvdA, 3, 0, 
+     *              '(F20.16)', 'Number', 'Number')
+        call PR_ARR(' Partials dv1_dB2000 ', 3, 2, dvdB, 3, 0, 
+     *              '(F20.16)', 'Number', 'Number')
+        enddo
+      pause
+        call PR_ARR(' Partials dr_dReg2000 ', 3, 2, dr_dReg2000, 3, 0, 
+     *              '(F20.16)', 'Number', 'Number')
+        call PR_ARR(' Partials dv_dReg2000 ', 3, 2, dv_dReg2000, 3, 0, 
+     *              '(F20.16)', 'Number', 'Number')
+      pause
+	endif
+
+
+
+      RETURN
+      END SUBROUTINE SITE_ATM40
+C

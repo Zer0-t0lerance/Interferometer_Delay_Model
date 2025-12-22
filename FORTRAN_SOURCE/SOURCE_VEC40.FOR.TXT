@@ -1,0 +1,84 @@
+      SUBROUTINE SOURCE_VEC40 (isor, t_mean, K_star)
+C
+C   SUBROUTINE SOURCE_VEC40 computes the J2000.0 unit vectors in the 
+C   direction of the sources for time of observations.
+C
+C       Input variables:
+C        1. isor            -  Number of sources 
+C        2. t_mean   - The midpoint time of the observing session (MJD+UTC fraction of day) 
+C
+C       Output variables:
+C           1. K_star(3,n_sou) -  The J2000.0 source unit vectors. (unitless)
+C
+C   VERSION 4.0   
+C     Reading of apparent motion values of sources from
+C     corrected catalog of sources
+C     Motion is represented as linear motion
+C     (for quadretic motion see SOURCE_VEC35)
+C----------------------------------------------------------------------
+C
+      USE main
+C
+      IMPLICIT None
+C      
+      INTEGER isor, i, ksource
+      REAL(8) K_star(3,n_sou) 
+	REAL(8) ra0, dec0, ra, dec, dot_RA, dot_DEC
+	REAL(8) delta_t, t_mean
+	REAL(8) CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+
+	CHARACTER clabel(isor+1)*8, rlabel(3)*2, blank*8
+C     
+      DATA RLABEL/' X', ' Y', ' Z'/
+	DATA blank /'        '/
+C
+      COMMON /MATH2/ CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+C
+       clabel(1) = blank
+       i = 1
+C delta_t is difference of time of observation and J2000.0 (years)
+       delta_t = (t_mean-(JD2000-2400000.5d0))/365.25d0
+c      write(*,*) delta_t
+
+       do while ( i <= isor )
+C
+         ra0  = sou(i)%al 
+         dec0 = sou(i)%del 
+C  dot_RA, dot_DEC in microarcsecond per year or per year**2
+         dot_RA  = sou(i)%dot_al  
+         dot_DEC = sou(i)%dot_del 
+c	write(*,*) dot_RA, dot_DEC
+C
+C  RA and DEC of source for t_mean
+         ra  = ra0  + dot_RA *1.d-6*delta_t*CARCRAD
+	   dec = dec0 + dot_DEC*1.d-6*delta_t*CARCRAD
+c	write(*,*) ra, dec
+c	write(*,*) dot_RA *1.d-6*delta_t*CARCRAD, dot_DEC*1.d-6*delta_t*CARCRAD
+c	pause
+C
+         K_star(1,i) = dcos(dec) * dcos(ra)
+         K_star(2,i) = dcos(dec) * dsin(ra) 
+         K_star(3,i) = dsin(dec)
+C  
+	   clabel(i+1) = sou(i)%name
+	   i = i + 1
+       enddo
+C--------------------------------------------------------------------
+C  KSOURCE for debug output (/= 0)
+       KSOURCE = 0
+C--------------------------------------------------------------------
+C     Check for debug output.
+      if (KSOURCE /= 0) then
+         WRITE(*,10)
+  10     FORMAT(1X,'Debug output for subroutine SOURCE_VEC')
+c         call DWRRRL(' The J2000.0 source unit vectors.', 
+c     *   3, 13, K_star, 3, 0, '(f22.16)', rlabel, clabel)
+         call PR_ARR(' The J2000.0 source unit vectors.', 
+     *   3, 13, K_star, 3, 0, '(f22.16)', 'Number', clabel)
+	   pause
+      endif
+C
+      return
+C
+      END Subroutine SOURCE_VEC40
+C

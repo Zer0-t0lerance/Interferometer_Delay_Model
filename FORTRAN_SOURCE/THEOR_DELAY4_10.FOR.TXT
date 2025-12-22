@@ -1,0 +1,776 @@
+      SUBROUTINE THEOR_DELAY4_10 (base_line, xsta_j2000t, vsta_j2000t,
+     * asta_j2000, K_s, Earth, Sun, Moon, 
+     * Datmc_d, Datmc_w, dtau_off, dt_temp,
+     * t2_t1, dt2_t1)
+C
+C   SUBROUTINE THEOR_DELAY computes the theoretical values of delay and
+C   delay rate on base of IERS Convencions (1996,2000)
+C
+C       Input variables:
+C       1. base_line(3,2)  - The baseline position and velocity vectors in the 2000.0
+C                            geocentric system (M, M/Sec)
+C                            Baseline vector is directed from site 1 to site 2
+C       2. xsta_j2000t(3,2)- The site position vector in the 2000.0
+C                            geocentric system (M)
+C       3. vsta_j2000t(3,2)- The site velocity vector in the 2000.0
+C                            geocentric system (M/Sec)
+C       4. asta_j2000(3,2) - The site acceleration vector in the 2000.0
+C                            geocentric system (M/Sec)
+C       5. K_s(3)          - The J2000.0 source unit vector. (unitless)
+C       6. Earth(3,3)      - The J2000.0 Baricentric Earth position, velocity,
+C                            and acceleration vectors. (M, M/SEC, M/SEC**2)
+C                            (THe First index runs over the vector
+C                            components, the second runs over the position,
+C                            velocity, and acceleration respectively.)
+C       7. Sun(3,2)        - The J2000.0 Geocentric Sun position and velocity
+C                            vectors. (M, M/SEC)
+C       8. Moon(3,2)       - The J2000.0 Geocentric Moon position and velocity
+C                            vectors. (M, M/SEC)
+C       9. Datmc_d(2,2)    - The contributions to the delay and rate due to
+C                            dry tropospheric bending at each site. The first
+C                            index runs over the sites and the second over the
+C                            delay and rate. (sec, sec/sec)
+C      10. Datmc_w(2,2)    - The contributions to the delay and rate due to
+C                            wet tropospheric bending at each site. 
+C      11. dtau_off(2,2)   - The contributions to the delay and rate due
+C                            to the antenna axis offset.
+C                            First index runs over sites, 
+C                            second over delay and rate. (sec, sec/sec)
+C      12. dt_temp(2,2)    - The contributions to the delay and rate due
+C                            to the thermal expansion of radio telescope.
+C                            First index runs over sites, 
+C                            second over delay and rate. (sec, sec/sec)
+C--------------------------------------------------------------------------
+C
+C    Common blocks:
+C       1. SPLANET(3,2,8) - The J2000.0 Solar System Barycentric positions
+C                           and velocities of all planets except the Earth
+C                           and Pluto. (meters, meters/sec) The first index
+C                           runs over X, Y, and Z, the second runs over
+C                           position and velocity, and the third runs over
+C                           the planets, where
+C                           1 = Mercury
+C                           2 = Venus
+C                           3 = Mars
+C                           4 = Jupiter
+C                           5 = Saturn
+C                           6 = Uranus
+C                           7 = Neptune
+C                           8 = Pluto
+C       2. GPLANET(3,2,8) - The J2000.0 Geocentric positions and velocities
+C                           of all planets except the Earth and Pluto.
+C                           (meters, meters/sec) The first index runs over
+C                           X, Y, and Z, the second runs over position and
+C                           velocity, and the third runs over the planets
+C---------------------------------------------------------------------------
+C      Output Variables:
+C         1. t2_t1        -  The geometric delay corrected for relativistic
+C                            effects and propagation delay using
+C                            the Consensus model.                (Sec)
+C         2. dt2_t1       -  The time derivative of the geometric delay
+C                            corrected for relativistic effects and propagation 
+C                            delay using the Consensus model.    (Sec/Sec)
+C----------------------------------------------------------------------
+C   SUBROUTINE THEOR_DELAY was written by V.Zharov 
+C
+C   VERSION 1.0   21 May 2005
+C
+C   Operator 562
+C   U is the gravitational potential at the geocenter PLUS the terrestrial
+C   potential at the surface of the Earth. In v.1.0 U = U_Sun/R_geo !!!!
+C   Operator 673: 
+C   The tropospheric propogation delay consisting from ONLY dry component
+C   is added to the vacuum delay (Eq.11 on p.91). Wet delay is estimated
+C   from solution. 
+C----------------------------------------------------------------------
+
+      IMPLICIT None
+C
+      Integer, parameter :: n = 3
+      Integer j, k
+	Integer kteor1, kteor2, kteor3, kteor4
+	Integer kteor5, kteor6, kteor7, kteor8, kteor9
+      Real(8) base_line(3,2), xsta_j2000t(3,2), vsta_j2000t(3,2)
+      Real(8) Earth(3,3), Sun(3,2), Moon(3,2), asta_j2000(3,2)
+	Real(8) Datmc_d(2,2), Datmc_w(2,2), Datmc(2,2)
+	Real(8) dtau_off(2,2), dt_temp(2,2)
+      Real(8) C2, C3
+      Real(8) K_s(3), K_starB, dotK_starB
+	Real(8) X_Sun(3), X_Moon(3), V_Sun(3), V_Moon(3)
+      Real(8) R_geocen(3), V_geocen(3)
+	Real(8) X_1(3), X_2(3), dotX_1(3), dotX_2(3)
+	Real(8) X1_Sun(3), X1_Moon(3),  X1_Planet(3,8)
+	Real(8) t1_Sun, X1_Sun_t1(3), dotX1_Sun_t1(3)
+	Real(8) R1_Sun_t1(3),dotR1_Sun_t1(3), R2_Sun_t1(3),dotR2_Sun_t1(3)
+	Real(8) R1_Sun_mod, N_hat(3), dN_hat(3), NplusK(3)
+	Real(8) t1_Moon, X1_Moon_t1(3), dotX1_Moon_t1(3)
+	Real(8) R1_Moon_t1(3), dotR1_Moon_t1(3)
+	Real(8) R2_Moon_t1(3), dotR2_Moon_t1(3)
+	Real(8) t1_Planet(8), X1_Planet_t1(3,8), dotX1_Planet_t1(3,8)
+	Real(8) R1_Planet_t1(3,8), dotR1_Planet_t1(3,8)
+	Real(8) R2_Planet_t1(3,8), dotR2_Planet_t1(3,8)
+      Real(8) gamma_PPN, C_Sun, C_Sun1, C_Moon, C_Earth, C_Plan(8)
+	Real(8) numer1, denom1, dnumer1, ddenom1
+	Real(8) numer2, denom2, dnumer2, ddenom2
+	Real(8) numer3, denom3, dnumer3, ddenom3
+	Real(8) numer4, denom4, dnumer4, ddenom4
+      Real(8) w1, w2, v1, v2, dv1, dv2
+	Real(8) delta_t_grav_Sun, d_delta_t_grav_Sun, add_grav_Sun(2)
+	Real(8) delta_t_grav_Moon, d_delta_t_grav_Moon
+	Real(8) delta_t_grav_Earth, d_delta_t_grav_Earth
+	Real(8) delta_t_grav_Plan(8), d_delta_t_grav_Plan(8)
+	Real(8) delta_t_grav_Pl, d_delta_t_grav_Pl
+	Real(8) delta_t_grav, d_delta_t_grav
+	Real(8) U_Sun, U_Earth, R_geo, U, dU, V_Earth
+	Real(8) term1, dterm1, term2, dterm2, term2a, dterm2a
+	Real(8) term2b, dterm2b, term2c, dterm2c, term2d, dterm2d
+	Real(8) term2bcd, dterm2bcd
+	Real(8) term3a, term3b, term3, dterm3a, dterm3b, dterm3
+	Real(8) VdotB, dVdotB, KdotV, dKdotV
+	Real(8) numer_Eq9, dnumer_Eq9, den_Eq9, dden_Eq9
+	Real(8) vec_sum(3), dvec_sum(3)
+      Real(8) w2_w1(3), a2_a1(3), K_dotw2w1, dK_dotw2w1
+	Real(8) tv2_tv1, dtv2_tv1, tg2_tg1, dtg2_tg1
+      Real(8) t2_t1_a, dt2_t1_a, t2_t1, dt2_t1
+	Real(8) SCAL_PROD, NORM
+
+      Character(8) Name_Pl(8)
+
+	Real(8) SPLANET(3,2,8), GPLANET(3,2,8)
+	Real(8) C, F, AE, AU
+	Real(8) GSUN, GMOON, GEARTH, GMPlanet(8)
+C
+      COMMON /PLANPOS/ SPLANET, GPLANET
+      COMMON /PHYS/ C, F, AE, AU
+      COMMON /GRAV/ GSUN, GMOON, GEARTH, GMPlanet
+C
+      Data Name_Pl /' Mercury', '  Venus', '    Mars', ' Jupiter',
+     *              '  Saturn', ' Uranus', ' Neptune', '   Pluto'/
+C  Common block for transmission of terms to DERIVATIVE subroutine
+      COMMON /DERterms/ gamma_PPN,
+     *   term1, dterm1, term2, dterm2, term2a, dterm2a,
+     *   term2b, dterm2b, term2c, dterm2c, term2d, dterm2d,
+     *   term2bcd, dterm2bcd, term3a, dterm3a, term3b, dterm3b,
+     *   term3, dterm3, numer_Eq9, dnumer_Eq9, den_Eq9, dden_Eq9,
+     *   vec_sum, dvec_sum
+
+C------------------------------------------------------------------------------------
+
+C-------------------------------------------------------------------------------
+C  Beginning
+       C2 = C*C
+       C3 = C2*C
+       gamma_PPN = 1.d0
+C   Calbulation of scalar product (K*b_0) and derivative
+       K_starB    = SCAL_PROD(K_s, base_line(:,1))
+       dotK_starB = SCAL_PROD(K_s, base_line(:,2))
+
+C ***************************************************************************
+C
+C   Calculation of baricentric radius vectors of Sun and Moon:
+       do j=1,3
+	   X_Sun(j)  = Earth(j,1) + Sun(j,1)
+	   X_Moon(j) = Earth(j,1) + Moon(j,1)
+	 enddo
+C   Calculation of baricentric velocity vectors of Sun and Moon:
+       do j=1,3
+	   V_Sun(j)  = Earth(j,2) + Sun(j,2)
+	   V_Moon(j) = Earth(j,2) + Moon(j,2)
+	 enddo
+C   Calculation of vector from the Sun to the geocenter and velocity of geocenter
+       do j=1,3
+	   R_geocen(j) = - Sun(j,1)
+	   V_geocen(j) = - Sun(j,2)
+	 enddo
+C
+C******************************************************************************
+C  Estimation of barycentric radius and velocity vectors for sites 1
+C  and 2 at time t1 (X_1(t1) and X_2(t1) in Eq.4, Eq.5 on page 90).
+C
+      do j=1,3
+        X_1(j)    = Earth(j,1) + xsta_j2000t(j,1)
+        X_2(j)    = Earth(j,1) + xsta_j2000t(j,2)
+        dotX_1(j) = Earth(j,2) + vsta_j2000t(j,1)
+        dotX_2(j) = Earth(j,2) + vsta_j2000t(j,2)
+      enddo
+C
+C-------------------------------------------------------------------------------
+C  KTEOR1 for debug output (/= 0)
+       kteor1 = 1
+C-------------------------------------------------------------------------------
+C  Debug output
+      If (kteor1 .NE. 0) then
+	WRITE (*,'(1x,a)') 'Debug (1) output for subroutine TEOR_DELAY'
+C
+  20     FORMAT(A, D25.16)
+         WRITE(*,20) '  K_starB    ', K_starB
+         WRITE(*,20) '  dotK_starB ', dotK_starB
+C
+        call PR_ARR(' K_s ', 1, n, K_s, 1, 0,
+     *              '(D23.16)', 'Number', 'Number')
+        call PR_ARR(' xsta_j2000t ', n, 2, xsta_j2000t, n, 0, 
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' base_line ', n, 2, base_line, n, 0, 
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' X_1 ', 1, n, X_1, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' X_2 ', 1, n, X_2, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+	  call PR_ARR(' dotX_1 ', 1, n, dotX_1, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+	  call PR_ARR(' dotX_2 ', 1, n, dotX_2, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' X_Sun ', 1, n, X_Sun, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' X_Moon ', 1, n, X_Moon, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+	  call PR_ARR(' V_Sun ', 1, n, V_Sun, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' V_Moon ', 1, n, V_Moon, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+	  pause
+C
+      Endif
+C
+C******************************************************************************
+C  Estimation of the vectors from recever 1 to the Sun, the Moon, and
+C  each planet (except Earth and Pluto).
+C
+      do j=1,3
+        X1_Sun(j)  = X_Sun(j)  - X_1(j)
+        X1_Moon(j) = X_Moon(j) - X_1(j)
+      enddo
+      do k=1,8
+        do j=1,3
+          X1_Planet(j,k)  = SPLANET(j,1,k) - X_1(j)
+        enddo
+      enddo
+C
+C * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+C  Calculation of t_1J (Eq.3)
+C  Sun:
+       t1_Sun  = SCAL_PROD(K_s,X1_Sun) / C
+       If(t1_Sun < 0.D0) t1_Sun = 0.0D0
+C
+        do j=1,3
+C  SSB vector to Sun at time of closest approach and its time derivative:
+         X1_Sun_t1(j) = X_Sun(j) - V_Sun(j)*t1_Sun
+         dotX1_Sun_t1(j) = V_Sun(j)
+C
+C  equation 4: Vector from the Sun to receiver 1
+         R1_Sun_t1(j) = X_1(j) - X1_Sun_t1(j)
+         dotR1_Sun_t1(j) = dotX_1(j) - dotX1_Sun_t1(j)
+C
+C  equation 5: Vector from the Sun to receiver 2
+         R2_Sun_t1(j) = X_2(j) - Earth(j,2)*K_starB/C - X1_Sun_t1(j)
+         dotR2_Sun_t1(j) = dotX_2(j) -  Earth(j,3)*K_starB/C -
+     -                     Earth(j,2)*dotK_starB/C - dotX1_Sun_t1(j)
+        enddo
+C
+C  Unit vector N_hat from Sun to receiver #1 (for Eq.14 p.91)
+          R1_Sun_mod = NORM(R1_Sun_t1)
+	    do j=1,3
+	      N_hat(j) = R1_Sun_t1(j) / R1_Sun_mod
+	    enddo
+C  Derivative of the unit vector N_hat
+          do j=1,3
+          dN_hat(j) = dotR1_Sun_t1(j)/R1_Sun_mod-
+     -    R1_Sun_t1(j)*(SCAL_PROD(dotR1_Sun_t1,R1_Sun_t1))/R1_Sun_mod**3
+          enddo
+C * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+C  Moon:
+       t1_Moon  = SCAL_PROD(K_s,X1_Moon) / C
+       If(t1_Moon < 0.D0) t1_Moon = 0.0D0
+C
+        do j=1,3
+C  SSB vector to Moon at time of closest approach and its time derivative:
+         X1_Moon_t1(j) = X_Moon(j) - V_Moon(j)*t1_Moon
+         dotX1_Moon_t1(j) = V_Moon(j)
+C
+C  equation 4: Vector from the Moon to receiver 1
+         R1_Moon_t1(j) = X_1(j) - X1_Moon_t1(j)
+         dotR1_Moon_t1(j) = dotX_1(j) - dotX1_Moon_t1(j)
+C
+C  equation 5: Vector from the Moon to receiver 2
+         R2_Moon_t1(j) = X_2(j) - Earth(j,2)*K_starB/C - X1_Moon_t1(j)
+         dotR2_Moon_t1(j) = dotX_2(j) -  Earth(j,3)*K_starB/C -
+     -                     Earth(j,2)*dotK_starB/C - dotX1_Moon_t1(j)
+        enddo
+C
+C * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+C  Planets:
+      do k = 1, 8
+C  Cycle for each planet
+       t1_Planet(k)  = SCAL_PROD(K_s, X1_Planet(:,k)) / C
+       If(t1_Planet(k) < 0.D0) t1_Planet(k) = 0.0D0
+C
+        do j=1,3
+C  SSB vector to Planet at time of closest approach and its time derivative:
+         X1_Planet_t1(j,k) = SPLANET(j,1,k)-SPLANET(j,2,k)*t1_Planet(k)
+         dotX1_Planet_t1(j,k) = SPLANET(j,2,k)
+C
+C  equation 4: Vector from the Planet to receiver 1
+         R1_Planet_t1(j,k) = X_1(j) - X1_Planet_t1(j,k)
+         dotR1_Planet_t1(j,k) = dotX_1(j) - dotX1_Planet_t1(j,k)
+C
+C  equation 5: Vector from the Planet to receiver 2
+         R2_Planet_t1(j,k) = X_2(j) - Earth(j,2)*K_starB/C -
+     -                     X1_Planet_t1(j,k)
+         dotR2_Planet_t1(j,k) = dotX_2(j) -  Earth(j,3)*K_starB/C -
+     -                  Earth(j,2)*dotK_starB/C - dotX1_Planet_t1(j,k)
+        enddo
+      enddo      !Planet loop
+C-------------------------------------------------------------------------------
+C  KTEOR2 for debug output (/= 0)
+       kteor2 = 0
+C-------------------------------------------------------------------------------
+C  Debug output
+      If (kteor2 .NE. 0) then
+	WRITE (*,'(1x,a)') 'Debug (2) output for subroutine TEOR_DELAY'
+C
+        WRITE(*,20) '  t1_Sun     ', t1_Sun
+        call PR_ARR(' X1_Sun ', 1, n, X1_Sun, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' X1_Sun_t1 ', 1, n, X1_Sun_t1, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' dotX1_Sun_t1 ', 1, n, dotX1_Sun_t1, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' R1_Sun_t1 ', 1, n, R1_Sun_t1, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' dotR1_Sun_t1 ', 1, n, dotR1_Sun_t1, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' R2_Sun_t1 ', 1, n, R2_Sun_t1, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' dotR2_Sun_t1 ', 1, n, dotR2_Sun_t1, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+        WRITE(*,20) ' R1_Sun_mod  ', R1_Sun_mod
+        call PR_ARR(' N_hat ', 1, n, N_hat, 1, 0,
+     *              '(F22.16)', 'Number', 'Number')
+        call PR_ARR(' dN_hat ', 1, n, dN_hat, 1, 0,
+     *              '(F22.16)', 'Number', 'Number')
+C
+        WRITE(*,20) '  t1_Moon    ', t1_Moon
+        call PR_ARR(' X1_Moon ', 1, n, X1_Moon, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' X1_Moon_t1 ', 1, n, X1_Moon_t1, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' dotX1_Moon_t1 ', 1, n, dotX1_Moon_t1, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' R1_Moon_t1 ', 1, n, R1_Moon_t1, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' dotR1_Moon_t1 ', 1, n, dotR1_Moon_t1, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' R2_Moon_t1 ', 1, n, R2_Moon_t1, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' dotR2_Moon_t1 ', 1, n, dotR2_Moon_t1, 1, 0,
+     *              '(F20.5)', 'Number', 'Number')
+C
+        do k=1,8
+	  WRITE (*, '(2x, A8)') Name_Pl(k)
+        WRITE(*,20) '  t1_Planet  ', t1_Planet(k)
+        enddo
+	  pause
+C
+      Endif
+C
+C******************************************************************************
+C  The general relativistic delay for the Sun, the Moon, and the Planets
+C  (Eq. 1 on p.89)
+C
+       C_Sun = (1.0D0 + gamma_PPN) * GSUN / C3
+       w1 = NORM(R1_Sun_t1)
+       numer1 = w1 + SCAL_PROD(K_s, R1_Sun_t1)
+       w2 = NORM(R2_Sun_t1)
+       denom1 = w2 + SCAL_PROD(K_s, R2_Sun_t1)
+C  Derivatives:
+       dnumer1 = SCAL_PROD(R1_Sun_t1,dotR1_Sun_t1)/w1 +
+     +           SCAL_PROD(K_s, dotR1_Sun_t1)
+       ddenom1 = SCAL_PROD(R2_Sun_t1,dotR2_Sun_t1)/w2 +
+     +           SCAL_PROD(K_s, dotR2_Sun_t1)
+C
+       delta_t_grav_Sun = C_Sun * DLOG(numer1 / denom1)
+       d_delta_t_grav_Sun = C_Sun * ( dnumer1 / numer1 -
+     -                                ddenom1 / denom1 )
+C
+C  Additional solar gravitional delay term, for observations
+C  close to the Sun. IERS Conventions (1996), paged 91, equation 14.
+       C_Sun1 = C_Sun**2 * C
+       CALL SUM_2VEC(N_hat, K_s, NplusK)
+        V1 = SCAL_PROD(base_line(:,1), NplusK)
+       dV1 = SCAL_PROD(base_line(:,2), NplusK) +
+     +       SCAL_PROD(base_line(:,1), dN_hat)
+        V2 = numer1**2
+       dV2 = 2.D0 * numer1 * dnumer1
+       add_grav_Sun(1) = C_Sun1 * V1 / V2
+       add_grav_Sun(2) = C_Sun1 * dV1/V2 - C_Sun1 * V1*dV2/V2**2
+C
+C * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+       C_Moon = (1.0D0 + gamma_PPN) * GMOON/C3
+       w1 = NORM(R1_Moon_t1)
+       numer2 = w1 + SCAL_PROD(K_s, R1_Moon_t1)
+       w2 = NORM(R2_Moon_t1)
+       denom2 = w2 + SCAL_PROD(K_s, R2_Moon_t1)
+C    Derivatives:
+       dnumer2 = SCAL_PROD(R1_Moon_t1,dotR1_Moon_t1)/w1 +
+     +           SCAL_PROD(K_s, dotR1_Moon_t1)
+       ddenom2 = SCAL_PROD(R2_Moon_t1,dotR2_Moon_t1)/w2 +
+     +           SCAL_PROD(K_s, dotR2_Moon_t1)
+C
+       delta_t_grav_Moon = C_Moon * DLOG(numer2 / denom2)
+       d_delta_t_grav_Moon = C_Moon * ( dnumer2 / numer2 -
+     -                                  ddenom2 / denom2 )
+C
+C-------------------------------------------------------------------------------
+C  KTEOR3 for debug output (/= 0)
+       kteor3 = 0
+C-------------------------------------------------------------------------------
+C  Debug output
+      If (kteor3 .NE. 0) then
+	WRITE (*,'(1x,a)') 'Debug (3) output for subroutine TEOR_DELAY'
+C
+         WRITE(*,20) '  C_Sun    ',  C_Sun
+         WRITE(*,20) '  C_Sun1   ',  C_Sun1
+         WRITE(*,20) '  C_Moon   ',  C_Moon
+         WRITE(*,20) '  numer1   ',  numer1
+         WRITE(*,20) '  denom1   ',  denom1
+         WRITE(*,20) ' dnumer1   ',  dnumer1
+         WRITE(*,20) ' ddenom1   ',  ddenom1
+         WRITE(*,20) '  numer2   ',  numer2
+         WRITE(*,20) '  denom2   ',  denom2
+         WRITE(*,20) ' dnumer2   ',  dnumer2
+         WRITE(*,20) ' ddenom2   ',  ddenom2
+         WRITE(*,20) '  delta_t_grav_Sun    ',  delta_t_grav_Sun
+         WRITE(*,20) '  d_delta_t_grav_Sun  ',  d_delta_t_grav_Sun
+         WRITE(*,20) '   add_grav_Sun(1)    ',  add_grav_Sun(1)
+         WRITE(*,20) '   add_grav_Sun(2)    ',  add_grav_Sun(2)
+         WRITE(*,20) '  delta_t_grav_Moon   ',  delta_t_grav_Moon
+         WRITE(*,20) '  d_delta_t_grav_Moon ',  d_delta_t_grav_Moon
+	   pause
+C
+      Endif
+C
+C * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+      Do k=1,8       ! Planet loop
+C
+       C_Plan(k) = (1.0D0 + gamma_PPN) * GMPlanet(k)/C3
+       w1 = NORM(R1_Planet_t1(:,k))
+       numer3 = w1 + SCAL_PROD(K_s, R1_Planet_t1(:,k))
+       w2 = NORM(R2_Planet_t1(:,k))
+       denom3 = w2 + SCAL_PROD(K_s, R2_Planet_t1(:,k))
+C    Derivatives:
+       dnumer3 = SCAL_PROD(R1_Planet_t1(1,k),dotR1_Planet_t1(:,k))/w1 +
+     +           SCAL_PROD(K_s, dotR1_Planet_t1(:,k))
+       ddenom3 = SCAL_PROD(R2_planet_t1(1,k),dotR2_Planet_t1(:,k))/w2 +
+     +           SCAL_PROD(K_s, dotR2_Planet_t1(:,k))
+C
+       delta_t_grav_Plan(k) = C_Plan(k) * DLOG(numer3 / denom3)
+       d_delta_t_grav_Plan(k) = C_Plan(k) * ( dnumer3 / numer3 -
+     -                                        ddenom3 / denom3 )
+C
+C-------------------------------------------------------------------------------
+C  KTEOR4 for debug output (/= 0)
+       kteor4 = 0
+C-------------------------------------------------------------------------------
+C  Debug output
+      If (kteor4 .NE. 0) then
+	WRITE (*,'(1x,a)') 'Debug (4) output for subroutine TEOR_DELAY'
+C
+	   WRITE (*, '(2x, A8)') Name_Pl(k)
+         WRITE(*,20) '  C_Plan(k)  ',  C_Plan(k)
+         WRITE(*,20) '  numer3     ',  numer3
+         WRITE(*,20) '  denom3     ',  denom3
+         WRITE(*,20) ' dnumer3     ',  dnumer3
+         WRITE(*,20) ' ddenom3     ',  ddenom3
+         WRITE(*,20) '  delta_t_grav_Plan    ',  delta_t_grav_Plan(k)
+         WRITE(*,20) '  d_delta_t_grav_Plan  ',  d_delta_t_grav_Plan(k)
+	pause
+C
+      Endif
+C
+      Enddo           ! Planet loop
+C
+C******************************************************************************
+C  The delay due to the Earth (Eq.2 on p.89).
+C
+       C_Earth = (1.0D0 + gamma_PPN) * GEARTH/C3
+C
+        w1 = NORM(xsta_j2000t(:,1))
+        numer4 = w1 + SCAL_PROD(K_s, xsta_j2000t(:,1))
+        w2 = NORM(xsta_j2000t(:,2))
+        denom4 = w2 + SCAL_PROD(K_s, xsta_j2000t(:,2))
+C    Derivatives:
+       dnumer4 = SCAL_PROD(xsta_j2000t(:,1),vsta_j2000t(:,1))/w1 +
+     +           SCAL_PROD(K_s, vsta_j2000t(:,1))
+       ddenom4 = SCAL_PROD(xsta_j2000t(:,2),vsta_j2000t(:,2))/w2 +
+     +           SCAL_PROD(K_s, vsta_j2000t(:,2))
+C
+       delta_t_grav_Earth = C_Earth * DLOG(numer4 / denom4)
+       d_delta_t_grav_Earth = C_Earth * ( dnumer4 / numer4 -
+     -                                    ddenom4 / denom4 )
+C
+C----------------------------------------------------------------------
+C  KTEOR4 for debug output (/= 0)
+       kteor4 = 0
+C----------------------------------------------------------------------
+C  Debug output
+      If (kteor4 .NE. 0) then
+	WRITE (*,'(1x,a)') 'Debug (4) output for subroutine TEOR_DELAY'
+C
+         WRITE(*,20) '  C_Earth    ',  C_Earth
+         WRITE(*,20) '  numer4   ',  numer4
+         WRITE(*,20) '  denom4   ',  denom4
+         WRITE(*,20) ' dnumer4     ',  dnumer4
+         WRITE(*,20) ' ddenom4     ',  ddenom4
+         WRITE(*,20) '  delta_t_grav_Earth    ',  delta_t_grav_Earth
+         WRITE(*,20) '  d_delta_t_grav_Earth  ',  d_delta_t_grav_Earth
+C
+      Endif
+C
+C**********************************************************************
+C  The total gravitational delay (Eq. 7 on p.90).
+C
+C
+        delta_t_grav_Pl   = 0.D0
+        d_delta_t_grav_Pl = 0.D0
+       do k=1,7
+        delta_t_grav_Pl   =   delta_t_grav_Pl +   delta_t_grav_Plan(k)
+        d_delta_t_grav_Pl = d_delta_t_grav_Pl + d_delta_t_grav_Plan(k)
+       enddo
+C
+       delta_t_grav = delta_t_grav_Sun + delta_t_grav_Moon +
+     +                delta_t_grav_Pl  + delta_t_grav_Earth
+C  derivative
+       d_delta_t_grav = d_delta_t_grav_Sun + d_delta_t_grav_Moon +
+     +                  d_delta_t_grav_Pl  + d_delta_t_grav_Earth
+C
+C----------------------------------------------------------------------
+C  KTEOR5 for debug output (/= 0)
+       kteor5 = 0
+C----------------------------------------------------------------------
+C  Debug output
+      If (kteor5 .NE. 0) then
+	WRITE (*,'(1x,a)') 'Debug (5) output for subroutine TEOR_DELAY'
+C
+         WRITE(*,20) '    delta_t_grav_Pl  ',   delta_t_grav_Pl
+         WRITE(*,20) '  d_delta_t_grav_Pl  ', d_delta_t_grav_Pl
+         WRITE(*,20) '    delta_t_grav     ',   delta_t_grav
+         WRITE(*,20) '  d_delta_t_grav     ', d_delta_t_grav
+C
+      Endif
+C
+C**********************************************************************
+C  The total vacuum delay (Eq. 9 on p.90) from IERS(1996) Conventions.
+C
+C  Find solar plus terrestrial potential (p.89):
+C
+       U_Sun   = GSUN/C2
+	 U_Earth = GEARTH/C2
+       R_geo = NORM(R_geocen)
+       U = U_Sun/R_geo !+ U_Earth/AE
+C   Derivative:
+       dU = -U_Sun * SCAL_PROD(R_geocen,V_geocen) / R_geo**3
+C
+C   Compute individual terms of Eqn. 9
+C
+C   Also add in term for observations close to the Sun
+       term1  =   delta_t_grav + add_grav_Sun(1)
+       dterm1 = d_delta_t_grav + add_grav_Sun(2)
+C
+       term2a = K_starB/C
+       dterm2a = dotK_starB/C
+C
+       term2b = 1.D0 - ((1.D0 + gamma_PPN) * U)
+       dterm2b = -(1.D0 + gamma_PPN) * dU
+C
+       V_Earth = NORM(Earth(:,2))
+       term2c = V_Earth**2 / (2.D0*C2)
+       dterm2c = SCAL_PROD(Earth(:,2),Earth(:,3)) / C2
+C
+       term2d   = SCAL_PROD(Earth(:,2), vsta_j2000t(:,2)) / C2
+       dterm2d = (SCAL_PROD(Earth(:,3), vsta_j2000t(:,2)) +
+     +            SCAL_PROD(Earth(:,2), asta_j2000(:,2))) / C2
+C
+C  Combine terms 2b,2c,2d
+       term2bcd = term2b - term2c - term2d
+       dterm2bcd = dterm2b - dterm2c - dterm2d
+C
+       term2  = term2a * term2bcd
+       dterm2  = term2a * dterm2bcd + dterm2a * term2bcd
+C
+       VdotB  = SCAL_PROD(Earth(:,2),base_line(:,1))
+       dVdotB = SCAL_PROD(Earth(:,3),base_line(:,1)) +
+     +          SCAL_PROD(Earth(:,2),base_line(:,2))
+C
+       KdotV  = SCAL_PROD(K_s,Earth(:,2))
+       dKdotV = SCAL_PROD(K_s,Earth(:,3))
+C
+       term3a = VdotB/C2
+       term3b = 1.D0 + KdotV/(2.D0*C)
+       term3  = term3a * term3b
+C
+       dterm3a = dVdotB/C2
+       dterm3b = dKdotV/(2.D0*C)
+       dterm3  = dterm3a*term3b +  term3a*dterm3b
+C----------------------------------------------------
+C  Calculation of numerator of Eq.9
+       numer_Eq9  = term1  - term2  - term3
+       dnumer_Eq9 = dterm1 - dterm2 - dterm3
+C----------------------------------------------------
+C  Calculation of denominator of Eq.9
+       call SUM_2VEC( Earth(:,2), vsta_j2000t(:,2), vec_sum)
+       call SUM_2VEC( Earth(:,3), asta_j2000(:,2), dvec_sum)
+c       write(*,*) Earth(1:3,2)
+c       write(*,*) vsta_j2000t(1:3,2)
+
+       den_Eq9  = 1.D0 + SCAL_PROD(K_s, vec_sum)/C
+       dden_Eq9 = SCAL_PROD(K_s, dvec_sum)/C
+C**********************************************************************
+C  The total vacuum delay (Eq. 9)                                    !*
+       tv2_tv1  = numer_Eq9/den_Eq9                                  !*
+       dtv2_tv1 = dnumer_Eq9/den_Eq9 - numer_Eq9*dden_Eq9/den_Eq9**2 !*
+C**********************************************************************
+C
+C----------------------------------------------------------------------
+C  KTEOR6 for debug output (/= 0)
+       kteor6 = 1
+C----------------------------------------------------------------------
+C  Debug output
+      If (kteor6 .NE. 0) then
+	WRITE (*,'(1x,a)') 'Debug (6) output for subroutine TEOR_DELAY'
+C
+  28    FORMAT(A, 2D25.16)
+C
+       write(*,28)' U_Sun, U_Earth   ', U_Sun, U_Earth
+       write(*,28)' U,    dU         ', U, dU
+       write(*,20)'    R_geo         ', R_geo
+       write(*,28)' term1, dterm1    ', term1, dterm1
+       write(*,28)' term2a, dterm2a  ', term2a, dterm2a
+       write(*,28)' term2b, dterm2b  ', term2b, dterm2b
+       write(*,20)'    V_Earth       ', V_Earth
+       write(*,28)' term2c, dterm2c  ', term2c, dterm2c
+       write(*,28)' term2d, dterm2d  ', term2d, dterm2d
+       write(*,28)' term2bcd, dterm2bcd  ',term2bcd, dterm2bcd
+       write(*,28)' term2, dterm2    ', term2, dterm2
+       write(*,28)' VdotB, dVdotB    ', VdotB, dVdotB
+       write(*,28)' KdotV, dKdotV    ', KdotV, dKdotV
+       write(*,28)' term3a, dterm3a  ', term3a, dterm3a
+       write(*,28)' term3b, dterm3b  ', term3b, dterm3b
+       write(*,28)' term3, dterm3    ', term3, dterm3
+       write(*,28)' numer_Eq9, dnumer_Eq9    ', numer_Eq9, dnumer_Eq9
+       write(*,28)'   den_Eq9,   dden_Eq9    ', den_Eq9, dden_Eq9
+       write(*,28)' tv2_tv1, dtv2_tv1 ',tv2_tv1, dtv2_tv1
+        call PR_ARR(' base_line ', n, 2, base_line, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' Earth ', n, 2, Earth, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' K_s ', 1, n, K_s, 1, 0,
+     *              '(D23.16)', 'Number', 'Number')
+        call PR_ARR(' vec_sum ', 1, n, vec_sum, 1, 0,
+     *              '(D23.16)', 'Number', 'Number')
+        call PR_ARR(' dvec_sum ', 1, n, dvec_sum, 1, 0,
+     *              '(D23.16)', 'Number', 'Number')
+	 pause
+      Endif
+C
+C**********************************************************************
+C  Add the geometric part of the tropospheric propogation delay
+C  to the vacuum delay (Eq.11 on p.91).
+       do j = 1, 2
+	   do k = 1, 2
+	     Datmc(j,k) =  Datmc_d(j,k) + Datmc_w(j,k)
+         enddo
+	 enddo
+C
+       CALL DIF_2VEC(vsta_j2000t(:,2),vsta_j2000t(:,1), w2_w1)
+       CALL DIF_2VEC(asta_j2000(:,2), asta_j2000(:,1),  a2_a1)
+C
+       K_dotw2w1  = SCAL_PROD(K_s, w2_w1)
+       dK_dotw2w1 = SCAL_PROD(K_s, a2_a1)
+C
+       tg2_tg1   = tv2_tv1 + Datmc(1,1) * K_dotw2w1/C
+       dtg2_tg1 = dtv2_tv1 + Datmc(1,2) * K_dotw2w1/C +
+     +                       Datmc(1,1) *dK_dotw2w1/C
+C
+C----------------------------------------------------------------------
+C  KTEOR7 for debug output (/= 0)
+       kteor7 = 1
+C----------------------------------------------------------------------
+C  Debug output
+      If (kteor7 .NE. 0) then
+	 WRITE (*,'(1x,a)') 'Debug (7) output for subroutine TEOR_DELAY'
+C
+       write(*,33)' w2_w1   ',w2_w1
+       write(*,33)' a2_a1   ',a2_a1
+       write(*,28)' K_dotw2w1, dK_dotw2w1 ', K_dotw2w1, dK_dotw2w1
+       write(*,28)' Datmc(1)  ', Datmc(1,1), Datmc(1,2)
+       write(*,28)' Datmc(2)  ', Datmc(2,1), Datmc(2,2)
+       write(*,28)' Datmc_d(1)  ', Datmc_d(1,1), Datmc_d(1,2)
+       write(*,28)' Datmc_d(2)  ', Datmc_d(2,1), Datmc_d(2,2)
+       write(*,28)' Datmc_w(1)  ', Datmc_w(1,1), Datmc_w(1,2)
+       write(*,28)' Datmc_w(2)  ', Datmc_w(2,1), Datmc_w(2,2)
+       write(*,28)' Dtau_off(1)  ', dtau_off(1,1), dtau_off(1,2)
+       write(*,28)' Dtau_off(2)  ', dtau_off(2,1), dtau_off(2,2)
+       write(*,28)' Dt_temp(1)   ', dt_temp(1,1), dt_temp(1,2)
+       write(*,28)' Dt_temp(2)   ', dt_temp(2,1), dt_temp(2,2)
+       write(*,28)' tv2_tv1, dtv2_tv1 ', tv2_tv1, dtv2_tv1
+       write(*,28)' tg2_tg1, dtg2_tg1 ', tg2_tg1, dtg2_tg1
+  33    FORMAT(A, 3D25.16)
+	pause
+      Endif
+C
+C**********************************************************************
+C  Calculation of the total delay by adding
+C  the troposphere propogation delay for each site (Eq.12 on p.91).
+C
+         t2_t1_a  =  tg2_tg1 + Datmc(1,1) + Datmc(2,1)
+         dt2_t1_a = dtg2_tg1 + Datmc(1,2) + Datmc(2,2)
+C   Add the axis offset corrections
+         t2_t1  = t2_t1_a  + dtau_off(1,1) + dtau_off(2,1) 
+     +                     + dt_temp(1,1) - dt_temp(2,1)
+         dt2_t1 = dt2_t1_a + dtau_off(1,2) + dtau_off(2,2)
+     +                     + dt_temp(1,2) - dt_temp(2,2)
+C----------------------------------------------------------------------
+C  KTEOR8 for debug output (/= 0)
+       kteor8 = 1
+C----------------------------------------------------------------------
+C  Debug output
+      If (kteor8 .NE. 0) then
+	 WRITE (*,'(1x,a)') 'Debug (8) output for subroutine TEOR_DELAY'
+C
+       write(*,28)' tv2_tv1, dtv2_tv1 ', tv2_tv1, dtv2_tv1
+       write(*,28)' tg2_tg1, dtg2_tg1 ', tg2_tg1, dtg2_tg1
+       write(*,28)' t2_t1_a, dt2_t1_a ', t2_t1_a, dt2_t1_a
+	pause
+      Endif
+C----------------------------------------------------------------------
+C  KTEOR9 for debug output (/= 0)
+       kteor9 = 1
+C----------------------------------------------------------------------
+C  Debug output
+      If (kteor9 .NE. 0) then
+	 WRITE (*,'(1x,a)') 'Debug (9) output for subroutine TEOR_DELAY'
+C
+       write(*,28)' t2_t1  , dt2_t1   ', t2_t1, dt2_t1
+	pause
+      Endif
+C
+C**********************************************************************
+C  Step Gamma: Take the partial derivatives of the delay (tg2_tg1) and the
+C              delay rate (dtg2_tg1) with respect to Gamma.
+C              [Does not include the term for observing close to the Sun.]
+C
+C      Con_part(1) = ( delta_t_grav/(1.d0+Gamma) + U*term2a ) / den_Eq9
+C      Con_part(2) =
+C     =((d_delta_t_grav/(1.d0+Gamma) + U*dterm2a + term2a*dU )/den_Eq9 )-
+C     - (dden_Eq9 /den_Eq9 **2)*( delta_t_grav/(1.d0+Gamma) + U*term2a )
+C
+C   Convert the theoretical delay to microseconds and split the double
+C   precision results into an integer microseconds portion and a
+C   submicroseconds portion.
+C      xtg2_tg1  = tg2_tg1  * 1.D6
+C      CONDEL(1) = IDINT(xtg2_tg1 )
+C      CONDEL(2) = xtg2_tg1 - CONDEL(1)
+C      CONRAT = dtg2_tg1
+C
+      RETURN
+      END

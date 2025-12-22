@@ -1,0 +1,209 @@
+       SUBROUTINE SITE_INST (xsta1, xsta2, r2000, 
+     * dxtide, dvtide, dx_octide, dv_octide, dx_poltide, dv_poltide,
+     * dx_atm, dv_atm, dx_temp, dv_temp, 
+     * xsta_j2000t, vsta_j2000t, asta_j2000)
+
+C   SUBROUTINE SITE_INST computes the site position and velocity vectors in the 2000.0
+C   geocentric system by adding the corrections for the Earth tides, the pole tide
+C   and ocean tide, atmospheric loading, temperature deformation of telescope. 
+C
+C    Input variables :  
+C       1. xsta1(3)        - The first  site geocentric position (M)
+C       2. xsta2(3)        - The second site geocentric position (M)
+C       3. r2000(3,3,3)    - The complete transformation matrix J2000.0 and
+C                            the first two CT time derivatives of
+C                            that matrix. (Unitless, 1/Sec, 1/Sec**2)
+C
+C                            All corrections are to the 2000.0 geocentric
+C                            site position and velocity vectors
+C       4. dxtide(3,2)     - The vector displacement of the sites (J=1,2) (M)
+C       5. dvtide(3,2)     - The velocity vector of the sites due to tide (M/Sec)
+C       6. dx_octide(3,2)  - The vector displacement of the sites due to ocean loading (M)
+C       7. dv_octide(3,2)  - The velocity vector of the sites due to ocean loading (M/Sec)
+C       8. dx_poltide(3,2) - The vector displacement of the sites due to pole tide (M)
+C       9. dv_poltide(3,2) - The velocity vector of the sites due to pole tide (M/Sec)
+C      10. dx_atm(3,2)     - The vector displacement of the site 
+C                            due to atmosphere loading (M)
+C      11. dv_atm(3,2)     - The velocity vector of the site 
+C                            due to atmosphere loading (M/Sec)
+C      12. dx_temp(3,2)    - The vector displacement of the site 
+C                            due to temperature deformation of telescope (M)
+C      13. dv_temp(3,2)    - The velocity vector of the site 
+C                            due to temperature deformation of telescope (M/Sec)
+C
+C    Output variables :  
+C       1. xsta_j2000t(3,2)- The site position vector in the 2000.0
+C                            geocentric system (M) 
+C       2. vsta_j2000t(3,2)- The site velocity vector in the 2000.0
+C                            geocentric system (M/Sec) 
+C       3. asta_j2000(3,2) - The site acceleration vector in the 2000.0
+C                            geocentric system (M/Sec) 
+C
+C----------------------------------------------------------------------
+C   SUBROUTINE SITE_INST was written by V.Zharov 
+C
+C   VERSION 1.0   21 May 2005
+C   
+C----------------------------------------------------------------------
+C
+      IMPLICIT None
+      Integer j, ksite1, ksite2, ksite3
+	Integer :: n=3
+C
+      Real(8) xsta1(3), xsta2(3)
+	Real(8) dxtide(3,2), dvtide(3,2), dx_octide(3,2), dv_octide(3,2)
+	Real(8) dx_poltide(3,2), dv_poltide(3,2)
+	Real(8) dx_atm(3,2), dv_atm(3,2), dx_temp(3,2), dv_temp(3,2)
+	Real(8) r2000(3,3,3)
+      Real(8) xsta_j2000t(3,2), vsta_j2000t(3,2)
+      Real(8) xsta_j2000(3,2), vsta_j2000(3,2), asta_j2000(3,2) 
+	Real(8) work1(3,2), work2(3,2), work3(3,2), work4(3,2)
+	Real(8) work5(3,2), work6(3,2), work7(3,2), work8(3,2)
+C
+C   Rotate the geocentric site 1 vectors to the J2000.0 reference system.
+        CALL MUL_ARR_VEC ( r2000(1,1,1), xsta1, xsta_j2000(1,1) )
+        CALL MUL_ARR_VEC ( r2000(1,1,2), xsta1, vsta_j2000(1,1) )
+        CALL MUL_ARR_VEC ( r2000(1,1,3), xsta1, asta_j2000(1,1) )
+C  IT IS NOT NECESSARY TO CORRECT THE J2000.0 SITE GEOCENTRIC ACCELERATION VECTORS
+C  FOR EARTH TIDAL AND OCEAN LOADING EFFECTS.)
+C
+C   Rotate the geocentric site 2 vectors to the J2000.0 reference system.
+        CALL MUL_ARR_VEC ( r2000(1,1,1), xsta2, xsta_j2000(1,2) )
+        CALL MUL_ARR_VEC ( r2000(1,1,2), xsta2, vsta_j2000(1,2) )
+        CALL MUL_ARR_VEC ( r2000(1,1,3), xsta2, asta_j2000(1,2) )
+C
+        do j = 1, 2
+C   Sum corrections of tide, ocean tide and pole tide.
+          CALL SUM_2VEC (dxtide(1,j), dx_octide(1,j),  work1(1,j) )
+	    CALL SUM_2VEC ( work1(1,j), dx_poltide(1,j), work2(1,j) )
+	    CALL SUM_2VEC ( work2(1,j), dx_atm(1,j),     work3(1,j) )
+	    CALL SUM_2VEC ( work3(1,j), dx_temp(1,j),    work4(1,j) )					  
+C
+          CALL SUM_2VEC (dvtide(1,j), dv_octide(1,j),  work5(1,j) )
+	    CALL SUM_2VEC ( work5(1,j), dv_poltide(1,j), work6(1,j) )
+	    CALL SUM_2VEC ( work6(1,j), dv_atm(1,j),     work7(1,j) )
+	    CALL SUM_2VEC ( work7(1,j), dv_temp(1,j),    work8(1,j) )
+	  enddo
+C   Add corrections for the J2000.0 geocentric site position and velocity vectors.
+        do j = 1, 2
+          CALL SUM_2VEC (xsta_j2000(1,j), work4(1,j), xsta_j2000t(1,j) )
+	    CALL SUM_2VEC (vsta_j2000(1,j), work8(1,j), vsta_j2000t(1,j) )
+	  enddo
+
+c        write(13, 355) xsta_j2000(:,1), xsta_j2000(:,2)
+  355        format( 6f17.5 )  
+C-------------------------------------------------------------------------------
+C  Ksite1 for debug output (/= 0)
+       ksite1 = 0
+C-------------------------------------------------------------------------------
+C  Debug output
+      IF (ksite1 .NE. 0) THEN
+C
+	WRITE (6,'(1x,a)') 'Debug output (1) for subroutine SITE_INST'
+C
+        call PR_ARR(' xsta1 ', 1, n, xsta1, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' xsta2 ', 1, n, xsta2, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' xsta_j2000 ', n, 2, xsta_j2000, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' vsta_j2000 ', n, 2, vsta_j2000, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' asta_j2000 ', n, 2, asta_j2000, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+C
+        call PR_ARR(' dxtide ', n, 2, dxtide, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dvtide ', n, 2, dvtide, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+C
+        call PR_ARR(' dx_octide ', n, 2, dx_octide, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dv_octide ', n, 2, dv_octide, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+	  pause
+C
+        call PR_ARR(' dx_poltide ', n, 2, dx_poltide, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dv_poltide ', n, 2, dv_poltide, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+C
+        call PR_ARR(' dx_atm ', n, 2, dx_atm, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dv_atm ', n, 2, dv_atm, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+C
+        call PR_ARR(' dx_temp ', n, 2, dx_temp, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dv_temp ', n, 2, dv_temp, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+C
+        call PR_ARR(' Summa R ', n, 2, work4, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' Summa V ', n, 2, work8, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+C
+        call PR_ARR(' xsta_j2000t ', n, 2, xsta_j2000t, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' vsta_j2000t ', n, 2, vsta_j2000t, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+	  pause
+      ENDIF
+C-------------------------------------------------------------------------------
+C  Ksite2 for debug output (/= 0)
+       ksite2 = 0
+C-------------------------------------------------------------------------------
+C  Debug output
+      IF (ksite2 .NE. 0) THEN
+C
+	WRITE (6,'(1x,a)') 'Debug output (2) for subroutine SITE_INST'
+
+        call PR_ARR(' work1 ', n, 2, work1, n, 0, 
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' work2 ', n, 2, work2, n, 0, 
+     *              '(F20.5)', 'Number', 'Number')
+	  call PR_ARR(' work3 ', n, 2, work3, n, 0, 
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' work4 ', n, 2, work4, n, 0, 
+     *              '(F20.5)', 'Number', 'Number')
+	  call PR_ARR(' work5 ', n, 2, work5, n, 0, 
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' work6 ', n, 2, work6, n, 0, 
+     *              '(F20.5)', 'Number', 'Number')
+	  call PR_ARR(' work7 ', n, 2, work7, n, 0, 
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' work8 ', n, 2, work8, n, 0, 
+     *              '(F20.5)', 'Number', 'Number')
+	pause
+      ENDIF
+
+C-------------------------------------------------------------------------------
+C  Ksite3 for debug output (/= 0)
+       ksite3 = 0
+C-------------------------------------------------------------------------------
+C  Debug output
+      IF (ksite3 .NE. 0) THEN
+C
+	WRITE (6,'(1x,a)') 'Debug output (3) for subroutine SITE_INST'
+C
+        call PR_ARR(' xsta_j2000 ', n, 2, xsta_j2000, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' xsta_j2000t ', n, 2, xsta_j2000t, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+C
+        call PR_ARR(' dx_atm ', n, 2, dx_atm, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dx_temp ', n, 2, dx_temp, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+
+c        call PR_ARR(' Summa R ', n, 2, work4, n, 0, 
+c     *              '(d23.16)', 'Number', 'Number')
+c        call PR_ARR(' Summa V ', n, 2, work8, n, 0, 
+c     *              '(d23.16)', 'Number', 'Number')
+	pause
+      ENDIF
+C
+      RETURN
+      END 
+C
+

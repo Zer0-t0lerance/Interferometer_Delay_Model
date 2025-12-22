@@ -1,0 +1,188 @@
+      SUBROUTINE TERMS_Lib (cent, f, fd, dEOP_lib )
+C
+
+C   SUBROUTINE TERMS_Lib calculates (dx,dy)_libration in v.4.0
+C
+C   According to the definition of the CIP forced motions with
+C   periods less than two days in space are not
+C   included in the IAU 2000 nutation model and therefore
+C   have to be considered using a model for the corresponding
+C   motion of the pole in the ITRS.
+C
+C   (dx,dy)_libration are the variation in pole coordinates corresponding
+C   to motion with periods less than two days in space that are
+C   not part of the IAU 2000 nutation model.
+C
+C   Only the diurnal components with amplitudes greater 
+C   than 0.5 microarcsec are given in Table 5.1a for pole coordinate and
+C   semi-diurnal components in Table 5.1b for UT1 and LOD (IERS 2010).
+
+C   THE CORRECTIONS IN X AND Y ARE IN microarcseconds
+C
+C   THESE CORRECTIONS            !!!!!!  SHOULD BE ADDED !!!!
+C   TO "AVERAGE" EOP VALUES TO GET ESTIMATES OF THE INSTANTANEOUS VALUES.
+C
+C     PARAMETERS ARE :
+C     1. cent -  The number of Julian centuries elapsed since the epoch
+C                January 1.5 2000.(Centuries)
+C     2. f(5) -  The fundamental arguments for the nutation theory.
+C                (IERS Conventions 1996) (Arcseconds),
+C     3. fd(5)-  The CT time derivatives of the fundamental arguments.
+C                (arcsec/century)
+C    Output variables:
+C     1. dEOP_lib(3,2) - Tidal corrections in UT1-UTC (Sec) 
+C                        due to libration for a non-rigid Earth
+C                        and in X and Y components of polar motion (Arcsec)
+C                        due to tidal gravitation for a nonrigid Earth
+C                        (first index) and their time derivatives
+C                        (second index) (in Sec/Sec and Arcsec/Sec)
+C-----------------------------------------------------------------------
+C   SUBROUTINE TERMS_Lib was written by V.Zharov
+C
+      Implicit None
+C
+C  n = Number of tidal terms to be used.
+      Integer, parameter :: n=11
+      Integer i, j, k, Kterm
+C
+      Real(8) f(5), fd(5), dEOP_lib(3,2)
+      Real(8) cent, sec360
+      Real(8) arg, argdot, dut, dx, dy, dutdt, dxdt, dydt
+      Real(8)	 theta, dtheta, t, t2, t3, dcent
+      Real(8) amp_XY(10,11), amp_UT(10,11)
+	Real(8) th(5)
+
+      Real(8) PI, TWOPI, HALFPI
+      Real(8) CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+	Real(8) GMSTC(5)
+
+      COMMON /MATH1/ PI, TWOPI, HALFPI
+      COMMON /MATH2/ CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+C
+      data sec360 / 1296000.0d0 /  ! Arcseconds in 360 degrees
+C
+      DATA th/ 67310.54841d0, 3155760000.d0, 8640184.812866d0,
+     *         0.093104d0, -6.2d-6 / ! Sec
+
+C
+C*****************************************************************************
+C             Table of multiples of arguments and coefficients
+C                (According Table 5.1a. IERS Convensions 2010)
+C
+C               Multiple of              Xpole         Ypole           Period
+C       l   l'  F    D  OMEGA gamma   sin    cos     sin    cos
+C                                         micro  arcsec                days
+C*****************************************************************************
+      DATA amp_XY/
+     . -1., 0., -2.,  0., -1., 1.,   -0.4,   0.3,   -0.3,   -0.4, !  1.1196992
+     . -1., 0., -2.,  0., -2., 1.,   -2.3,   1.3,   -1.3,   -2.3, !  1.1195149
+     .  1., 0., -2., -2., -2., 1.,   -0.4,   0.3,   -0.3,   -0.4, !  1.1134606
+     .  0., 0., -2.,  0., -1., 1.,   -2.1,   1.2,   -1.2,   -2.1, !  1.0759762
+     .  0., 0., -2.,  0., -2., 1.,  -11.4,   6.5,   -6.5,  -11.4, !  1.0758059
+     . -1., 0.,  0.,  0.,  0., 1.,    0.8,  -0.5,    0.5,    0.8, !  1.0347187
+     .  0., 0., -2.,  2., -2., 1.,   -4.8,   2.7,   -2.7,   -4.8, !  1.0027454
+     .  0., 0.,  0.,  0.,  0., 1.,   14.3,  -8.2,    8.2,   14.3, !  0.9972696
+     .  0., 0.,  0.,  0., -1., 1.,    1.9,  -1.1,    1.1,    1.9, !  0.9971233
+     .  1., 0.,  0.,  0.,  0., 1.,    0.8,  -0.4,    0.4,    0.8, !  0.9624365
+     .  0., 0.,  0.,  0.,  0., 0.,    0.0,  -0.0,    0.0,    0.0/ !  add to simplify
+
+C
+C                (According Table 5.1b. IERS Convensions 2010)         
+C               Multiple of             UT1            LOD         Period
+C       l   l'   F    D  OMEGA gamma  sin    cos     sin    cos
+C                                         micro  sec                days
+C*****************************************************************************
+      DATA amp_UT/
+     . -2.,  0., -2.,  0., -2., 2.,  0.05, -0.03,  -0.3,  -0.6, !  0.5377239
+     .  0.,  0., -2., -2., -2., 2.,  0.06, -0.03,  -0.4,  -0.7, !  0.5363232
+     . -1.,  0., -2.,  0., -2., 2.,  0.35, -0.20,  -2.4,  -4.1, !  0.5274312
+     .  1.,  0., -2., -2., -2., 2.,  0.07, -0.04,  -0.5,  -0.8, !  0.5260835
+     .  0.,  0., -2.,  0., -1., 2., -0.07,  0.04,   0.5,   0.8, !  0.5175645
+     .  0.,  0., -2.,  0., -2., 2.,  1.75, -1.01, -12.2, -21.3, !  0.5175251
+     .  1.,  0., -2.,  0., -2., 2., -0.05,  0.03,   0.3,   0.6, !  0.5079842
+     .  0., -1., -2.,  2., -2., 2.,  0.04, -0.03,  -0.3,  -0.6, !  0.5006854
+     .  0.,  0., -2.,  2., -2., 2.,  0.76, -0.44,  -5.5,  -9.6, !  0.5000000
+     .  0.,  0.,  0.,  0.,  0., 2.,  0.21, -0.12,  -1.5,  -2.6, !  0.4986348
+     .  0.,  0.,  0.,  0., -1., 2.,  0.06, -0.04,  -0.4,  -0.8/ !  0.4985982
+C----------------------------------------------------------------------------
+	t = cent
+      t2 = t * t
+      t3 = t * t2
+C  Compute time derivative of CENT.
+       dcent = 1.D0 / ( JUL_CENT * SECDAY )
+C  Argument Theta (Arcsec) (GMST + pi)
+      Theta = ( th(5)*t3 + th(4)*t2 +
+     +          th(3)*t + th(2)*t + th(1))*15.0d0 + sec360/2.d0
+C  Derivative dTheta/dt (Arcsec/Sec)
+      dTheta =(( 3.D0*th(5)*t2 + 2.D0*th(4)*t )*dcent +
+     +           th(3)*dcent + th(2)*dcent )*15.0d0
+C
+      dut = 0.0d0
+	dx  = 0.0d0
+      dy  = 0.0d0
+      dutdt = 0.0d0
+	dxdt  = 0.0d0
+      dydt  = 0.0d0
+C
+       k = 0
+C
+C   Sum of all terms
+      do j = 1, n
+        arg = 0.d0
+        argdot = 0.d0
+C
+        do i = 1, 5
+C   Argument of tidal term  (Arcsecond)
+           arg = arg + amp_XY(i,j)*f(i)
+C   Derivatives of the arguments (Arcsec/Sec)
+           argdot = argdot + amp_XY(i,j)*fd(i)*dcent
+        enddo
+        arg = arg + amp_XY(6,j)*Theta  ! gamma*(Theta + pi)
+        argdot = argdot + amp_XY(6,j)*dTheta
+C
+C   Conversion of argument to radians
+        arg = dmod(arg, sec360) * carcrad
+        argdot = argdot * carcrad
+C
+C   Total tides effect
+        dut = dut +  amp_UT(7,j)*dsin(arg) +  amp_UT(8,j)*dcos(arg)
+        dx  = dx  +  amp_XY(7,j)*dsin(arg) +  amp_XY(8,j)*dcos(arg)
+        dy  = dy  +  amp_XY(9,j)*dsin(arg) +  amp_XY(10,j)*dcos(arg)
+C
+C   The time derivatives of the EOP tidal corrections
+       dutdt =dutdt+(amp_UT(7,j)*dcos(arg)-amp_UT(8,j)*dsin(arg))*argdot
+       dxdt  =dxdt +(amp_XY(7,j)*dcos(arg)-amp_XY(8,j)*dsin(arg))*argdot
+       dydt  =dydt+(amp_XY(9,j)*dcos(arg)-amp_XY(10,j)*dsin(arg))*argdot
+C
+      enddo  ! j
+C
+C   Conversion of dut  to SEC, dx, dy to ARCSEC
+       dEOP_lib(1,1) = dut * 1.0d-6
+       dEOP_lib(2,1) =  dx * 1.0d-6
+       dEOP_lib(3,1) =  dy * 1.0d-6
+C   Conversion of dutdt to Sec/Sec and dxdt, dydt to Arcsec/Sec
+       dEOP_lib(1,2) = dutdt * 1.0d-6
+       dEOP_lib(2,2) =  dxdt * 1.0d-6
+       dEOP_lib(3,2) =  dydt * 1.0d-6
+C
+C--------------------------------------------------------------------
+C  Kterm for debug output (/= 0)
+       Kterm = 0
+C--------------------------------------------------------------------
+C     Check for debug output.
+      if (Kterm /= 0) then
+         WRITE(*,30)
+  30     FORMAT(1X,'Debug output for subroutine TERMS_Lib')
+  40     FORMAT(A, D25.16)
+C
+         WRITE(*,40) '    cent ', cent
+         WRITE(*,40) '   dcent ', dcent
+         WRITE(*,40) '   Theta ', Theta
+         WRITE(*,40) '  dTheta ', dTheta
+C
+        call PR_ARR(' dEOP_lib ', 3, 2, dEOP_lib, 3, 0,
+     *              '(d23.16)', 'Number', 'Number')
+      endif
+C
+      RETURN
+      END SUBROUTINE TERMS_Lib

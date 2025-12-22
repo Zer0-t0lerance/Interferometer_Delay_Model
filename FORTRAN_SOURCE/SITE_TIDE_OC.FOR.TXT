@@ -1,0 +1,233 @@
+      SUBROUTINE SITE_TIDE_OC ( j1, jd, ut1, vw_i, r2000, 
+     *                          dx_octide, dv_octide)
+C
+C   SUBROUTINE SITE_TIDE_OC computes the local site displacement and velocity
+C   due to ocean loading in J2000.0 system.
+C
+C
+C   Input variables :
+C           1. j1          -  Number of site (it is connected with the site name)
+C           2. jd          -  The Julian date at zero hours UTC of the date  (Days)
+C           3. ut1         -  The interpolated value of UT1 time of the day. (Sec)
+C           4. vw_i(3,3)   -  Transformation matrix VW from the local VEN to the 
+C                             Earth-fixed coordinate system (Unitless) for I-th site
+C           5. r2000(3,3,3)-  The complete transformation matrix from crust fixed to 
+C                             J2000.0 system and the first two CT time derivatives of
+C                             that matrix. (Unitless, 1/Sec, 1/Sec**2)
+C    Arrays:
+C    COMMON block /OCEAN/
+C                       1) AMP_OCEAN(11,3,N) - ocean loading amplitudes for 11 tides in
+C                          next order: M2  S2  N2  K2  K1  O1  P1  Q1  MF  MM SSA
+C                          at each VLBI site.(M)
+C                          J = 1,...11 - number of tide
+C                          K = 1,2,3   - Vertical, East-West, North-South components !!!!
+C                          L = 1,...N  - number of sites
+C                       2) PHS_OCEAN(11,3,N) - ocean loading phases. (Degree)
+C
+C    Output variables :  
+C       1. dx_octide(3)  - The vector displacement of the site due to ocean loading (M)
+C       2. dv_octide(3)  - The velocity vector of the site due to ocean loading (M/Sec)
+C
+C----------------------------------------------------------------------    
+C SUBROUTINE SITE_TIDE_OC was written by V.Zharov 
+C
+C   VERSION 1.0   21 May 2005
+C   
+C---------------------------------------------------------------------- 
+C
+      USE main
+      IMPLICIT None
+C
+       Integer j1, k, j, koctide 
+       Real(8) amp_ocean(11,3,n_sta), phs_ocean(11,3,n_sta)
+	 Real(8) jd, ut1, angle(11)
+       Real(8) r2000(3,3,3)
+       Real(8) drsw(3), drsw_v(3), vw_i(3,3), dx_octide(3), dv_octide(3)
+       Real(8) CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+       Real(8) work(3), dwork(3), v1(3), v2(3)
+C
+       Real(8) speed(11)
+      COMMON /tide_speed/ speed  ! from Subroutine OC_ARG
+C   SPEED(11)- Coefficients for the computation of speed of tides: (RAD/SEC)
+C                       M2, S2, N2, K2, K1, O1, P1, Q1, MF, MM, SSA.
+
+      COMMON /OCEAN/ amp_ocean, phs_ocean
+	COMMON /MATH2/ CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+C
+C   Compute the time arguments for the 11 tides
+        call OC_ARG (jd, ut1, angle)
+C
+C   Compute the topocentric displacement DRSW and DRSW_V for site due to
+C    ocean loading (for the 11 main tides in 3 directions).
+C
+C      drsw(3)  - The array of UP (I=1), EAST-WEST (I=2), and NORTH-SOUTH (I=3)
+C                 displacements due to ocean loading. (M)
+C      drsw_v(3)- The VELOCITY of site due to ocean loading. (M/S)
+C
+        Do k = 1, 3
+          drsw(k)   = 0.D0
+          drsw_V(k) = 0.D0
+          Do j = 1,11
+            drsw(k)   = drsw(k)  + amp_ocean(j,k,j1)*
+     *      dcos(angle(j)-phs_ocean(j,k,j1)*cdegrad) 
+            drsw_v(k) = drsw_v(k)- amp_ocean(j,k,j1)*
+     *      dsin(angle(j)-phs_ocean(j,k,j1)*cdegrad)*speed(j)
+          Enddo
+        Enddo
+C
+C   Change the signs on the horizontal displacements and velocities
+C   to convert the Vertical-West-South system to the Vertical-East-North system
+C
+            drsw(2)   = -drsw(2)
+            drsw(3)   = -drsw(3)
+            drsw_v(2) = -drsw_v(2)
+            drsw_v(3) = -drsw_v(3)
+C
+C  Transformation of the displacements from local VEN to the Earth-fixed coordinate system
+        call MUL_ARR_VEC (vw_i, drsw, work)
+C  Then rotate vectors from crust-fixed to J2000 system.
+       CALL MUL_ARR_VEC (r2000(1,1,1), work, dx_octide)
+C
+C  Similar transformation for velocity vector
+       CALL MUL_ARR_VEC (vw_i, drsw_v, dwork)
+C
+       CALL MUL_ARR_VEC (r2000(1,1,1), dwork, v1)
+       CALL MUL_ARR_VEC (r2000(1,1,2),  work, v2)
+       CALL SUM_2VEC  (v1, v2, dv_octide)
+C
+C-------------------------------------------------------------------------------
+C  KOCTIDE for debug output (/= 0)
+       koctide = 0
+C-------------------------------------------------------------------------------
+C  Debug output
+      IF (koctide .NE. 0) THEN
+	WRITE (*,'(1x,a)') 'Debug output for subroutine SITE_TIDE_OC'
+        call PR_ARR(' drsw ', 1, 3, drsw, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' drsw_v ',  1, 3, drsw_v, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+C
+        call PR_ARR(' Displacements DX_OC_TIDE ', 1, 3, dx_octide, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' Velocities  DV_OC_TIDE ',  1, 3, dv_octide, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+	endif
+      RETURN
+      END
+C
+C******************************************************************************
+      SUBROUTINE OC_ARG (jd, ut1, angle)
+
+C   THE SUBROUTINE OC_ARG COMPUTES THE ANGULAR ARGUMENTS
+C   FOR 11 OCEAN TIDES.
+C
+C          C A U T I O N
+C          = = = = = = =
+C          SCHWIDERSKI MODIFIES THE ANGULAR ARGUMENTS OF THE DIURNAL TERMS
+C          BY +/- 90 DEGREES. THEREFORE HIS DIURNAL PHASES CANNOT BE USED WITH
+C          THE STANDARD DOODSEN OR CARTWRIGHT CONVENTIONS.
+C
+C          Valid only after 1973!!!!!!
+C
+C   Input variables :
+C           1. jd   -  The Julian date at zero hours UTC of the date  (Days)
+C           2. ut1  -  The interpolated value of UT1 time of the day. (Sec)
+C
+C   Output variables :
+C           1. angle(11) - The angular arguments of the ocean tides in the order:
+C                           M2, S2, N2, K2, K1, O1, P1, Q1, MF, MM, SSA
+C
+C
+      IMPLICIT None
+C
+       Integer ICAPD, K, KOCARG
+       Real(8) jd, ut1, angle(11)
+       Real(8) speed(11), angfac(4,11)
+       Real(8) JD1975, CAPT, H0, S0, P0
+C
+       Real(8) PI, TWOPI, HALFPI
+	 Real(8) CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+       CHARACTER clabel(12)*3
+C
+      COMMON /MATH1/ PI, TWOPI, HALFPI
+	COMMON /MATH2/ CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+      COMMON /tide_speed/ speed
+C
+C   ANGFAC(4,11)-TABLE OF MULTIPLES OF ARGUMENTS. (UNITLESS)
+      DATA ANGFAC / 2.D0, -2.D0, 0.D0, 0.D0,
+     2              0.D0,  0.D0, 0.D0, 0.D0,
+     3              2.D0, -3.D0, 1.D0, 0.D0,
+     4              2.D0,  0.D0, 0.D0, 0.D0,
+     5              1.D0,  0.D0, 0.D0, 0.25D0,
+     6              1.D0, -2.D0, 0.D0,-0.25D0,
+     7             -1.D0,  0.D0, 0.D0,-0.25D0,
+     8              1.D0, -3.D0, 1.D0,-0.25D0,
+     9              0.D0,  2.D0, 0.D0, 0.D0,
+     A              0.D0,  1.D0,-1.D0, 0.D0,
+     1              2.D0,  0.D0, 0.D0, 0.D0 /
+C
+C   SPEED(11)- Coefficients for the computation of speed of tides: (RAD/SEC)
+C                       M2, S2, N2, K2, K1, O1, P1, Q1, MF, MM, SSA.
+      DATA SPEED / 1.40519D-4, 1.45444D-4, 1.37880D-4,
+     1             1.45842D-4, 0.72921D-4, 0.67598D-4,
+     2             0.72523D-4, 0.64959D-4, 0.053234D-4,
+     3             0.026392D-4, 0.003982D-4 /
+C   JD1975  -  THE JULIAN DATE OF JAN. 0.0 1975. (DAYS) 
+      DATA JD1975 / 2442412.5D0 /
+	DATA clabel /'   ', ' M2', ' S2', ' N2', ' K2', ' K1', ' O1', 
+     *             ' P1', ' Q1', ' MF', ' MM', 'SSA'/
+C ----------------------------------------------------------------------
+C   Compute ICAPD  -  Days since JAN 0, 0.00 UT, 1975
+      ICAPD = JD - JD1975
+C
+C   Compute CAPT  -  Julian centuries since JAN 0.5, 1900.
+      CAPT = ( 27392.500528D0 + 1.000000035D0 * ICAPD ) / JUL_CENT
+C
+C   Compute mean longitude of sun at beginning of day.
+      H0 = (279.69668D0 + (36000.768930485D0 + 3.03D-4 * CAPT) * CAPT)
+     *     * CDEGRAD
+C
+C   Compute mean longitude of moon at beginning of day.
+      S0 = ((( 1.9D-6 * CAPT - 0.001133D0 ) * CAPT + 481267.88314137D0)
+     1     * CAPT + 270.434358D0 ) * CDEGRAD
+C
+C   Compute mean longitude of lunar perigee at beginning of day.
+      P0 = ((( -1.2D-5 * CAPT - .010325D0 ) * CAPT + 4069.0340329577D0)
+     1     * CAPT + 334.329653D0 ) * CDEGRAD
+C
+
+C   Calculate the angular arguments. Run a loop over the 11 main tides.
+C
+      DO K = 1,11
+        ANGLE(K) = SPEED(K)*UT1 + ANGFAC(1,K)*H0 + ANGFAC(2,K)*S0
+     1             + ANGFAC(3,K)*P0 + ANGFAC(4,K)*TWOPI
+C
+        ANGLE(K) = DMOD( ANGLE(K), TWOPI )
+        IF( ANGLE(K) .LT. 0.D0 ) ANGLE(K) = ANGLE(K) + TWOPI
+      Enddo
+C------------------------------------------------------------------------
+C  KOCARG for debug output (/= 0)
+       KOCARG = 0
+C  Check for debug output.
+      if (KOCARG /= 0) then
+        H0 = DMOD( H0, TWOPI )
+        S0 = DMOD( S0, TWOPI )
+        P0 = DMOD( P0, TWOPI )
+        WRITE (*,30)
+  30    FORMAT (1X, 'Debug output for subroutine OC_ARG.' )
+C
+        call PR_ARR(' Angular arguments for 11 main tides', 
+     *  1, 11, angle, 1, 0, '(f21.16)', 'Number', clabel)  
+  40     FORMAT(A, D25.16)
+         WRITE(*,40) '   UT1   ', UT1
+         WRITE(*,40) '  CAPT   ', CAPT
+         WRITE(*,40) '    H0   ', H0
+         WRITE(*,40) '    P0   ', P0
+         WRITE(*,40) '    S0   ', S0
+         WRITE(*,45) ' ICAPD   ', ICAPD
+  45     FORMAT(A,I10)
+      pause
+       endif
+C
+      RETURN
+      END

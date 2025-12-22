@@ -1,0 +1,786 @@
+      SUBROUTINE TROP_DELAY11 (k, jd, ct, lat_gd1, lat_gd2, 
+     * h_geod1, h_geod2, E, Az, 
+     * Datmc_d, Datmc_w, Datmp_hmf, Datmp_wmf, Dgrad_N, Dgrad_E,
+     * Zen_dry, Zen_wet) 
+C
+C
+C  SUBROUTINE TROP_DELAY computes the total troposperic delay and delay rate as
+C  sum of the wet and dry components and a horizontal delay gradient with
+C  components G_N and G_E: 
+C  tau_total = MF_w(E)*Z_w + MF_d(E)*Z_d + [(M_g(E))_d or _f](G_N*cos(A)+G_E*sin(A)),
+C  where
+C  MF_w, MF_d are the wet and dry mapping functions depending on E that is
+C  the elevation angle of the observed source. It is calculated as apparent
+C  geodetic elevation angle (source position corrected for the annual and
+C  diurnal aberration). A is the azimuth angle in which the signal is received,
+C  measured East of North. 
+C  M_g is the gradient mapping function:
+C  Davis and MacMillan recommendation:
+C  [M_g(E)]_d= MF_d(E)*ctg(E) and [M_g(E)]_w= MF_w(E)*ctg(E)
+C  Chen and Herring recommendation:
+C   M_g(E) = 1/(sin(e)*tg(e) + 0.0032)
+C  NIELL Mapping Functions are used here.
+C
+C  DRY DELAY Z_d (in M) is calculated using the formula of Saastamoinen:
+C  Z_d = [(0.0022768+/- 0.0000005) M/mbar]*Pres/(1-0.00266*cos(2\phi)-0.00028*h)
+C  where Pres is total atmospheric pressure (mbar), 
+C           h is the height above the GEOID (km) 
+C
+C----------------------------------------------------------------------
+C
+C     Input variables:
+C       1. k               - Number of data card
+C       1. jd              - The Julian date at zero hours UTC OF THE DATE  (DAYS)
+C       2. ct              - The coordinate time fraction of the coordinate time day.
+C                             (DAYS)
+C       3. lat_gd1         - The geodetic latitude at  site 1. (RAD)
+C       4. lat_gd2         - The geodetic latitude at  site 2. (RAD)
+C       5. h_geod1         - Height of site 1 above ellipsoid (Meters)    
+C       6. h_geod2         - Height of site 2 above ellipsoid (Meters)  
+C       7. E(2,2)          - The elevation angle of the aberrated source. 
+C                            The first index runs over the sites and  the
+C                            the second over delay and rate. (Rad, Rad/Sec)
+C       8. Az(2,2)         - The azimuth angle of the aberrated source.
+C                            The first index runs over the sites and  the
+C                            the second over delay and rate. (Rad, Rad/Sec)  
+C
+C     Output variables:
+C       1. Datmc_d(2,2)    - The contributions to the delay and rate due to
+C                            dry tropospheric refraction at each site. The first
+C                            index runs over the sites and the second over the
+C                            delay and rate. (sec, sec/sec)
+C       2. Datmc_w(2,2)    - The contributions to the delay and rate due to
+C                            wet tropospheric refraction at each site. The first
+C                            index runs over the sites and the second over the
+C                            delay and rate. (sec, sec/sec)
+C       3. Datmp_hmf(2,2)  - The Niell dry atmosphere partial
+C                            derivatives of the delay and rate with respect to
+C                            the zenith path delays at each site. The first
+C                            index runs over the sites and the second runs
+C                            over the delay and rate. (sec,sec/sec)
+C       4. Datmp_wmf(2,2)  - The Niell wet atmosphere partial
+C                            derivatives of the delay and rate with respect to
+C                            the zenith path delays at each site. The first
+C                            index runs over the sites and the second runs
+C                            over the delay and rate. (sec,sec/sec)
+C       5. Dgrad_N(2,2)    - The contributions to the delay and rate due to 
+C                            horizontal delay gradient with component G_N.
+C                            The first index runs over the sites and
+C                            the second over the delay and rate. (sec, sec/sec) 
+C       6. Dgrad_E(2,2)    - The contributions to the delay and rate due to
+C                            horizontal delay gradient with component G_E.
+C                            The first index runs over the sites and
+C                            the second over the delay and rate. (sec, sec/sec)
+C       7. Zen_dry(2,2)    - The zenith dry delays at each site 
+C                            and their variations with time. The first
+C                            index runs over the sites and the second runs
+C                            over the delay and rate. (sec,sec/sec)
+C       8. Zen_wet(2,2)    - The zenith wet delays at each site 
+C                            and their variations with time. The first
+C                            index runs over the sites and the second runs
+C                            over the delay and rate. (sec,sec/sec)
+C----------------------------------------------------------------------
+C   SUBROUTINE TROP_DELAY was written by V.Zharov 
+C
+C   VERSION 1.0   21 May 2005
+C
+C   Operators 173-177: 
+C   A priori meteo values are used in Version 1.0 
+C   It was done ONLY for comparison with CALC
+C
+C   VERSION 1.1   04 September 2005
+C   Real meteoparameters were used for calculation of the mapping functions
+C----------------------------------------------------------------------
+      USE main
+C
+      IMPLICIT None
+C  
+      Integer, parameter :: n=3   
+      Integer j, k, ktrop1, ktrop2, ktrop3
+C
+      Real(8) lat_gd1, lat_gd2, h_geod1, h_geod2
+	Real(8) jd, ct, E(2,2), Az(2,2)
+      Real(8) epoch, work1(3,3), work2(3), work3(3)
+	Real(8) tc(2), pres(2), humid(2), lat_gd(2), h_g(2)
+	Real(8) hmf(2), wmf(2), Datmp_hmf(2,2), Datmp_wmf(2,2)
+	Real(8) Dgrad_N(2,2), Dgrad_E(2,2)
+	Real(8) dotR, dotT, dotP, X, dXdh, dPdh, Z_d, dotZ_d, dZ_ddh
+      Real(8) Z_w, dotZ_w
+      Real(8) Zen_dry(2,2), Zen_wet(2,2)
+      Real(8) Datmc_d(2,2), Datmc_w(2,2),dATMCdh(2,2)
+	Real(8) N_air(2), C_l, denom
+C
+	Real(8) C, F, AE, AU 
+	Real(8) CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+      COMMON /PHYS/ C, F, AE, AU 
+      COMMON /MATH2/ CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+C-------------------------------------------------------------------------------
+C  Beginning
+C-------------------------------------------------------------------------------
+C  Copy METEO parameters                        
+          tc(1)    = nscan(k)%t1  
+          pres(1)  = nscan(k)%p1  
+		humid(1) = nscan(k)%e1  
+          tc(2)    = nscan(k)%t2  
+          pres(2)  = nscan(k)%p2  
+          humid(2) = nscan(k)%e2  
+c          nscan(k)%kw1 = kw1
+c          nscan(k)%kw2 = kw2
+C  Copy of SITE parameters
+          lat_gd(1) = lat_gd1
+		lat_gd(2) = lat_gd2
+	    h_g(1) = h_geod1
+	    h_g(2) = h_geod2
+C
+       epoch = jd + ct
+       
+C   Loop on sites
+C
+       do j = 1, 2                    
+C
+C  Now do Arthur Niell's mapping functions:
+        call NHMF2(epoch, lat_gd(j), h_g(j), E(j,1), hmf)
+        call NWMF2(lat_gd(j), E(j,1), wmf)
+C  Partials with respect to zenith path delays:
+      if( j == 1) then                      ! reverse sign for station 1
+        Datmp_hmf(j,1) = -hmf(1)            ! hydrostatic mapping function
+        Datmp_hmf(j,2) = -hmf(2)*E(j,2)     ! derivative of above w.r.t. elev.
+        Datmp_wmf(j,1) = -wmf(1)            ! wet mapping function
+        Datmp_wmf(j,2) = -wmf(2)*E(j,2)     ! derivative of above w.r.t. elev.
+      else
+        Datmp_hmf(j,1) = +hmf(1)            ! hydrostatic mapping function
+        Datmp_hmf(j,2) = +hmf(2)*E(j,2)     ! derivative of above w.r.t. elev.
+        Datmp_wmf(j,1) = +wmf(1)            ! wet mapping function
+        Datmp_wmf(j,2) = +wmf(2)*E(j,2)     ! derivative of above w.r.t. elev.
+      endif
+     
+C
+C  Atmosphere gradient partials using Chen and Herring recommendation
+C---------------------------
+C        Delay terms
+       denom = DSIN(E(j,1))*DTAN(E(j,1))+0.0032d0
+
+       Dgrad_N(j,1) = DCOS(Az(j,1)) / denom   !North
+       Dgrad_E(j,1) = DSIN(Az(j,1)) / denom   !East
+C        Rate terms
+       Dgrad_N(j,2) =
+     =  -DSIN(Az(j,1))/denom*Az(j,2)
+     -  -DCOS(Az(j,1))/denom**2 *E(j,2)*DTAN(E(j,1))*(2.d0-DTAN(E(j,1)))
+C
+       Dgrad_E(j,2) = 
+     =   DCOS(Az(j,1))/denom*Az(j,2)
+     -  -DSIN(Az(j,1))/denom**2 *E(j,2)*DTAN(E(j,1))*(2.d0-DTAN(E(j,1)))
+C
+       
+C  Atmosphere gradient partials using Davis and MacMillan recommendation
+C---------------------------
+C  They are depend on the wet mapping function
+cc       Dgrad_N(j,1) = DCOS(Az(j,1)) / DTAN(E(j,1)) * Datmp_wmf(j,1)  !North
+cc       Dgrad_E(j,1) = DSIN(Az(j,1)) / DTAN(E(j,1)) * Datmp_wmf(j,1)  !East
+C        Rate terms
+cc       Dgrad_N(j,2) =
+cc     =  -DSIN(Az(j,1))/DTAN(E(j,1))   *Datmp_wmf(j,1)*Az(j,2)
+cc     -  -DCOS(Az(j,1))/DSIN(E(j,1))**2*Datmp_wmf(j,1)* E(j,2) 
+cc     +  +DCOS(Az(j,1))/DTAN(E(j,1))   *Datmp_wmf(j,2)
+C
+cc       Dgrad_E(j,2) = 
+cc     =  +DCOS(Az(j,1))/DTAN(E(j,1))   *Datmp_wmf(j,1)*Az(j,2) 
+cc     -  -DSIN(Az(j,1))/DSIN(E(j,1))**2*Datmp_wmf(j,1)* E(j,2) 
+cc     +  +DSIN(Az(j,1))/DTAN(E(j,1))   *Datmp_wmf(j,2)
+C
+C  ------------------------------------------------------------------
+C  A priori computed meteo values:
+cc        tc(j) = 293.15D0 - (6.5D-3)*h_g(j) - 273.16D0     
+        X = 1.D0 - (6.5D-3)*h_g(j) / 293.15D0
+cc        pres(j) = 1013.25D0 * (X**5.26D0)
+cc	  humid(j) = 50.D0
+cc	  N_air(j) = 1.d0
+C    Compute index of refraction in air at each site
+        N_air(j)=77.6D-6*pres(j)/(tc(j)+273.15D0) + 1.D0
+C  ------------------------------------------------------------------
+	  C_l = C !/ N_air(j)
+C
+C  Set rates of change of temperature, pressure and rel.humidity to zero.
+C  Later I try to calculate them
+	 dotT = 0.D0
+       dotP = 0.D0
+       dotR = 0.D0 
+C  Take partials with respect to height
+       dXdh = - 6.5D-3 / 293.15D0
+       dPdh = 1013.25D0 * 5.26 * (X**4.26D0) * dXdh
+C
+C  Compute zenith dry and wet delays
+       call SAST_DRY (pres(j), dotP, lat_gd(j), h_g(j),
+     *                dPdh, Z_d, dotZ_d, dZ_ddh)
+       call SAST_WET (humid(j),tc(j),dotR,dotT,Z_w,dotZ_w)
+
+C
+       Zen_dry(j,1) = Z_d    / C_l
+       Zen_dry(j,2) = dotZ_d / C_l
+       Zen_wet(j,1) = Z_w    / C_l
+       Zen_wet(j,2) = dotZ_w / C_l
+C
+C  Find atmosphere contribution partial with respect to height (sec/meter) and
+C  its time derivative
+       dATMCdh(j,1) = Datmp_hmf(j,1) * dZ_ddh / C_l 
+       dATMCdh(j,2) = Datmp_hmf(j,2) * dZ_ddh / C_l
+C
+      Enddo                                          ! Loop over sites
+C
+C-------------------------------------------------------------------------------
+C  KTROP2 for debug output (/= 0)
+       ktrop2 = 1
+C-------------------------------------------------------------------------------
+C   Check for debug output.
+      IF ( ktrop2 .ne. 0 )  Then
+cc      IF ( k == 630 )  Then
+	WRITE (*,'(1x,a)') 'Debug (3) output for subroutine TROP_DELAY'
+C
+  20     format(a, 2d23.16 )
+  21     format(a,  d23.16 )
+C
+         WRITE(*,20) '  tc(1), tc(2)      ', tc(1), tc(2) 
+         WRITE(*,20) '  pres(1),pres(2)   ', pres(1), pres(2)
+         WRITE(*,20) '  humid(1),humid(2) ', humid
+C
+         WRITE(*,21) '  epoch    ', epoch 
+         WRITE(*,20) '  lat_gd(1),lat_gd(2) ', lat_gd(1),lat_gd(2)
+         WRITE(*,20) '  h_g(1),h_g(2)       ', h_g(1),h_g(2)
+         WRITE(*,20) '  E(1,1),E(2,1)       ', E(1,1),E(2,1)
+C
+c         WRITE(*,20) '  hmf(1), hmf(2)    ', hmf(1), hmf(2) 
+c         WRITE(*,20) '  wmf(1), wmf(2)    ', wmf(1), wmf(2) 
+         WRITE(*,20) ' Z_d(1),Z_d(2)', 
+     *   Zen_dry(1,1)*C,Zen_dry(2,1)*C 
+         WRITE(*,20) ' Z_w(1),Z_w(2)', 
+     *   Zen_wet(1,1)*C,Zen_wet(2,1)*C
+C
+        call PR_ARR(' Datmp_hmf ', 2, 2, Datmp_hmf, 2, 0, 
+     *              '(D25.16)', 'Number', 'Number')
+        call PR_ARR(' Datmp_wmf ', 2, 2, Datmp_wmf, 2, 0, 
+     *              '(D25.16)', 'Number', 'Number')
+        call PR_ARR(' DGrad_N ', 2, 2, DGrad_N, 2, 0, 
+     *              '(D25.16)', 'Number', 'Number')
+        call PR_ARR(' DGrad_E ', 2, 2, DGrad_E, 2, 0, 
+     *              '(D25.16)', 'Number', 'Number')
+        call PR_ARR(' Zen_dry ', 2, 2, Zen_dry, 2, 0, 
+     *              '(D25.16)', 'Number', 'Number')
+        call PR_ARR(' Zen_wet ', 2, 2, Zen_wet, 2, 0, 
+     *              '(D25.16)', 'Number', 'Number')
+c        call PR_ARR(' dATMCdh ', 2, 2, dATMCdh, 2, 0, 
+c     *              '(D25.16)', 'Number', 'Number')
+        call PR_ARR(' N_air ', 1, 2, N_air, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+	  pause
+C
+      Endif
+C
+C  Store the Niell dry and wet atmosphere delays for use elsewhere: 
+C   
+      Do j=1,2                                         ! Loop over sites
+C
+       Datmc_d(j,1) = Datmp_hmf(j,1) * Zen_dry(j,1)
+       Datmc_d(j,2) = Datmp_hmf(j,2) * Zen_dry(j,1)
+     +              + Datmp_hmf(j,1) * Zen_dry(j,2)
+       Datmc_w(j,1) = Datmp_wmf(j,1) * Zen_wet(j,1)
+       Datmc_w(j,2) = Datmp_wmf(j,2) * Zen_wet(j,1)
+     +              + Datmp_wmf(j,1) * Zen_wet(j,2)
+C
+      Enddo                                            ! Loop over sites
+C-------------------------------------------------------------------------------
+C  KTROP3 for debug output (/= 0)
+       ktrop3 = 1
+C-------------------------------------------------------------------------------
+C   Check for debug output.
+      IF ( ktrop3 .ne. 0 )  Then
+cc      IF ( k == 630 )  Then
+	WRITE (*,'(1x,a)') 'Debug (4) output for subroutine TROP_DELAY'
+C
+        WRITE(*,26) '  epoch    ', nscan(k)%mjd+nscan(k)%utc
+        WRITE(*,*)  nscan(k)%sta1, nscan(k)%sta2, nscan(k)%sou
+        WRITE(*,26) '  E(1,1),E(2,1) ', E(1,1)/CDEGRAD,E(2,1)/CDEGRAD
+        call PR_ARR(' Zen_dry ', 2, 2, Zen_dry, 2, 0, 
+     *              '(D25.16)', 'Number', 'Number')
+        call PR_ARR(' Zen_wet ', 2, 2, Zen_wet, 2, 0, 
+     *              '(D25.16)', 'Number', 'Number')
+        call PR_ARR(' Datmp_hmf ', 2, 2, Datmp_hmf, 2, 0, 
+     *              '(D25.16)', 'Number', 'Number')
+        call PR_ARR(' Datmp_wmf ', 2, 2, Datmp_wmf, 2, 0, 
+     *              '(D25.16)', 'Number', 'Number')
+        call PR_ARR(' Datmc_d ', 2, 2, Datmc_d, 2, 0, 
+     *              '(D25.16)', 'Number', 'Number')
+        call PR_ARR(' Datmc_w ', 2, 2, Datmc_w, 2, 0, 
+     *              '(D25.16)', 'Number', 'Number')
+         WRITE(*,20) ' Datmc_d ',  Datmc_d(1,1)*C, Datmc_d(2,1)*C 
+         WRITE(*,20) ' Datmc_w ',  Datmc_w(1,1)*C, Datmc_w(2,1)*C
+c         WRITE(*,20) ' N_air(1),N_air(2)', N_air(1),N_air(2)
+      write(*,26) ' Z_tot_1 (ns)',Zen_dry(1,1)*1.d9, Zen_wet(1,1)*1.d9
+      write(*,26) ' Z_tot_2 (ns)',Zen_dry(2,1)*1.d9, Zen_wet(2,1)*1.d9
+      write(*,26) ' Z_tot_1 (m)',Zen_dry(1,1)*c, Zen_wet(1,1)*c
+      write(*,26) ' Z_tot_2 (m)',Zen_dry(2,1)*c, Zen_wet(2,1)*c
+C
+      write(*,26) ' Total_1 (ns)',(Datmc_d(1,1)+Datmc_w(1,1))*1.d9
+      write(*,26) ' Total_2 (ns)',(Datmc_d(2,1)+Datmc_w(2,1))*1.d9
+ 26     format(a, 2f15.4 )
+        pause
+      Endif
+C
+C
+      RETURN
+      END
+C
+C******************************************************************************
+      Subroutine NHMF2(epoch,latitude,height,elev,hmf)
+C
+C  Routine to compute the hydrostatic mapping function nhmf2 which depends on
+C  the day of the year (DOY), station latitude, and height above the geoid.
+C
+C  CAUTION!!! Really  height  is Height of site above 
+C  reference-ellipsoid (in meters) that was defined in Subroutine SITE
+C
+C       Input variables:
+C          1. epoch      - Julian date of observation, used to get day of year
+C          2. latitude   - The geocentric site latitude (Radians)
+C          3. height     - Height of site above geoid (Meters)    !!!! NOTE
+C          4. elev       - Apparent geodetic elevation angle 
+C                          (source position corrected for the annual and
+C                           diurnal aberration) (Radians)
+C
+C       Output variables:
+C          1. hmf(2)      - delay mapping function and derivative
+C                           d_mapping_function/d_elevation (dhmf2/d_el) (unitless)
+      Implicit none
+C
+      Integer i, KATMD
+C
+      Real(8) a,b,c, beta, cose, hmf(2), gamma, sine, topcon
+      Real(8) epoch, doy, latitude,latituded, height, elev
+      Real(8) hs_km, l, dl, doy_atm, doyr_atm, cost
+      Real(8) lat_hmf(5), abc_avg(5,3), abc_amp(5,3), a_ht, b_ht, c_ht
+	Real(8) aavg, aamp, bavg, bamp, cavg, camp
+      Real(8) daavg, daamp, dbavg, dbamp, dcavg, dcamp
+      Real(8) ht_corr_coef, ht_corr
+      Real(8) dhmf_ht_del, dht_corr_coef_del, dht_corr_del     
+	Real(8) CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+      Real(8) PI, TWOPI, HALFPI
+C
+      COMMON /MATH1/ PI, TWOPI, HALFPI
+	COMMON /MATH2/ CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+C
+C   Define parameters used for calculating coefficients.
+C   lat_hmf(5)  - Latitudes at which coefficients are defined
+      Data lat_hmf / 15.D0, 30.D0, 45.D0, 60.D0, 75.D0/
+C	
+C   abc_avg     - Continued fraction coefficients at latitudes lat_hmf
+      Data abc_avg /
+     .1.2769934D-3,1.2683230D-3,1.2465397D-3,1.2196049D-3,1.2045996D-3,
+     .2.9153695D-3,2.9152299D-3,2.9288445D-3,2.9022565D-3,2.9024912D-3,
+     .62.610505D-3,62.837393D-3,63.721774D-3,63.824265D-3,64.258455D-3/
+C
+C   abc_amp     - Amplitude of annual variation of abc_avg
+      Data abc_amp /
+     .  0.0D0, 1.2709626D-5, 2.6523662D-5, 3.4000452D-5, 4.1202191D-5,
+     .  0.0D0, 2.1414979D-5, 3.0160779D-5, 7.2562722D-5, 11.723375D-5,
+     .  0.0D0, 9.0128400D-5, 4.3497037D-5, 84.795348D-5, 170.37206D-5/
+C
+C   a_ht, b_ht, c_ht - Parameters for continued fraction for height corr'n.
+      Data a_ht / 2.53D-5/
+     .     b_ht / 5.49D-3/
+     .     c_ht / 1.14D-3/
+C
+C   Convert height in meters to kilometers
+      hs_km  = height/1000.d0
+C
+C   If Julian date is used for epoch, then calculate day of year;
+C   use 1980 Jan 0 as reference epoch.
+      doy = epoch - 2444238.5d0
+C
+C   To account for the six month difference in seasons between hemispheres,
+C   add 365.25/2 days to doy if station is in the southern hemisphere.
+      latituded = latitude/CDEGRAD                ! convert to degrees
+      l = dabs(latituded)
+      if (latituded < 0.d0) doy = doy + 365.25d0/2.d0
+C
+C  Use phase of 28 days (winter extremum corresponds to Jan 28)
+C  based on least-square fit to raytrace
+      doy_atm  = doy - 28.d0
+C  convert to radians
+      doyr_atm = doy_atm * TWOPI/365.25d0
+C
+      cost = dcos(doyr_atm)
+C
+C   Coefficients for the continued fraction expansion for each latitude.
+C   a,b,c       - the a,b,and c coeffiecents in the continued fraction
+C                 form of Marini
+C   For latitudes less than 15 degrees:
+      if (l <= lat_hmf(1)) then
+         a = abc_avg(1,1)
+         b = abc_avg(1,2)
+         c = abc_avg(1,3)
+      endif
+C
+C   For latitudes between 15 and 75  degrees:
+C   daavg, daamp, etc - Incremental values for interpolation
+C   aavg,  aamp,  etc - Average and amplitude at latitude
+C
+      do i = 1,4
+          if (l > lat_hmf(i) .and. l <= lat_hmf(i+1)) then
+             dl = (l-lat_hmf(i))/(lat_hmf(i+1)-lat_hmf(i))
+             daavg =   abc_avg(i+1,1)-abc_avg(i,1)
+             daamp =   abc_amp(i+1,1)-abc_amp(i,1)
+             aavg  =   abc_avg(i,1) + dl*daavg
+             aamp  =   abc_amp(i,1) + dl*daamp
+             a     = aavg - aamp*cost
+C
+             dbavg =   abc_avg(i+1,2)-abc_avg(i,2)
+             dbamp =   abc_amp(i+1,2)-abc_amp(i,2)
+             bavg  =   abc_avg(i,2) + dl*dbavg
+             bamp  =   abc_amp(i,2) + dl*dbamp
+             b     = bavg - bamp*cost
+C
+             dcavg =   abc_avg(i+1,3)-abc_avg(i,3)
+             dcamp =   abc_amp(i+1,3)-abc_amp(i,3)
+             cavg  =   abc_avg(i,3) + dl*dcavg
+             camp  =   abc_amp(i,3) + dl*dcamp
+             c     = cavg - camp*cost
+C
+          endif
+      end do
+C
+C   for latitudes greater than 75 degrees:
+      if (l >= lat_hmf(5)) then
+         a = abc_avg(5,1)
+         b = abc_avg(5,2)
+         c = abc_avg(5,3)
+      endif
+C
+C   Now the coefficients exist; calculate the mapping function, hmf(1), and the
+C   change of mapping function with elevation, dhmf/d_el = hmf(2).
+C   To get delay-rate correction d_tau/dt:
+C      d_tau/dt = d_tau-zen/dt*hmf(1) + tau-zen*dhmf/d_el*d_el/dt
+C
+      sine   = dsin(elev )
+      cose   = dcos(elev )
+      beta   = b/(sine + c )
+      gamma  = a/(sine + beta)
+C   topcon      - constant of top of mapping function to ensure
+C                 that value is 1.0000 at zenith
+      topcon = (1.d0 + a/(1.d0 + b/(1.d0 + c)))
+C
+      hmf(1) = topcon / ( sine + gamma )
+C
+      hmf(2) = -topcon / ( sine + gamma )**2 *
+     .            ( cose - a/( sine + beta)**2 * cose *
+     .            ( 1.d0 - b/( sine + c )**2 ) )
+C
+C   Apply height correction to mapping function only
+C         (not to dmf/d_el since this is a small correction):
+C      1) height correction coefficient is
+C         1/sine(elev) - continued fraction(a_ht,b_ht,c_ht).
+C      2) height correction is ht_corr_coef times height in km.
+C
+      beta   = b_ht/( sine + c_ht )
+      gamma  = a_ht/( sine + beta)
+      topcon = (1.d0 + a_ht/(1.d0 + b_ht/(1.d0 + c_ht)))
+      ht_corr_coef = 1/sine - topcon/(sine + gamma)
+      ht_corr      = ht_corr_coef * hs_km
+      hmf(1)       = hmf(1) + ht_corr
+C
+C     Calculate the component of d hmf/ d el    due to ht_corr.
+
+      dhmf_ht_del = (-topcon*cose/( sine + gamma)**2)
+     *            * (1.d0 -  (a_ht/( sine + beta )**2)
+     *            * (1.d0 -  (b_ht/( sine + c_ht )**2) ) )    
+C
+      dht_corr_coef_del = -cose/sine**2 - dhmf_ht_del          
+      dht_corr_del      = dht_corr_coef_del * hs_km            
+      hmf(2)            = hmf(2) + dht_corr_del                
+C
+C-------------------------------------------------------------------------------
+C  KATMD for debug output (/= 0)
+       KATMD = 0
+C-------------------------------------------------------------------------------
+C     Check for debug output.
+      IF ( KATMD .ne. 0 )  Then
+        WRITE ( 6, 9100 )
+ 9100   FORMAT (1X, "Debug output for subroutine NHMF2." )
+    8   FORMAT(A,4D25.16/(7X,5D25.16))
+        write(*,'("doy, doy_atm, doyr_atm = ", 3f20.9)') doy, doy_atm,
+     .       doyr_atm
+        WRITE(6,8)' epoch, elev    ', epoch, elev
+        WRITE(6,8)' Height, hs_km  ', Height, hs_km
+        WRITE(6,8)' Latitude, Latituded ', Latitude, Latituded
+        WRITE(6,8)' a, b, c ', a, b, c
+        write(*,'("sine, cose, beta, gamma, topcon = ", 5f10.5)')
+     .             sine, cose, beta, gamma, topcon
+        write(6,8)' ht_corr_coef, ht_corr ', ht_corr_coef, ht_corr
+        WRITE(6,8)' dhmf_ht_del       ', dhmf_ht_del
+        WRITE(6,8)' dht_corr_coef_del ', dht_corr_coef_del
+        WRITE(6,8)' dht_corr_del      ', dht_corr_del
+        write(6,8)' hmf(1), hmf(2)    ', hmf
+      Endif
+C
+      Return
+      End
+C
+C******************************************************************************
+      Subroutine NWMF2(latitude, elev, wmf) 
+C
+C   Routine to compute the new wet WMF2.0 mapping function which depends
+C   only on latitude and elevation.
+C
+C   Input variables:
+C          1. latitude   - The geocentric site latitude (Radians)
+C          2. elev       - Apparent geodetic elevation angle 
+C                          (source position corrected for the annual and
+C                           diurnal aberration) (Radians)
+C   Output variables:
+C       1. wmf(2) - Wet delay mapping function and derivative of the wet 
+C                   delay mapping function (wmf(1) with respect to elevation.
+C
+C   Program variables:
+C       1. a,b,c      - The a,b,and c coefficients in the continued fraction
+C                       form of Marini
+C       2. beta       - Intermediate term in calculation
+C       3. gamma      - Intermediate term in calculation
+C       4. sine       - Sine of elevation angle
+C       5. cose       - Cos of elevation angle
+C       6. topcon     - Constant of top of mapping fuinction to ensure
+C                       value is 1.0000 at zenith
+C       7. latituded  - latitude (degrees)
+C       8. l          - absolute latitude
+C       9. dl         - incremental latitude from last lat_wmf
+C      10. dl,da,db,dc- used for interpolation
+C
+      Implicit None
+C
+      Integer i, KATMD
+      Real(8) a,b,c, beta, cose, wmf(2), gamma, sine, topcon
+      Real(8) lat_wmf(5), abc_w2p0(5,3)
+      Real(8) dl, da, db, dc
+      Real(8) latitude, latituded, l, elev
+	Real(8) CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+C
+	COMMON /MATH2/ CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+C
+C
+C   Define parameters used for calculating coefficients.
+      Data lat_wmf / 15.D0, 30.D0, 45.D0, 60.D0, 75.D0/
+C
+C   Coefficients are from fits to raytraces of the standard atmospheres
+C   for July for latitudes 15, 45, 60, and 75 degrees latitude and for
+C   January for 30 degrees latitude (930517).
+      Data abc_w2p0 /
+     . 5.8021897D-4,5.6794847D-4,5.8118019D-4,5.9727542D-4,6.1641693D-4,
+     . 1.4275268D-3,1.5138625D-3,1.4572752D-3,1.5007428D-3,1.7599082D-3,
+     . 4.3472961D-2,4.6729510D-2,4.3908931D-2,4.4626982D-2,5.4736038D-2/
+C
+      latituded = latitude/CDEGRAD             ! convert to degrees
+      l = dabs(latituded)
+C
+C   Coefficients for the continued fraction expansion for each latitude.
+C
+C   for latitudes less than 15 degrees:
+      if (l <= lat_wmf(1)) then
+         a = abc_w2p0(1,1)
+         b = abc_w2p0(1,2)
+         c = abc_w2p0(1,3)
+      endif
+C
+C   for latitudes between 15 and 75  degrees:
+      do i = 1,4
+          if (l > lat_wmf(i) .and. l <= lat_wmf(i+1)) then
+             dl = (l-lat_wmf(i))/(lat_wmf(i+1)-lat_wmf(i))
+             da  =   abc_w2p0(i+1,1)-abc_w2p0(i,1)
+             a   =   abc_w2p0(i,1) + dl*da
+C
+             db  =   abc_w2p0(i+1,2)-abc_w2p0(i,2)
+             b   =   abc_w2p0(i,2) + dl*db
+C
+             dc  =   abc_w2p0(i+1,3)-abc_w2p0(i,3)
+             c   =   abc_w2p0(i,3) + dl*dc
+C
+          endif
+      end do
+C
+C   for latitudes greater than 75 degrees:
+      if (l >= lat_wmf(5)) then
+         a = abc_w2p0(5,1)
+         b = abc_w2p0(5,2)
+         c = abc_w2p0(5,3)
+      endif
+C
+C   Now the coefficients exist; calculate the mapping function, wmf(1), and the
+C    change of mapping function with elevation, dwmf/d_el =wmf(2).
+C   To calculate the delay-rate correction, d_tau/dt:
+C       d_tau/dt = d_tau_zen/dt * wmf(1) + tau_zen * dwmf/d_el * d_el/dt
+C
+      sine  = sin( elev )
+      cose  = cos( elev )
+      beta  = b/( sine + c )
+      gamma = a/( sine + beta)
+      topcon = (1.d0 + a/(1.d0 + b/(1.d0 + c)))
+C
+      wmf(1) = topcon / ( sine + gamma )
+C
+      wmf(2) = -topcon / ( sine + gamma )**2 *
+     .         ( cose - a/( sine + beta)**2 * cose *
+     .         ( 1.d0 - b/( sine + c )**2 ) )
+C
+C-------------------------------------------------------------------------------
+C  KATMD for debug output (/= 0)
+       KATMD = 0
+C-------------------------------------------------------------------------------
+C     Check for debug output.
+      IF ( KATMD .ne. 0 )  Then
+        WRITE ( 6, 9100 )
+ 9100   FORMAT (1X, "Debug output for subroutine NWMF2." )
+    8   FORMAT(A,4D25.16/(7X,5D25.16))
+        WRITE(6,8)' latitude, elev ', latitude, elev
+        WRITE(6,8)' a, b, c        ', a, b, c
+        WRITE(6,8)' dl, da, db, dc ', dl, da, db, dc
+        write(*,'("sine, cose, beta, gamma, topcon = ", 5f10.5)')
+     .           sine, cose, beta, gamma, topcon
+         write(6,8)' wmf(1), wmf(2) ', wmf
+      Endif
+C
+      return
+      end
+C************************************************************************
+      SUBROUTINE SAST_DRY(Pres, dotPres, lat_geod, height, dPdh,
+     *                    Z_d, dotZ_d, dZ_ddh)
+C
+C  SUBROUTINE SAST_DRY calculate zenith delay for "hydrostatic" component 
+C  of the atmosphere using Saastamoinen formulation and constants from Davis et al.
+C
+C    Input Variables:
+C      1. Pres      - Pressure. (mbar)
+C      2. dotPres   - Rate of change of pressure. (mbar/sec)
+C      3. lat_geod  - The geodetic latitude at  site. (RAD) 
+C      4. height    - Height of station above geoid. (meters)
+C      5. dPdh      - Derivative of pressure with respect to station height.
+C
+C    Output Variables:
+C      1. Z_d       - Zenith delay of "hydrostatic" component. (meters)
+C      2. dotZ_d    - Rate of change of zenith delay. (meters/second)
+C      3. dZ_ddh    - Derivative of ZD with respect to station height.
+C
+      IMPLICIT None
+C
+      Integer KSD
+      Real(8) Pres, dotPres, lat_geod, height, dPdh
+      Real(8) Z_d, dotZ_d, dZ_ddh
+C
+      Real(8) F, dFdh
+C
+C  Calculate variation of gravity with station position.
+C
+      F = 1.0D0 - 0.00266D0*DCOS(2.0D0*lat_geod) -
+     -            0.00028D0*height*1.d-3            !height in km
+      Z_d = 0.0022768D0 * Pres / F
+      dotZ_d = Z_d * dotPres / Pres
+C
+C  Partials with respect to height 
+      dFdh = -2.8D-7
+      dZ_ddh = 0.0022768D0 * (dPdh  - Pres*dFdh/F) / F
+C
+C-------------------------------------------------------------------------------
+C  KSD for debug output (/= 0)
+       KSD = 0
+C-------------------------------------------------------------------------------
+C   Check for debug output.
+      IF ( KSD .ne. 0 )  Then
+	WRITE (*,'(1x,a)') 'Debug output for subroutine SAST_DRY'
+C
+  20     FORMAT(A, 2D25.16)
+  25     FORMAT(A,  D25.16)
+         WRITE(*,20) '  Pres, dotPres     ', Pres, dotPres
+         WRITE(*,20) '  lat_geod, height  ', lat_geod, height
+         WRITE(*,25) '  dPdh  ', dPdh
+         WRITE(*,20) '  Z_d, dotZ_d       ', Z_d, dotZ_d 
+         WRITE(*,25) '  dZ_ddh  ', dZ_ddh
+C
+      Endif
+C
+      RETURN
+      END SUBROUTINE SAST_DRY
+C
+C******************************************************************************
+      SUBROUTINE SAST_WET(RelHum,TC,dotRelHum,dotTC,Z_w,dotZ_w)
+
+C
+C  SUBROUTINE SAST_WET calculates zenith delay due to the 'wet' 
+C  (non-hydrostatic) component of the atmosphere using Saastamoinen formula.  
+C  The saturation vapor pressure can be calculated using different formulas.
+C
+C     Input Variables:
+C       1. RelHum    - Relative humidity.  (0 <= RelHum <= 100%)
+C       2. TC      - Temperature. (Celsius)
+C       3. dotRelHum - Time derivative of relative humidity.
+C       4. dotTC   - Time derivative of temperature.
+C
+C     Output Variables:
+C       1. Z_w       - Zenith path delay of wet component. (meters)
+C       2. dotZ_w    - Time derivative of zenith delay. (meters/sec)
+C
+C    15.08.2012
+C   Correct for RelHum, if RelHum=0 then Z_w = 0
+C   
+
+      IMPLICIT None
+C	
+      Integer KSW
+      Real(8) RelHum, TC, dotRelHum, dotTC, Z_w, dotZ_w
+      Real(8) Esat, Temp, dotEsat, work
+C
+C     The saturation vapor pressure is calculated using the formula
+C     found in MET03 which is much simpler than that found in Methods
+C     of Experimental Physics B (1976) p. 187, but agrees to 0.3%
+C     over the range 0 - 40 deg. C.
+C
+       If ( RelHum == 0.d0 ) RelHum = 50.d0
+
+C  Calculate saturation vapor pressure, and time derivative.
+      Temp = TC+237.3D0
+      Esat = 6.11D0 * EXP(17.269D0*TC/Temp)
+      dotEsat = Esat * (17.269D0/TEMP - 17.269D0*TC/(TEMP*TEMP))*dotTC
+C
+C     The saturation vapor pressure is calculated using the formula (124)
+C     found in Petrov (IPA RAN N75, 1995) which is based on Xrgian tables
+C     and agrees to 0.04 mbar over the range -25 - +45 deg. C.
+C      Esat = 6.107D0 * 
+C     *       EXP(7.2751D-2*TC - 3.0108D-4*TC*TC + 9.7944D-7*TC*TC*TC)
+C      dotEsat = Esat * (7.2751D-2 - 2.D0*3.0108D-4*TC + 
+C     +                  3.D0*9.7944D-7*TC*TC)*dotTC
+C
+C  Calculate zenith path delay and time derivative
+      Temp = TC + 273.16D0
+	work = RelHum/100.D0 * Esat
+      Z_w = 0.002277D0 * (1255.D0/Temp + 0.05D0) * work
+C
+      dotZ_w = - 0.002277D0 * (dotTC*1255.D0/(TEMP*TEMP))*work +
+     +           0.002277D0 * (1255.D0/Temp + 0.05D0)*dotRelHum*ESAT +
+     +           Z_w * dotEsat/Esat
+C
+C-------------------------------------------------------------------------------
+C  KSW for debug output (/= 0)
+       KSW = 0
+C-------------------------------------------------------------------------------
+C   Check for debug output.
+      IF ( KSW .ne. 0 )  Then
+	WRITE (*,'(1x,a)') 'Debug output for subroutine SAST_WET'
+C
+  20     FORMAT(A, 2D25.16)
+  21     FORMAT(A,  D25.16)
+         WRITE(*,20) '  RelHum, dotRelHum  ', RelHum, dotRelHum
+         WRITE(*,20) '  TC, dotTC          ', TC, dotTC
+         WRITE(*,20) '  Z_w, dotZ_w        ', Z_w, dotZ_w 
+         WRITE(*,20) ' Esat, dotEsat       ', Esat, dotEsat
+         WRITE(*,21) '     vapor pressure  ', work
+C
+      Endif
+C
+      RETURN
+      END SUBROUTINE SAST_WET
+C
+

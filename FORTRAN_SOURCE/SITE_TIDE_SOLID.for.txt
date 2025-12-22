@@ -1,0 +1,1612 @@
+       SUBROUTINE SITE_TIDE_SOLID (xsta, lat_gcen, lon_gcen, sun, moon,  
+     *            f, fd, vw_i, gast, r2000, dxtide, dvtide,
+     *            dRdrh0, dRdh02, dRdrl0, dRdl02, dRdh3, dRdl3,
+     *            dRdl1_1_2000, dRdl1_2_2000,
+     *            dRdhi_1_2000, dRdhi_2_2000,
+     *            dRdli_1_2000, dRdli_2_2000)                
+C
+C   SUBROUTINE SITE_TIDE_SOLID computes effects of the solid Earth tides
+C   in J2000.0 system.
+C   Tidal corrections for site position caused by lunar and
+C   solar gravitational attraction are computed according
+C   IERS Conventions 2000.
+C   ---------------------------------------------------------------
+C   NUMBERS of equations correspond the numbers in IERS Conv. 2000
+C   ---------------------------------------------------------------
+C    Input variables :  
+C       1. xsta(3)        - The site geocentric position (M)
+C       2. lat_gcen(ista) - The geocentric latitude at each site. (RAD)
+C       3. lon_gcen(ista) - The geocentric east longitude at each site. (RAD)
+C                             (0 <= lon_gcen <= 2*pi)
+C       4. sun(3,2)   - The J2000.0 geocentric position and velocity of the Sun (M,M/S)
+C       5. moon(3,2)  - The J2000.0 geocentric position and velocity of the Moon(M,M/S)
+C       6. f(5)       - The fundamental arguments for the nutation theory.
+C                       (IERS Conventions 1996) (Arcseconds),
+C              namely,
+C              F(1) = mean anomaly of the moon
+C                   = mean longitude of the moon (L) minus the
+C                     mean longitude of the moon's perigee       =  (l)
+C              F(2) = mean anomaly of the sun
+C                   = mean longitude of the sun (L') minus the
+C                     mean longitude of the sun's perigee        =  (l')
+C              F(3) = mean longitude of the moon (L) minus omega =  (F)
+C              F(4) = mean elongation of the moon from the sun   =  (D)
+C              F(5) = longitude of the asc.node of the moon's
+C                     mean orbit on the ecliptic,
+C                     measured from the mean equinox of date     =  (omega)
+C       7. fd(5)       - The CT time derivatives of the fundamental arguments.
+C                       (arcsec/century)
+C       8. vw_i(3,3)   - Transformation matrix VW from the local VEN to the 
+C                        Earth-fixed coordinate system (Unitless) for I-th site
+C       9. gast(2)     - The GREENWICH apparent siderial time and the first
+C                        CT time derivative. (Rad, Rad/Sec)
+C      10. r2000(3,3,3)- The complete transformation matrix from crust fixed to 
+C                        J2000.0 system and the first two CT time derivatives of
+C                        that matrix. (Unitless, 1/Sec, 1/Sec**2)
+C
+C    Output variables :  
+C       1. dxtide(3)   - The vector displacement of the site (M) 
+C       2. dvtide(3)   - The velocity vector of displacement (M/Sec)
+C
+C       3. dRdrh0(3,2) - Partials of station position (j=1) and 
+C                        velocity (j=2) with respect to the Love
+C                        number h^0 for the degree 2 tides   (M, M/Sec)
+C       4. dRdh02(3,2) - Partials of station position (j=1) and 
+C                        velocity (j=2) with respect to the Love
+C                        number h^02 for the degree 2 tides  (M, M/Sec)
+C       5. dRdrl0(3,2) - The same for the Love
+C                        number l^0 for the degree 2 tides   (M, M/Sec)
+C       6. dRdl02(3,2) - The same for the Love
+C                        number l^02 for the degree 2 tides  (M, M/Sec)
+C       7. dRdh3(3,2)  - The same for the Love
+C                        number h^3 for the degree 3 tides   (M, M/Sec)
+C       8. dRdl3(3,2)  - The same for the Love
+C                        number l^3 for the degree 3 tides   (M, M/Sec)
+C       9. dRdl1_1_2000(3,2)- The same for the Love
+C                             numbers l1 for diurnal tides   (M, M/Sec)
+C      10. dRdl1_2_2000(3,2)- The same for the Love
+C                            numbers l1 for semidiurnal tides(M, M/Sec)
+C      11. dRdhi_1_2000(3,2)- The same for the Love
+C                             numbers hi for diurnal tides   (M, M/Sec)
+C      12. dRdhi_2_2000(3,2)- The same for the Love
+C                            numbers hi for semidiurnal tides(M, M/Sec)
+C      13. dRdli_1_2000(3,2)- The same for the Love
+C                             numbers li for diurnal tides   (M, M/Sec)
+C      14. dRdli_2_2000(3,2)- The same for the Love
+C                            numbers li for semidiurnal tides(M, M/Sec)
+C
+C----------------------------------------------------------------------    
+C SUBROUTINE SITE_TIDE_SOLID was written by V.Zharov 
+C
+C   VERSION 1.0   21 May 2005
+C                 21 Jan 2006
+C   Block "Permanent Deformation" was added
+C----------------------------------------------------------------------    
+      IMPLICIT None
+C
+      Integer i, j, ktide1, ktide2, ktide3
+	Integer :: n=3, inc=1
+C
+      Real(8) xsta(3),sun(3,2),moon(3,2),f(5),fd(5),gast(2), vw_i(3,3)
+	Real(8) r2000(3,3,3), dxtide(3), dvtide(3)
+	Real(8) lat_gcen, lon_gcen
+C	
+	Real(8) xsun(3), xmon(3), vsun(3), vmon(3)
+	Real(8) xsta_j2000(3), vsta_j2000(3)
+	Real(8) rsta, rsun, rmon
+	Real(8) xsta_n(3), xsun_n(3), xmon_n(3) 
+      Real(8) DX1(3,2), DX2(3,2), DX3(3,2), DX4(3,2), dxyz(3), dvxyz(3)
+	Real(8) p2(5,2), dp2(5,2), pl(4), fgm(2,2)
+	Real(8) SCSUN,SCMON, H2, L2, H2_2
+	Real(8) P2SUN, P2MON, P3SUN, P3MON, X2SUN, X2MON, X3SUN, X3MON
+	Real(8) a1, b1, c1, a2, b2, c2, DRSUN, DRMON, work(3)
+	Real(8) DRSUN_hat(3), DRMON_hat(3), DXSTA_hat(3)
+	Real(8) DRSUNr_hat, DRMONr_hat
+C
+      Real(8) r2000_c1(3,3),r2000_c2(3,3),rt2000_c1(3,3),rt2000_c2(3,3)
+	Real(8) xsun_cf(3), xmon_cf(3)
+	Real(8) vmon1_cf(3), vmon2_cf(3), vmon_cf(3)
+	Real(8) vsun1_cf(3), vsun2_cf(3), vsun_cf(3)
+	Real(8) Rsun_cf, Rmon_cf, dRsun_cf, dRmon_cf
+	Real(8) xsun_ncf(3), xmon_ncf(3), vsun_ncf(3), vmon_ncf(3)
+	Real(8) perm, dr_perm, de_perm, dn_perm, dr(3)
+C
+	Real(8) w1, work_Sun(3), work_Mon(3)
+      Real(8) dRdrh0(3,2), dRdh02(3,2), dRdrl0(3,2), dRdl02(3,2)
+	Real(8) dRdh3(3,2), dRdl3(3,2)              
+	Real(8) dRdl1_1_2000(3,2), dRdl1_2_2000(3,2)
+	Real(8) dRdhi_1_2000(3,2), dRdhi_2_2000(3,2)
+      Real(8) dRdli_1_2000(3,2), dRdli_2_2000(3,2)
+C  Functions
+      Real(8) NORM, SCAL_PROD
+C
+      Real(8) H02, L02, H22, L22, H3, L3, HI_1, LI_1, 
+     *        HI_2, LI_2, L1_1, L1_2
+      Real(8) GSUN, GMOON, GEARTH, GMERCURY, GVENUS, GMARS,
+     *        GJUPITER, GSATURN, GURANUS, GNEPTUNE, GPLUTO
+	Real(8) C, FF, RE, AU 
+      Real(8) PI, TWOPI, HALFPI
+C
+      COMMON /LOVE/ H02, L02, H22, L22, H3, L3, HI_1, LI_1, HI_2, LI_2,
+     *              L1_1, L1_2
+      COMMON /GRAV/ GSUN, GMOON, GEARTH, GMERCURY, GVENUS, GMARS,
+     *              GJUPITER, GSATURN, GURANUS, GNEPTUNE, GPLUTO
+      COMMON /PHYS/ C, FF, RE, AU 
+      COMMON /MATH1/ PI, TWOPI, HALFPI
+C
+       dxtide = 0.d0 
+	 dvtide = 0.d0
+C   ---------------------------------------------------------------
+C                         !!!! ATTENTION  !!!!
+C   The site coordinates are refered to 
+C   the geocentric crust-fixed system.
+C
+C   The Moon and Sun coordinates are measured in 
+C   the J2000.0 coordinate system.
+C   ---------------------------------------------------------------
+C   First rotate the geocentric site vectors to the J2000.0 reference system.
+        CALL MUL_ARR_VEC ( r2000(1,1,1), xsta, xsta_j2000 )
+        CALL MUL_ARR_VEC ( r2000(1,1,2), xsta, vsta_j2000 )
+C
+C   Create the additional arrays
+        do i = 1 , n
+C   Coordinates of the Sun an the Moon
+	    xsun(i) = sun(i,1)
+	    xmon(i) = moon(i,1)
+C   Velocities of the Sun an the Moon
+	    vsun(i) = sun(i,2)
+	    vmon(i) = moon(i,2)
+        enddo
+C   Length of the site and the Sun, Moon radius-vectors J2000.0
+       rsta = NORM ( xsta_j2000 )   
+       rsun = NORM ( xsun )
+       rmon = NORM ( xmon )
+C   Unit vectors of the site and the Sun, the Moon in 
+C   the J2000.0 coordinate system.
+	 do i = 1 , n
+         xsta_n(i) = xsta_j2000(i)/rsta   	
+	   xsun_n(i) = xsun(i)/rsun
+	   xmon_n(i) = xmon(i)/rmon
+	 enddo
+C
+C  Array PL contains sin and cos of the geocentric latitude and longitude of site
+C  pl(1) = cos phi,    pl(2) = sin phi,
+C  pl(3) = cos lambda, pl(4) = sin lambda,
+      pl(1) = dcos(lat_gcen)                   ! cos phi
+	pl(2) = dsin(lat_gcen)                   ! sin phi
+      pl(3) = dcos(lon_gcen)                   ! cos lambda
+      pl(4) = dsin(lon_gcen)                   ! sin lambda
+C  Scalar product of unit vector
+       SCSUN = SCAL_PROD ( xsta_n, xsun_n )
+       SCMON = SCAL_PROD ( xsta_n, xmon_n )
+C
+C -----------------------------------------------------------------
+C  Beginning of  STEP 1 
+C -----------------------------------------------------------------
+C  COMPUTATION OF NEW H2 AND L2 (Eq.6)
+C
+      w1 = 1.5d0*pl(2)*pl(2)-0.5d0
+      H2=H02 + H22 * w1
+      L2=L02 + L22 * w1
+C
+C P2-TERM
+C -------
+      H2_2 = H2/2.d0
+      P2SUN=3.d0*(H2_2-L2)*SCSUN**2-H2_2
+      P2MON=3.d0*(H2_2-L2)*SCMON**2-H2_2
+C
+C P3-TERM
+C -------
+      P3SUN=2.5d0*(H3-3.d0*L3)*SCSUN**3+1.5d0*(L3-H3)*SCSUN
+      P3MON=2.5d0*(H3-3.d0*L3)*SCMON**3+1.5d0*(L3-H3)*SCMON
+C
+C TERM IN DIRECTION OF SUN/MOON VECTOR
+C ------------------------------------
+      X2SUN=3.d0*L2*SCSUN
+      X2MON=3.d0*L2*SCMON
+      X3SUN=1.5d0*L3*(5.d0*SCSUN**2-1.d0)
+      X3MON=1.5d0*L3*(5.d0*SCMON**2-1.d0)
+C
+C FACTORS FOR SUN/MOON
+C --------------------
+C      RE =6378136.55d0   !!! Attention RE /= AE
+C
+C  Array FGM is conversion factor
+C  for Sun (degree 2 and 3)
+      FGM(1,1) = RE*(RE/RSUN)**3*GSUN/GEARTH
+      FGM(2,1) = (RE/RSUN)*FGM(1,1)
+C  for Moon (degree 2 and 3)
+      FGM(1,2) = RE*(RE/RMON)**3*GMOON/GEARTH
+      FGM(2,2) = (RE/RMON)*FGM(1,2)
+C
+C  TOTAL DISPLACEMENT due to the degree 2 and degree 3 tides (Eq. 9 and 10)
+C   Calculations in this part are made in the J2000.0 reference system.
+C ------------------
+      do i = 1, n
+        DXTIDE(I)=FGM(1,1)*( X2SUN*XSUN_N(I) + P2SUN*XSTA_N(I) ) +
+     1            FGM(1,2)*( X2MON*XMON_N(I) + P2MON*XSTA_N(I) ) +
+     2            FGM(2,1)*( X3SUN*XSUN_N(I) + P3SUN*XSTA_N(I) ) +
+     3            FGM(2,2)*( X3MON*XMON_N(I) + P3MON*XSTA_N(I) )
+      enddo
+C  Calculation of derivative of tidal displacement
+C  Additional constants
+        a1 = 6.d0*(H2_2-L2)*SCSUN
+	  b1 = 6.d0*(H2_2-L2)*SCMON
+	  c1 = 3.d0*L2
+        a2 = 7.5d0*(H3-3.d0*L3)*SCSUN**2+1.5d0*(L3-H3)
+        b2 = 7.5d0*(H3-3.d0*L3)*SCMON**2+1.5d0*(L3-H3)
+	  c2 = 15.d0*L3
+C
+        DRSUN = SCAL_PROD (xsun, vsun) / RSUN   !  dRsun/dt
+        DRMON = SCAL_PROD (xmon, vmon) / RMON   ! dRmoon/dt
+        do i = 1, n
+	     DRSUN_hat(i) = vsun(i)/rsun - xsun(i)*drsun/rsun**2
+	     DRMON_hat(i) = vmon(i)/rmon - xmon(i)*drmon/rmon**2
+	     DXSTA_hat(i) = vsta_j2000(i)/rsta   ! dxsta(i)/dt = 0
+	  enddo
+        DRSUNr_hat = SCAL_PROD (DRSUN_hat, XSTA_N) + 
+     +               SCAL_PROD (XSUN_N, DXSTA_hat)
+        DRMONr_hat = SCAL_PROD (DRMON_hat, XSTA_N) + 
+     +               SCAL_PROD (XMON_N, DXSTA_hat)      
+	do i = 1, n
+        DVTIDE(I)=FGM(1,1)*(-3.d0*dRSUN/RSUN)*
+     *                     ( X2SUN*XSUN_N(I) + P2SUN*XSTA_N(I) ) +
+     +            FGM(1,2)*(-3.d0*dRMON/RMON)*
+     *                     ( X2MON*XMON_N(I) + P2MON*XSTA_N(I) ) +
+     +            FGM(1,1)*( X2SUN*DRSUN_hat(I) + P2SUN*DXSTA_hat(I)   + 
+     +                     ( a1*XSTA_N(I)+c1*XSUN_N(I) )*DRSUNr_hat  ) +
+     +            FGM(1,2)*( X2MON*DRMON_hat(I) + P2MON*DXSTA_hat(I)   +
+     +                     ( b1*XSTA_N(I)+c1*XMON_N(I) )*DRMONr_hat  ) +
+C
+     +            FGM(2,1)*(-4.d0*dRSUN/RSUN)*
+     *                     ( X3SUN*XSUN_N(I) + P3SUN*XSTA_N(I) ) +
+     +            FGM(2,2)*(-4.d0*dRMON/RMON)*
+     *                     ( X3MON*XMON_N(I) + P3MON*XSTA_N(I) ) +
+     +            FGM(2,1)*( X3SUN*DRSUN_hat(I) + P3SUN*DXSTA_hat(I)   + 
+     +                     ( a2*XSTA_N(I)+c2*XSUN_N(I) )*DRSUNr_hat  ) +
+     +            FGM(2,2)*( X3MON*DRMON_hat(I) + P3MON*DXSTA_hat(I)   +
+     +                     ( b2*XSTA_N(I)+c2*XMON_N(I) )*DRMONr_hat  )
+C
+      enddo
+C-------------------------------------------------------------------------------
+C  KTIDE for debug output (/= 0)
+       ktide1 = 0
+C-------------------------------------------------------------------------------
+C  Debug output
+      IF (ktide1 .NE. 0) THEN
+	WRITE (6,'(1x,a)') 'Debug output (1) for subroutine SITE_TIDE'
+    8   FORMAT(A, D26.16)
+    9   FORMAT(A, F26.5)
+        WRITE(*,9)' RSTA    ',RSTA
+        WRITE(*,9)' RSUN    ',RSUN
+        WRITE(*,9)' RMON    ',RMON 
+        WRITE(*,8)' GSUN    ',GSUN
+        WRITE(*,8)' GMOON   ',GMOON
+        WRITE(*,8)' GEARTH  ',GEARTH	  	   
+        WRITE(*,8)' H2      ',H2
+        WRITE(*,8)' L2      ',L2
+        WRITE(*,8)' SCSUN   ',SCSUN
+        WRITE(*,8)' SCMON   ',SCMON
+        WRITE(*,8)' P2SUN   ',P2SUN
+        WRITE(*,8)' P2MON   ',P2MON
+        WRITE(*,8)' P3SUN   ',P3SUN
+        WRITE(*,8)' P3MON   ',P3MON
+        WRITE(*,8)' X2SUN   ',X2SUN
+        WRITE(*,8)' X2MON   ',X2MON
+        WRITE(*,8)' X3SUN   ',X3SUN
+        WRITE(*,8)' X3MON   ',X3MON
+	pause
+        call PR_ARR(' xsta ', inc, n, xsta, inc, 0, 
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' xsta_j2000 ', inc, n, xsta_j2000, inc, 0, 
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' vsta_j2000 ', inc, n, vsta_j2000, inc, 0, 
+     *              '(F20.5)', 'Number', 'Number')
+        call PR_ARR(' XSTA_N ', inc, n, xsta_n, inc, 0, 
+     *              '(F20.16)', 'Number', 'Number')
+        call PR_ARR(' XSUN_N ', inc, n, xsun_n, inc, 0, 
+     *              '(F20.16)', 'Number', 'Number')
+        call PR_ARR(' XMON_N ', inc, n, xmon_n, inc, 0, 
+     *              '(F20.16)', 'Number', 'Number')
+        call PR_ARR(' PL  ',    1, 4, pl, 1, 0, 
+     *              '(F20.16)', 'Number', 'Number')
+        call PR_ARR(' FGM  ',    2, 2, FGM, 2, 0, 
+     *              '(F20.16)', 'Number', 'Number')
+        call PR_ARR(' DXTIDE (2nd+3rd terms) ',  inc, n, dxtide, inc, 0, 
+     *              '(F20.16)', 'Number', 'Number')
+        call PR_ARR(' DVTIDE (2nd+3rd terms) ',  inc, n, dvtide, inc, 0, 
+     *              '(F20.16)', 'Number', 'Number')
+	pause
+      ENDIF
+C  ------------------------------------------------------------------------
+C   Calculations in this part are made in the crust fixed reference system.
+C   Phi_j    is body fixed geocentric latitude of Moon or Sun
+C   lambda_j is body fixed east longitude of Moon or Sun
+C  ------------------------------------------------------------------------
+C   Rotate Moon and Sun vectors from the J2000.0 reference system to the
+C   geocentric crust-fixed system.
+C   To do this compute at first the rotation matrix which rotates from the J2000.0
+C   reference system to the geocentric crust fixed system, and its
+C   time derivative.
+C   Copy of the rotation matrix
+        do j = 1, n
+          do i = 1, n
+	      r2000_c1(i,j) = r2000(i,j,1)
+	      r2000_c2(i,j) = r2000(i,j,2)
+          enddo
+	  enddo
+C
+           CALL TRANSP ( r2000_c1, rt2000_c1 )
+           CALL TRANSP ( r2000_c2, rt2000_c2 )
+C
+C   Then rotate the Moon and Sun radius vectors to the crust fixed system.
+           CALL MUL_ARR_VEC ( rt2000_c1, xmon, xmon_cf )
+           CALL MUL_ARR_VEC ( rt2000_c1, xsun, xsun_cf )
+C
+C   And find their derivatives in the crust fixed system
+C   For Moon
+           CALL MUL_ARR_VEC ( rt2000_c1, vmon, vmon1_cf )
+           CALL MUL_ARR_VEC ( rt2000_c2, xmon, vmon2_cf )
+	     CALL SUM_2VEC  ( vmon1_cf, vmon2_cf, vmon_cf )
+C   For Sun
+           CALL MUL_ARR_VEC ( rt2000_c1, vsun, vsun1_cf )
+           CALL MUL_ARR_VEC ( rt2000_c2, xsun, vsun2_cf )
+	     CALL SUM_2VEC  ( vsun1_cf, vsun2_cf, vsun_cf )
+C
+C   Length of the Sun, Moon radius-vectors in the crust fixed system.  
+       Rsun_cf = NORM ( xsun_cf )
+       Rmon_cf = NORM ( xmon_cf )
+C
+C   Unit vectors of the Sun, the Moon in the crust fixed system.
+	 do i = 1 , n
+	   xsun_ncf(i) = xsun_cf(i)/Rsun_cf
+	   xmon_ncf(i) = xmon_cf(i)/Rmon_cf
+	 enddo
+C   Derivative of dRj/dt in the crust fixed system.
+        dRsun_cf = SCAL_PROD (xsun_cf, vsun_cf) / Rsun_cf   !  dRsun/dt
+        dRmon_cf = SCAL_PROD (xmon_cf, vmon_cf) / Rmon_cf   ! dRmoon/dt 
+C   Time derivative of the unit vectors of the Sun, the Moon 
+C   in the crust fixed system.
+	 do i = 1 , n
+	   vsun_ncf(i)= vsun_cf(i)/Rsun_cf-xsun_ncf(i)/Rsun_cf**2*dRsun_cf 
+	   vmon_ncf(i)= vmon_cf(i)/Rmon_cf-xmon_ncf(i)/Rmon_cf**2*dRmon_cf
+	 enddo
+C	        
+C   Array P2 is 
+C       (j = 1 for Sun, j = 2 for Moon)
+C   P2(1,j) = P_2  (sin Phi_j)                   (eq. 11a)
+C   P2(2,j) = P_2^1(sin Phi_j)cos lambda_j, 
+C   P2(3,j) = P_2^1(sin Phi_j)sin lambda_j,      (eq. 11b)
+C   P2(4,j) = P_2^2(sin Phi_j)cos (2*lambda_j), 
+C   P2(5,j) = P_2^2(sin Phi_j)sin (2*lambda_j),  (eq. 11c)
+C   
+	 p2(1,1) = 1.5d0* xsun_ncf(3)**2 - 0.5d0
+	 p2(2,1) = 3.d0 * xsun_ncf(1)*xsun_ncf(3)
+	 p2(3,1) = 3.d0 * xsun_ncf(2)*xsun_ncf(3)
+	 p2(4,1) = 3.d0 *(xsun_ncf(1)**2 - xsun_ncf(2)**2)
+	 p2(5,1) = 6.d0 * xsun_ncf(1)*xsun_ncf(2)
+C   
+	 p2(1,2) = 1.5d0* xmon_ncf(3)**2 - 0.5d0
+	 p2(2,2) = 3.d0 * xmon_ncf(1)*xmon_ncf(3)
+	 p2(3,2) = 3.d0 * xmon_ncf(2)*xmon_ncf(3)
+	 p2(4,2) = 3.d0 *(xmon_ncf(1)**2 - xmon_ncf(2)**2)
+	 p2(5,2) = 6.d0 * xmon_ncf(1)*xmon_ncf(2)
+C   Derivative of array P2
+C   For Sun
+	 dp2(1,1)=3.d0* xsun_ncf(3)*vsun_ncf(3) 
+	 dp2(2,1)=3.d0*(vsun_ncf(1)*xsun_ncf(3)+xsun_ncf(1)*vsun_ncf(3))
+	 dp2(3,1)=3.d0*(vsun_ncf(2)*xsun_ncf(3)+xsun_ncf(2)*vsun_ncf(3))
+	 dp2(4,1)=6.d0*(vsun_ncf(1)*xsun_ncf(1)-xsun_ncf(2)*vsun_ncf(2))
+	 dp2(5,1)=6.d0*(vsun_ncf(1)*xsun_ncf(2)+xsun_ncf(1)*vsun_ncf(2))
+C
+C   For Moon
+	 dp2(1,2)=3.d0* xmon_ncf(3)*vmon_ncf(3) 
+	 dp2(2,2)=3.d0*(vmon_ncf(1)*xmon_ncf(3)+xmon_ncf(1)*vmon_ncf(3))
+	 dp2(3,2)=3.d0*(vmon_ncf(2)*xmon_ncf(3)+xmon_ncf(2)*vmon_ncf(3))
+	 dp2(4,2)=6.d0*(vmon_ncf(1)*xmon_ncf(1)-xmon_ncf(2)*vmon_ncf(2))
+	 dp2(5,2)=6.d0*(vmon_ncf(1)*xmon_ncf(2)+xmon_ncf(1)*vmon_ncf(2))
+C
+C  Calculation of out of phase contributions from the imaginary parts
+C  of h^0_2m and l^0_2m
+C  For the DIURNAL BAND (Eq.14) and for the SEMI-DIURNAL BAND (Eq.15)
+C
+      CALL CORR_H2L2(p2, dp2, pl, Rsun_cf, Rmon_cf, dRsun_cf, dRmon_cf, 
+     *               fgm, vw_i, r2000, dxyz, dvxyz,
+     *               dRdhi_1_2000, dRdhi_2_2000, 
+     *               dRdli_1_2000, dRdli_2_2000)
+C
+      do i=1,3
+        DX1(i,1)=DXTIDE(i)+ dxyz(i)
+        DX1(i,2)=DVTIDE(i)+dvxyz(i)
+      enddo
+C
+C CORRECTIONS FOR THE LATITUDE DEPENDENCE OF LOVE NUMBERS (PART L^(1) )
+C  For THE DIURNAL BAND  (Eq. 12) and for the SEMIDIURNAL BAND (Eq. 13)
+      CALL CORR_L1 (p2, dp2, pl, Rsun_cf, Rmon_cf, dRsun_cf, dRmon_cf, 
+     *              fgm, vw_i, r2000, 
+     *              dxyz, dvxyz, dRdl1_1_2000, dRdl1_2_2000)
+C
+      do i=1,3
+        DX2(i,1)=DX1(i,1)+ dxyz(i)
+        DX2(i,2)=DX1(i,2)+dvxyz(i)
+      enddo
+C  End of STEP1
+C -----------------------------------------------------------------------
+C  Beginning of  STEP 2 
+C      CALL CORR_DIU  + CALL CORR_LON
+C
+C  SUBROUTINE CORR_DIU calculates corrections for frequency dependence
+C  of the Love and Shida numbers in DIURNAL band (Eq. 16)
+C
+      CALL CORR_DIU(pl, f, fd, gast, vw_i, r2000, dxyz, dvxyz)  
+C
+      do i=1,3
+        DX3(i,1)=DX2(i,1)+ dxyz(i)
+        DX3(i,2)=DX2(i,2)+dvxyz(i)
+      enddo
+C  SUBROUTINE CORR_LON calculates corrections for frequency dependence
+C  of the Love and Shida numbers in LONG PERIOD band (Eq.17)
+C
+      CALL CORR_LON(pl, f, fd, vw_i, r2000, dxyz, dvxyz) 
+C
+C
+C  End of STEP2
+C *********************************************************************
+C *********************************************************************
+C  This section allows a user to compute "mean tide" coordinates 
+C  from "conventional tide free" coordinates or
+C  the "Permanent Deformation" component 
+C
+        perm = dsqrt(5.D0/(4.D0*PI)) * (-0.31460d0)
+C  Up component
+        dr_perm  = perm * H2 * w1
+C  East component
+        de_perm = 0.D0
+C  North component
+        dn_perm = 3.d0*perm * L2 * pl(1)*pl(2)              
+C
+C  For permanent tide velocity is equal 0
+	  dr(1) = dr_perm
+	  dr(2) = de_perm
+	  dr(3) = dn_perm
+C
+C  Transformation from local VEN to the Earth-fixed coordinate system
+       CALL MUL_ARR_VEC (vw_i, dr, work)
+c	write(*,*) work
+C  Then rotate vectors from crust-fixed to J2000 system.
+       CALL MUL_ARR_VEC (r2000(1,1,1), work, dxyz)
+C
+C  Similar transformation for velocity vector
+C
+       CALL MUL_ARR_VEC (r2000(1,1,2),  work, dvxyz)
+C
+      do i=1,3
+        DX4(i,1)=DX3(i,1) !- dxyz(i)   ! permanent tide  include ! does not
+        DX4(i,2)=DX3(i,2) !- dvxyz(i)
+      enddo
+C
+      do i=1,3
+        DXTIDE(i)=DX4(i,1)
+        DVTIDE(i)=DX4(i,2)
+      enddo
+C
+C  End of calculation of corrections
+C
+C ------------------------------------------------------------------
+C  KTIDE for debug output (/= 0)
+       ktide2 = 0
+C-------------------------------------------------------------------
+C  Debug output
+      IF (ktide2 .NE. 0) THEN
+	WRITE (*,'(1x,a)') 'Debug output (2) for subroutine SITE_TIDE'
+        call PR_ARR(' P2  ',    5, 2, p2, 5, 0, 
+     *              '(F20.16)', 'Number', 'Number')
+        call PR_ARR(' DXTIDE 1 ',  2, n, dx1, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' DXTIDE 2 ',  2, n, dx2, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' DXTIDE 3 ',  2, n, dx3, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' DXTIDE 4 ',  2, n, dx4, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' DXTIDE (total) ',  inc, n, dxtide, inc, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' DVTIDE (total) ',  inc, n, dvtide, inc, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+	pause
+	endif
+C---------------------------------------------------------------
+C  Computation of partials of station POSITION with respect to
+C  the Love numbers
+C---------------------------------------------------------------
+C  1) Real part of the semi-diurnal h_2^0 (from eq. 9):
+C
+	do i = 1, n
+	  work_Sun(i) = XSUN_N(I)-XSTA_N(i)*SCSUN
+	  work_Mon(i) = XMON_N(I)-XSTA_N(i)*SCMON
+	enddo
+C
+      do i = 1, n
+        dRdrh0(i,1)=FGM(1,1)* XSTA_N(i)*(1.5d0*SCSUN**2-0.5d0) +
+     +              FGM(1,2)* XSTA_N(i)*(1.5d0*SCMON**2-0.5d0)
+      enddo
+C  2) the semi-diurnal h_2^(2) (from eq. 9):
+      do i = 1, n
+        dRdh02(i,1)= dRdrh0(i,1) * w1
+      enddo
+C  3) Real part of the semi-diurnal l_2^0 (from eq. 9):
+      do i = 1, n
+        dRdrl0(i,1)=FGM(1,1)* 3.d0 * SCSUN * work_Sun(i) +
+     +              FGM(1,2)* 3.d0 * SCMON * work_Mon(i)
+      enddo
+C  4) the semi-diurnal l_2^(2) (from eq. 9):
+      do i = 1, n
+        dRdl02(i,1)= dRdrl0(i,1) * w1
+      enddo
+
+C---------------------------------------------------------------
+C  5)  h_3 (from eq. 10):
+      do i = 1, n
+        dRdh3(i,1)=FGM(2,1)*XSTA_N(i)*(2.5d0*SCSUN**2-1.5d0)*SCSUN +
+     +             FGM(2,2)*XSTA_N(i)*(2.5d0*SCMON**2-1.5d0)*SCMON
+      enddo
+
+C  6)  l_3 (from eq. 10):
+      do i = 1, n
+        dRdl3(i,1)=FGM(2,1)*(7.5d0*SCSUN**2-1.5d0)*work_Sun(i) +
+     +             FGM(2,2)*(7.5d0*SCMON**2-1.5d0)*work_Mon(i)
+      enddo
+C---------------------------------------------------------------
+C---------------------------------------------------------------
+C  Computation of partials of station VELOCITY with respect to
+C  the Love numbers
+C---------------------------------------------------------------
+C  1) Real part of the semi-diurnal h_2^0 (from eq. 9):
+C
+      do i = 1, n
+        dRdrh0(i,2)=
+     =  FGM(1,1)*(-3.d0*dRSUN/RSUN)* XSTA_N(i)*(1.5d0*SCSUN**2-0.5d0) +
+     +  FGM(1,2)*(-3.d0*dRMON/RMON)* XSTA_N(i)*(1.5d0*SCMON**2-0.5d0) +
+     +  FGM(1,1)*( DXSTA_hat(i)*(1.5d0*SCSUN**2-0.5d0) + 
+     +             3.d0*XSTA_N(i)*SCSUN*DRSUNr_hat ) +
+     +  FGM(1,2)*( DXSTA_hat(i)*(1.5d0*SCMON**2-0.5d0) + 
+     +             3.d0*XSTA_N(i)*SCMON*DRMONr_hat ) 
+      enddo
+C	
+C  2) the semi-diurnal h_2^(2) (from eq. 9):
+      do i = 1, n
+        dRdh02(i,2)= dRdrh0(i,2) * w1
+      enddo
+C
+C  3) Real part of the semi-diurnal l_2^0 (from eq. 9):
+      do i = 1, n
+        dRdrl0(i,2)=
+     =  FGM(1,1)*(-3.d0*dRSUN/RSUN)* 3.d0*SCSUN*work_Sun(i) +	  
+     +  FGM(1,2)*(-3.d0*dRMON/RMON)* 3.d0*SCMON*work_Mon(i) +
+C
+     +  FGM(1,1)*3.d0*( DRSUNr_hat*work_Sun(i) + 
+     +  SCSUN*(DRSUN_hat(i)-DRSUNr_hat*XSTA_N(i)-SCSUN*DXSTA_hat(i)) )+
+     +  FGM(1,2)*3.d0*( DRMONr_hat*work_Mon(i) + 
+     +  SCMON*(DRMON_hat(i)-DRMONr_hat*XSTA_N(i)-SCMON*DXSTA_hat(i)) )	  
+
+      enddo
+C  4) the semi-diurnal l_2^(2) (from eq. 9):
+      do i = 1, n
+        dRdl02(i,2)= dRdrl0(i,2) * w1
+      enddo
+
+C---------------------------------------------------------------
+C  5)  h_3 (from eq. 10):
+      do i = 1, n
+        dRdh3(i,2)= FGM(2,1)*(-4.d0*dRSUN/RSUN)*
+     *  XSTA_N(i)*(2.5d0*SCSUN**2-1.5d0)*SCSUN +
+     +              FGM(2,2)*(-4.d0*dRMON/RMON)*
+     *  XSTA_N(i)*(2.5d0*SCMON**2-1.5d0)*SCMON +
+C
+     +  FGM(2,1)*( DXSTA_hat(i)*(2.5d0*SCSUN**2-1.5d0)*SCSUN + 
+     +             XSTA_N(i)*(7.5d0*SCSUN**2-1.5d0 )*DRSUNr_hat ) +
+     +  FGM(2,2)*( DXSTA_hat(i)*(2.5d0*SCMON**2-1.5d0)*SCMON + 
+     +             XSTA_N(i)*(7.5d0*SCMON**2-1.5d0 )*DRMONr_hat )
+      enddo
+
+C  6)  l_3 (from eq. 10):
+      do i = 1, n
+        dRdl3(i,2)=
+     =  FGM(2,1)*(-4.d0*dRSUN/RSUN)*(7.5d0*SCSUN**2-1.5d0)*work_Sun(i)+
+     +  FGM(2,2)*(-4.d0*dRMON/RMON)*(7.5d0*SCMON**2-1.5d0)*work_Mon(i)+
+C
+     +  FGM(2,1)*(15.d0*DRSUNr_hat*work_Sun(i) + (7.5d0*SCSUN**2-1.5d0)*
+     *  (DRSUN_hat(i)-DRSUNr_hat*XSTA_N(i)-SCSUN*DXSTA_hat(i)) ) +
+     +  FGM(2,2)*(15.d0*DRMONr_hat*work_Mon(i) + (7.5d0*SCMON**2-1.5d0)*
+     *  (DRMON_hat(i)-DRMONr_hat*XSTA_N(i)-SCMON*DXSTA_hat(i)) )  
+      enddo
+C
+C Other partials are calculated in subroutines CORR_L1, CORR_H2L2 
+C
+C ------------------------------------------------------------------
+C  KTIDE3 for debug output (/= 0)
+       ktide3 = 0
+C-------------------------------------------------------------------
+C  Debug output
+      IF (ktide3 .NE. 0) THEN
+	WRITE (*,'(1x,a)') 'Debug output (3) for subroutine SITE_TIDE'
+C
+        call PR_ARR(' dRdrh0 ', n, 2, dRdrh0, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dRdh02 ', n, 2, dRdh02, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dRdrl0 ', n, 2, dRdrl0, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dRdl02 ', n, 2, dRdl02, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dRdh3 ', n, 2, dRdh3, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dRdl3 ', n, 2, dRdl3, n, 0, 
+     *              '(d23.16)', 'Number', 'Number') 
+C
+        call PR_ARR(' dRdl1_1_2000 ', n, 2, dRdl1_1_2000, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dRdl1_2_2000 ', n, 2, dRdl1_2_2000, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dRdhi_1_2000 ', n, 2, dRdhi_1_2000, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dRdhi_2_2000 ', n, 2, dRdhi_2_2000, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dRdli_1_2000 ', n, 2, dRdli_1_2000, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dRdli_2_2000 ', n, 2, dRdli_2_2000, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+	pause
+	endif
+C
+      RETURN
+      END SUBROUTINE SITE_TIDE_SOLID
+C  **********************************************************************
+C
+      SUBROUTINE CORR_L1(p2, dp2, pl, Rsun_cf,Rmon_cf,dRsun_cf,dRmon_cf, 
+     *                   fgm, vw_i, r2000, 
+     *                   dxyz, dvxyz, dRdl1_1_2000, dRdl1_2_2000)
+C 
+C THIS SUBROUTINE GIVES THE CORRECTIONS INDUCED BY THE LATITUDE DEPENDENCE  
+C GIVEN BY L^(1) IN MATHEWS ET AL (1991)   
+C                     IN THE DIURNAL BAND     (eq. 12) AND
+C                     IN THE SEMIDIURNAL BAND (eq. 13)
+C  
+C   Input variables : 
+C      1.p2(5,j)  -  Array P2 is 
+C                   (j = 1 for Sun, j = 2 for Moon) 
+C        P2(1,j) = P_2  (sin Phi_j)                   (eq. 11a)
+C        P2(2,j) = P_2^1(sin Phi_j)cos lambda_j, 
+C        P2(3,j) = P_2^1(sin Phi_j)sin lambda_j,      (eq. 11b)
+C        P2(4,j) = P_2^2(sin Phi_j)cos (2*lambda_j), 
+C        P2(5,j) = P_2^2(sin Phi_j)sin (2*lambda_j),  (eq. 11c)
+C
+C      2.dp2(5,j)  - Array dP2 is derivative  dP2/dt 
+C                   (j = 1 for Sun, j = 2 for Moon)    
+C      3.pl(4)    - The sin and cosine of the geocentric latitude 
+C                   and longitude of site
+C                   pl(1) = cos phi,    pl(2) = sin phi,
+C                   pl(3) = cos lambda, pl(4) = sin lambda
+C      4. Rsun_cf - Distance of Sun (M) 
+C      5. Rmon_cf - Distance of Moon (M)
+C      6.dRsun_cf - Derivative of dRsun/dt (M/sec) 
+C      7.dRmon_cf - Derivative of dRmon/dt (M/sec)
+C      8.fgm(i,j) - Conversion factor (degree 2 (i=1) and degree 3(i=2)) 
+C                   (j = 1 for Sun, j = 2 for Moon) 
+C      9.vw_i(3,3)- Transformation matrix VW from the local VEN to the 
+C                   Earth-fixed coordinate system (Unitless) for I-th site
+C     10.r2000(3,3,3) - The complete transformation matrix J2000.0 and
+C                       the first two CT time derivatives of
+C                       that matrix. (Unitless, 1/Sec, 1/Sec**2)
+C
+C   Output variables: 
+C      1.  dxyz(3)         - contribution to the vector displacement   (M)
+C      2. dvxyz(3)         - contribution to the velocity displacement (M/Sec) 
+C      3. dRdl1_1_2000(3,2)- partials of station position (j=1) and 
+C                            velocity (j=2) with respect to the Love
+C                            numbers l1 for diurnal tides           (M, M/Sec)
+C      4. dRdl1_2_2000(3,2)- partials of station position (j=1) and 
+C                            velocity (j=2) with respect to the Love
+C                            numbers l1 for semidiurnal tides       (M, M/Sec)
+C  
+      IMPLICIT None
+C  
+      Integer j, KCORR_L1, KCORR_L12
+      Real(8) p2(5,2), dp2(5,2), pl(4),Rsun_cf,Rmon_cf,dRsun_cf,dRmon_cf
+	Real(8) fgm(2,2), vw_i(3,3), r2000(3,3,3), dxyz(3), dvxyz(3)
+	Real(8) dn1(2,2), de1(2,2), dn2(2,2), de2(2,2)
+	Real(8) dr_s, dn_s, de_s, dr(3)
+	Real(8) dvr, dvn, dve, dv(3)
+	Real(8) Rj_cf(2), dRj_cf(2)
+	Real(8) s2phi, c2phi, s2lam, c2lam, coef(2)
+      Real(8) work(3), dwork(3), v1(3), v2(3), v(3)
+      Real(8) work2(3), dwork2(3)
+	Real(8) dRdl1_1(3,2), dRdl1_2(3,2)
+	Real(8) dRdl1_1_2000(3,2), dRdl1_2_2000(3,2)
+C
+      Real(8) H02, L02, H22, L22, H3, L3, HI_1, LI_1, 
+     *        HI_2, LI_2, L1_1, L1_2
+      COMMON /LOVE/ H02, L02, H22, L22, H3, L3, HI_1, LI_1, HI_2, LI_2,
+     *              L1_1, L1_2
+C        L1_1, LOVE NUMBER l1 for diurnal tides          0.0012
+C        L1_2, LOVE NUMBER l1 for semidiurnal tides      0.0024
+C
+        Rj_cf(1) = Rsun_cf
+	  Rj_cf(2) = Rmon_cf
+	 dRj_cf(1) = dRsun_cf
+	 dRj_cf(2) = dRmon_cf
+C
+C  sin(2*phi)
+        s2phi=2.d0*pl(1)*pl(2)
+C  cos(2*phi)  
+        c2phi=pl(1)**2-pl(2)**2
+C  sin(2*lambda)
+        s2lam=2.d0*pl(3)*pl(4)
+C  cos(2*lambda)
+        c2lam=pl(3)**2-pl(4)**2
+C
+        dr_s = 0.d0
+        dn_s = 0.d0
+        de_s = 0.d0
+        dvr = 0.d0
+        dvn = 0.d0
+        dve = 0.d0
+C
+	  coef(1) = -3.d0*dRj_cf(1)/Rj_cf(1)
+	  coef(2) = -3.d0*dRj_cf(2)/Rj_cf(2)
+C
+      do j = 1,2   ! j=1 - Sun
+C                  ! j=2 - Moon
+C  Contributions from diurnal tides to transverce displacement  (eq.12)
+      dn1(j,1)=-l1_1*fgm(1,j)*pl(2)**2*   (p2(2,j)*pl(3)+p2(3,j)*pl(4))      
+      de1(j,1)= l1_1*fgm(1,j)*pl(2)*c2phi*(p2(2,j)*pl(4)-p2(3,j)*pl(3))
+C
+C  Contributions from diurnal tides to transverce velocity
+      dn1(j,2)=-l1_1*fgm(1,j)*pl(2)**2 *
+     *( coef(j)*( p2(2,j)*pl(3)+ p2(3,j)*pl(4) ) + 
+     *          (dp2(2,j)*pl(3)+dp2(3,j)*pl(4) ) )
+C
+      de1(j,2)= l1_1*fgm(1,j)*pl(2)*c2phi*
+     *( coef(j)*( p2(2,j)*pl(4)- p2(3,j)*pl(3) ) +
+     +          (dp2(2,j)*pl(4)-dp2(3,j)*pl(3) ) )
+C
+C  Contributions from semidiurnal tides to transverce displacement (eq.13)
+      dn2(j,1)=-0.25d0*l1_2*fgm(1,j)*s2phi*      
+     *                             (p2(4,j)*c2lam+p2(5,j)*s2lam)
+      de2(j,1)=-0.25d0*l1_2*fgm(1,j)*s2phi*pl(2)*
+     *                             (p2(4,j)*s2lam-p2(5,j)*c2lam)
+C
+C  Contributions from semidiurnal tides to transverce velocity
+      dn2(j,2)=-0.25d0*l1_2*fgm(1,j)*s2phi*     
+     *( coef(j)*( p2(4,j)*c2lam+ p2(5,j)*s2lam) +
+     +          (dp2(4,j)*c2lam+dp2(5,j)*s2lam) )
+C
+      de2(j,2)=-0.25d0*l1_2*fgm(1,j)*s2phi*pl(2)*
+     *( coef(j)*( p2(4,j)*s2lam- p2(5,j)*c2lam) +
+     +          (dp2(4,j)*s2lam-dp2(5,j)*c2lam) )
+C
+C  Sum of the Sun and Moon effects
+        dn_s = dn_s + dn1(j,1) + dn2(j,1)
+        de_s = de_s + de1(j,1) + de2(j,1)
+        dvn  = dvn  + dn1(j,2) + dn2(j,2)
+        dve  = dve  + de1(j,2) + de2(j,2)
+	enddo
+C
+	  dr(1) = dr_s
+	  dr(2) = de_s
+	  dr(3) = dn_s
+	  dv(1) = dvr
+	  dv(2) = dve
+	  dv(3) = dvn
+C
+C  Transformation from local VEN to the Earth-fixed coordinate system
+       CALL MUL_ARR_VEC (vw_i, dr, work)
+c	write(*,*) work
+C  Then rotate vectors from crust-fixed to J2000 system.
+       CALL MUL_ARR_VEC (r2000(1,1,1), work, dxyz)
+C
+C  Similar transformation for velocity vector
+       CALL MUL_ARR_VEC (vw_i, dv, dwork)
+C
+       CALL MUL_ARR_VEC (r2000(1,1,1), dwork, v1)
+       CALL MUL_ARR_VEC (r2000(1,1,2),  work, v2)
+       CALL SUM_2VEC  (v1, v2, dvxyz)
+C
+C  End of calculation of corrections
+C---------------------------------------------------------------
+C---------------------------------------------------------------
+C  Computation of partials of station POSITION with respect to
+C  the Love numbers
+C        L1_1,   LOVE NUMBER l1 for diurnal tides     = 0.0012
+C
+       dRdl1_1(1,1) = 0.d0
+       dRdl1_1(2,1) = ( de1(1,1)+de1(2,1) ) / l1_1
+       dRdl1_1(3,1) = ( dn1(1,1)+dn1(2,1) ) / l1_1
+C
+C        L1_2,   LOVE NUMBER l1 for semidiurnal tides = 0.0024
+       dRdl1_2(1,1) = 0.d0
+       dRdl1_2(2,1) = ( de2(1,1)+de2(2,1) ) / l1_2
+       dRdl1_2(3,1) = ( dn2(1,1)+dn2(2,1) ) / l1_2
+C
+C---------------------------------------------------------------
+C  Computation of partials of station VELOCITY with respect to
+C  the Love numbers
+C        L1_1,   LOVE NUMBER l1 for diurnal tides     = 0.0012
+C
+       dRdl1_1(1,2) = 0.d0
+       dRdl1_1(2,2) = ( de1(1,2)+de1(2,2) ) / l1_1
+       dRdl1_1(3,2) = ( dn1(1,2)+dn1(2,2) ) / l1_1
+C
+C        L1_2,   LOVE NUMBER l1 for semidiurnal tides = 0.0024
+       dRdl1_2(1,2) = 0.d0
+       dRdl1_2(2,2) = ( de2(1,2)+de2(2,2) ) / l1_2
+       dRdl1_2(3,2) = ( dn2(1,2)+dn2(2,2) ) / l1_2
+C----------------------------------------------------------------
+C  Transformation from local VEN to the Earth-fixed coordinate system
+C  for position partials
+C
+C        L1_1
+       CALL MUL_ARR_VEC (vw_i, dRdl1_1(1,1), work)
+C  Then rotate vectors from crust-fixed to J2000 system.
+       CALL MUL_ARR_VEC (r2000(1,1,1), work, dRdl1_1_2000(1,1))
+C
+C  Transformation from local VEN to the Earth-fixed coordinate system
+C        L1_2
+       CALL MUL_ARR_VEC (vw_i, dRdl1_2(1,1), work2)
+C  Then rotate vectors from crust-fixed to J2000 system.
+       CALL MUL_ARR_VEC (r2000(1,1,1), work2, dRdl1_2_2000(1,1))
+C
+C  Similar transformation for velocity partials
+C        L1_1
+       CALL MUL_ARR_VEC (vw_i, dRdl1_1(1,2), dwork)
+C
+       CALL MUL_ARR_VEC (r2000(1,1,1), dwork, v1)
+       CALL MUL_ARR_VEC (r2000(1,1,2),  work, v2)
+       CALL SUM_2VEC  (v1, v2, dRdl1_1_2000(1,2))
+C
+C  Similar transformation for velocity partials
+C        L1_2
+       CALL MUL_ARR_VEC (vw_i, dRdl1_2(1,2), dwork2)
+C
+       CALL MUL_ARR_VEC (r2000(1,1,1), dwork2, v1)
+       CALL MUL_ARR_VEC (r2000(1,1,2),  work2, v2)
+       CALL SUM_2VEC  (v1, v2, dRdl1_2_2000(1,2))
+
+C**********************************************************************
+C  KCORR_L1 for debug output (/= 0)
+       KCORR_L1 = 0
+C----------------------------------------------------------------------
+C  Debug output
+      IF (KCORR_L1 .NE. 0) THEN
+    8   FORMAT(A, 3D22.15)
+C
+	WRITE (*,'(1x,a)') 'Debug output (1) for subroutine CORR_L1'
+C
+        call PR_ARR(' dn1  ',    2, 2, dn1, 2, 0, 
+     *              '(d25.16)', 'Number', 'Number')
+        call PR_ARR(' dn2  ',    2, 2, dn2, 2, 0, 
+     *              '(d25.16)', 'Number', 'Number')
+        call PR_ARR(' de1  ',    2, 2, de1, 2, 0, 
+     *              '(d25.16)', 'Number', 'Number')
+        call PR_ARR(' de2  ',    2, 2, de2, 2, 0, 
+     *              '(d25.16)', 'Number', 'Number')
+        WRITE(*,8)' dr  (diu) ',dr_s,de1(1,1)+de1(2,1),dn1(1,1)+dn1(2,1)
+        WRITE(*,8)' dv  (diu) ', dvr,de1(1,2)+de1(2,2),dn1(1,2)+dn1(2,2)
+        WRITE(*,8)' dr (semi) ',dr_s,de2(1,1)+de2(2,1),dn2(1,1)+dn2(2,1)
+        WRITE(*,8)' dv (semi) ', dvr,de2(1,2)+de2(2,2),dn2(1,2)+dn2(2,2)
+C
+        call PR_ARR(' dr ', 1, 3, dr, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dv ', 1, 3, dv, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' vw_i ', 3, 3, vw_i, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dxyz ', 1, 3, dxyz, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dvxyz ', 1, 3, dvxyz, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+	pause
+	endif
+C**********************************************************************
+C  KCORR_L12 for debug output (/= 0)
+       KCORR_L12 = 0
+C----------------------------------------------------------------------
+C  Debug output
+      IF (KCORR_L12 .NE. 0) THEN
+C
+	WRITE (*,'(1x,a)') 'Debug output (2) for subroutine CORR_L1'
+C
+        call PR_ARR(' dRdl1_1 ', 2, 3, dRdl1_1, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dRdl1_2 ', 2, 3, dRdl1_2, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+C
+        call PR_ARR(' dRdl1_1_2000 ', 2, 3, dRdl1_1_2000, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dRdl1_2_2000 ', 2, 3, dRdl1_2_2000, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+	pause
+	endif
+C
+      RETURN  
+      END SUBROUTINE CORR_L1
+
+C*************************************************************************
+
+      SUBROUTINE CORR_DIU(pl, f, fd, gast, vw_i, r2000, dxyz, dvxyz)  
+C  
+C  SUBROUTINE CORR_DIU calculates corrections for frequency dependence
+C  of the Love and Shida numbers in DIURNAL band (Eq. 16)
+C    Input variables :  
+C       1. pl(4)    - The sin and cosine of phi and lambda
+C                     pl(1) = cos phi,    pl(2) = sin phi,
+C                     pl(3) = cos lambda, pl(4) = sin lambda,
+C       2. f(5)     - The fundamental arguments for the nutation theory.
+C                     (IERS Conventions 1996) (Arcseconds),
+C       3. fd(5)    - The CT time derivatives of the fundamental arguments.
+C                     (Arcsec/century)
+C       4. gast(2)  - The GREENWICH apparent siderial time and the first
+C                     CT time derivative. (Rad, Rad/Sec)
+C       5. vw_i(3,3)- Transformation matrix VW from the local VEN to the 
+C                     Earth-fixed coordinate system (Unitless) for I-th site
+C       6.r2000(3,3,3) - The complete transformation matrix J2000.0 and
+C                       the first two CT time derivatives of
+C                       that matrix. (Unitless, 1/Sec, 1/Sec**2)
+C 
+C   Output variables: 
+C       1. dxyz(3)  - contribution to the vector displacement (x,y,z) (M) 
+C       2. dvxyz(3) - contribution to the velocity displacement (M/Sec) 
+C
+      IMPLICIT None
+C
+      Integer i, j, KCORR_diu
+      Real(8) pl(4),f(5),fd(5),gast(2),vw_i(3,3),r2000(3,3,3)
+	Real(8) dxyz(3), dvxyz(3)
+	Real(8) amp(9,31)
+	Real(8) theta_f, ctheta, stheta, dtheta_f, dctheta, dstheta
+	Real(8) dr_s, dn_s, de_s, dr(3)
+	Real(8) dvr, dvn, dve, dv(3)
+	Real(8) lam, sin2phi, cos2phi
+      Real(8) work(3), dwork(3), v1(3), v2(3), v(3)
+C
+      Real(8) CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+	Real(8) pi, twopi, halfpi, s, h
+      COMMON /MATH1/ PI, TWOPI, HALFPI
+	COMMON /MATH2/ CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+C
+C
+C  Corrections due to frequency variation of Love and Shida numbers for diurnal tides.      
+      DATA ((amp(i,j),i=1,9),j=1,31)/  
+C  -------------------------------------------------------------
+C             Multiples of              Amplitudes (mm)
+C       l    l'   F    D  Omega    dRip   dRop   dTip   dTop
+C  -------------------------------------------------------------
+     * -2.,  0., -1.,  0., -1.,   -0.01,  0.00,  0.00,  0.00,   ! 2Q1
+     *  0.,  0., -1., -2., -1.,   -0.01,  0.00,  0.00,  0.00,   ! sigma1
+     *  1.,  0.,  2.,  0.,  1.,   -0.02,  0.00,  0.00,  0.00,   !
+     *  1.,  0.,  2.,  0.,  2.,   -0.08,  0.00, -0.01,  0.01,   ! Q1
+     * -1.,  0.,  2.,  2.,  2.,   -0.02,  0.00,  0.00,  0.00,   ! ro1
+     *  0.,  0.,  2.,  0.,  1.,   -0.10,  0.00,  0.00,  0.00,   !
+     *  0.,  0.,  2.,  0.,  2.,   -0.51,  0.00, -0.02,  0.03,   ! O1
+     *  0.,  0.,  1., -2.,  1.,    0.01,  0.00,  0.00,  0.00,   ! tau1
+     *  1.,  0.,  2., -2.,  2.,    0.01,  0.00,  0.00,  0.00,   ! Ntau1
+     * -1.,  0.,  2.,  0.,  2.,    0.02,  0.00,  0.00,  0.00,   !
+     *  1.,  0.,  0.,  0.,  0.,    0.06,  0.00,  0.00,  0.00,   ! NO1
+     *  1.,  0.,  0.,  0.,  1.,    0.01,  0.00,  0.00,  0.00,   ! 
+     * -1.,  0.,  0.,  2.,  0.,    0.01,  0.00,  0.00,  0.00,   ! xi1
+     *  0.,  1.,  2., -2.,  2.,   -0.06,  0.00,  0.00,  0.00,   ! pi1
+     *  0.,  0.,  2., -2.,  1.,    0.01,  0.00,  0.00,  0.00,   ! 
+     *  0.,  0.,  2., -2.,  2.,   -1.23, -0.07,  0.06,  0.01,   ! P1
+     *  0., -1.,  2., -2.,  2.,    0.02,  0.00,  0.00,  0.00,   ! 
+     *  0.,  1.,  0.,  0.,  0.,    0.04,  0.00,  0.00,  0.00,   ! S1
+     *  0.,  0.,  0.,  0., -1.,   -0.22,  0.01,  0.01,  0.00,   ! 
+     *  0.,  0.,  0.,  0.,  0.,   12.00, -0.80, -0.67, -0.03,   ! K1
+     *  0.,  0.,  0.,  0.,  1.,    1.73, -0.12, -0.10,  0.00,   ! 
+     *  0.,  0.,  0.,  0.,  2.,   -0.04,  0.00,  0.00,  0.00,   ! 
+     *  0., -1.,  0.,  0.,  0.,   -0.50, -0.01,  0.03,  0.00,   ! psi1
+     *  0.,  1., -2.,  2., -2.,    0.01,  0.00,  0.00,  0.00,   ! 
+     *  0., -1.,  0.,  0.,  1.,   -0.01,  0.00,  0.00,  0.00,   ! 
+     * -2.,  0.,  0.,  2.,  0.,   -0.01,  0.00,  0.00,  0.00,   ! 
+     *  0.,  0., -2.,  2., -2.,   -0.11,  0.01,  0.01,  0.00,   ! phi1
+     *  1.,  0.,  0., -2.,  0.,   -0.01,  0.00,  0.00,  0.00,   ! theta1
+     * -1.,  0.,  0.,  0.,  0.,   -0.02,  0.00,  0.00,  0.00,   ! J1
+     *  0.,  0., -2.,  0., -2.,    0.00,  0.00,  0.00,  0.00,   ! OO1
+     *  0.,  0., -2.,  0., -1.,    0.00,  0.00,  0.00,  0.00/   ! 
+C --------------------------------------------------------------
+C
+      lam = DATAN2(pl(4),pl(3))
+C
+        dr_s = 0.d0
+	  dn_s = 0.d0
+	  de_s = 0.d0
+        dvr = 0.d0
+        dvn = 0.d0
+        dve = 0.d0
+C
+      do  j = 1, 31
+C   theta_f is tide argument for tidal constituent with frequency f and
+C  dtheta_f is the time derivative
+         theta_f = 0.d0
+        dtheta_f = 0.d0
+	   do  i = 1, 5
+	     theta_f = theta_f + amp(i,j)* f(i)         ! in Arcsec
+	    dtheta_f =dtheta_f + amp(i,j)* fd(i)        ! in Arcsec/JulianCentury
+	   enddo
+C
+C  Conversion from arcseconds to radians
+C  Tide argument is equal to theta_f = - (k1*l+k2*l'+k3*F+k4*D+k5*Omega) + 1*(GAST+12h) !!!
+         theta_f = - theta_f * carcrad + (gast(1)+pi)       ! in Rad
+	   theta_f = dmod(theta_f, twopi)
+C  Time derivative
+        dtheta_f = -dtheta_f * carcrad/3.15576D9 + gast(2) ! in Rad/Sec
+c
+         ctheta  = dcos(theta_f+lam)
+         stheta  = dsin(theta_f+lam)
+C
+        dctheta  = - stheta * dtheta_f
+        dstheta  =   ctheta * dtheta_f
+C
+        sin2phi = 2.d0*pl(1)*pl(2)
+        cos2phi = pl(1)**2-pl(2)**2
+C
+C  Correction to the Radial site displacement dr (Eq. 16a)
+        dr_s=dr_s+(amp(6,j)*stheta+amp(7,j)*ctheta)*sin2phi
+C  Correction to the Tranverse site displacement dr (Eq. 16b)
+        dn_s=dn_s+(amp(8,j)*stheta+amp(9,j)*ctheta)*cos2phi
+        de_s=de_s+(amp(8,j)*ctheta-amp(9,j)*stheta)* pl(2)
+C
+C  Correction to the Radial site velocity dvr 
+        dvr =dvr +(amp(6,j)*dstheta+amp(7,j)*dctheta)*sin2phi
+C  Correction to the Tranverse site velocity dvn, dve 
+        dvn =dvn +(amp(8,j)*dstheta+amp(9,j)*dctheta)*cos2phi
+        dve =dve +(amp(8,j)*dctheta-amp(9,j)*dstheta)* pl(2)
+C
+      enddo
+C
+	  dr(1) = dr_s
+	  dr(2) = de_s
+	  dr(3) = dn_s
+	  dv(1) = dvr
+	  dv(2) = dve
+	  dv(3) = dvn
+C
+C  Transformation from local VEN to the Earth-fixed coordinate system
+       CALL MUL_ARR_VEC (vw_i, dr, work)
+C  Then rotate vectors from crust-fixed to J2000 system.
+       CALL MUL_ARR_VEC (r2000(1,1,1), work, dxyz)
+C
+C  Similar transformation for velocity vector
+       CALL MUL_ARR_VEC (vw_i, dv, dwork)
+C
+       CALL MUL_ARR_VEC (r2000(1,1,1), dwork, v1)
+       CALL MUL_ARR_VEC (r2000(1,1,2),  work, v2)
+       CALL SUM_2VEC  (v1, v2, dvxyz)
+C  Conversion to meters
+       do i = 1, 3
+         dxyz(i) = dxyz(i) * 1.d-3
+        dvxyz(i) =dvxyz(i) * 1.d-3
+	 enddo
+C-------------------------------------------------------------------------------
+C  KCORR_diu for debug output (/= 0)
+       KCORR_diu = 0
+C-------------------------------------------------------------------------------
+C  Debug output
+      IF (KCORR_diu .NE. 0) THEN
+    8   FORMAT(A, 3D22.15)
+	  WRITE (*,'(1x,a)') 'Debug output (2) for subroutine CORR_DIU'
+C
+        call PR_ARR(' dr ', 1, 3, dr, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dv ', 1, 3, dv, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' vw_i ', 3, 3, vw_i, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dxyz ', 1, 3, dxyz, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dvxyz ', 1, 3, dvxyz, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+	pause
+	endif
+C
+      RETURN  
+      END SUBROUTINE CORR_DIU 
+C  
+C  *************************************************************  
+C
+      SUBROUTINE CORR_LON(pl, f, fd, vw_i, r2000, dxyz, dvxyz)  
+C  
+C  SUBROUTINE CORR_LON calculates corrections for frequency dependence
+C  of the Love and Shida numbers in LONG PERIOD band (Eq.17)
+C    Input variables :  
+C       1. pl(4)    - The sin and cosine of phi and lambda
+C                     pl(1) = cos phi,    pl(2) = sin phi,
+C                     pl(3) = cos lambda, pl(4) = sin lambda,
+C       2. f(5)     - The fundamental arguments for the nutation theory.
+C                     (IERS Conventions 1996) (Arcseconds),
+C       4. fd(5)    - The CT time derivatives of the fundamental arguments.
+C                     (Arcsec/century)
+C       5. vw_i(3,3)- Transformation matrix VW from the local VEN to the 
+C                     Earth-fixed coordinate system (Unitless) for I-th site
+C       6.r2000(3,3,3) - The complete transformation matrix J2000.0 and
+C                       the first two CT time derivatives of
+C                       that matrix. (Unitless, 1/Sec, 1/Sec**2)
+C 
+C   Output variables: 
+C       1. dxyz(3)  - contribution to the vector displacement (x,y,z) (M)
+C      2. dvxyz(3) - contribution to the velocity displacement (M/Sec)  
+C
+      IMPLICIT None
+C
+      Integer i, j, KCORR_lon
+      Real(8) pl(4),f(5),fd(5),vw_i(3,3),r2000(3,3,3), dxyz(3), dvxyz(3)
+	Real(8) amp(9,5)
+	Real(8) theta_f, ctheta, stheta, dtheta_f, dctheta, dstheta
+	Real(8) dr_s, dn_s, de_s, dr(3)
+	Real(8) dvr, dvn, dve, dv(3)
+	Real(8) sin2phi, coef
+      Real(8) work(3), dwork(3), v1(3), v2(3), v(3)
+      Real(8) CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+C	
+	COMMON /MATH2/ CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+C  Corrections due to frequency variation of Love and Shida numbers for zonal tides.      
+      DATA ((amp(i,j),i=1,9),j=1,5)/  
+C  -------------------------------------------------------------
+C             Multiples of              Amplitudes (mm)
+C       l    l'   F    D  Omega    dRip   dRop   dTip   dTop
+C  -------------------------------------------------------------
+     *  0.,  0.,  0.,  0.,  1.,    0.47,  0.16,  0.23,  0.07,   !    
+     *  0.,  0., -2.,  2., -2.,   -0.20, -0.11, -0.12, -0.05,   ! Ssa
+     * -1.,  0.,  0.,  0.,  0.,   -0.11, -0.09, -0.08, -0.04,   ! Mm
+     *  0.,  0., -2.,  0., -2.,   -0.13, -0.15, -0.11, -0.07,   ! Mf
+     *  0.,  0., -2.,  0.,  1.,   -0.05, -0.06, -0.05, -0.03/   ! 
+C  -------------------------------------------------------------
+C
+        dr_s = 0.d0
+        dn_s = 0.d0
+	  de_s = 0.d0 
+        dvr = 0.d0
+        dvn = 0.d0
+        dve = 0.d0
+C 
+      do  j = 1, 5
+C  theta_f - tide argument for tidal constituent with frequency f
+C  dtheta_f is the time derivative
+         theta_f = 0.d0
+        dtheta_f = 0.d0
+	   do  i = 1, 5
+	     theta_f = theta_f + amp(i,j)* f(i)         ! in Arcsec
+	    dtheta_f =dtheta_f + amp(i,j)* fd(i)        ! in Arcsec/JulianCentury
+	   enddo
+C
+C  Conversion from arcseconds to radians
+         theta_f = - theta_f * carcrad
+C  Time derivative
+        dtheta_f = -dtheta_f * carcrad/3.15576D9  ! in Rad/Sec
+C
+         ctheta  = dcos(theta_f)
+         stheta  = dsin(theta_f)
+C
+        dctheta  = - stheta * dtheta_f
+        dstheta  =   ctheta * dtheta_f
+C
+        sin2phi = 2.d0*pl(1)*pl(2)
+        coef    = (3.d0*pl(2)**2-1.d0)/2.d0
+C
+C  Correction to the Radial site displacement dr (Eq. 17a)
+         dr_s=dr_s+(amp(6,j)*ctheta+amp(7,j)*stheta)*coef
+C  Correction to the tranverse site displacement dr (Eq. 16b)
+         dn_s=dn_s+(amp(8,j)*ctheta+amp(9,j)*stheta)*sin2phi
+C
+C  Correction to the Radial site velocity dvr 
+        dvr =dvr +(amp(6,j)*dctheta+amp(7,j)*dstheta)*coef
+C  Correction to the Tranverse site velocity dvn 
+        dvn =dvn +(amp(8,j)*dctheta+amp(9,j)*dstheta)*sin2phi
+C
+       enddo
+C
+	  dr(1) = dr_s
+	  dr(2) = de_s
+	  dr(3) = dn_s
+	  dv(1) = dvr
+	  dv(2) = dve
+	  dv(3) = dvn
+C
+C  Transformation from local VEN to the Earth-fixed coordinate system
+       CALL MUL_ARR_VEC (vw_i, dr, work)
+C  Then rotate vectors from crust-fixed to J2000 system.
+       CALL MUL_ARR_VEC (r2000(1,1,1), work, dxyz)
+C
+C  Similar transformation for velocity vector
+       CALL MUL_ARR_VEC (vw_i, dv, dwork)
+C
+       CALL MUL_ARR_VEC (r2000(1,1,1), dwork, v1)
+       CALL MUL_ARR_VEC (r2000(1,1,2),  work, v2)
+       CALL SUM_2VEC  (v1, v2, dvxyz)
+C  Conversion to meters
+       do i = 1, 3
+         dxyz(i) = dxyz(i) * 1.d-3
+        dvxyz(i) =dvxyz(i) * 1.d-3
+	 enddo
+C-------------------------------------------------------------------------------
+C  KCORR_lon for debug output (/= 0)
+       KCORR_lon = 0
+C-------------------------------------------------------------------------------
+C  Debug output
+      IF (KCORR_lon .NE. 0) THEN
+    8   FORMAT(A, 3D22.15)
+	  WRITE (*,'(1x,a)') 'Debug output (2) for subroutine CORR_LON'
+C
+        call PR_ARR(' dr ', 1, 3, dr, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dv ', 1, 3, dv, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' vw_i ', 3, 3, vw_i, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dxyz ', 1, 3, dxyz, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dvxyz ', 1, 3, dvxyz, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+	pause
+	endif
+C
+      RETURN  
+      END SUBROUTINE CORR_LON 
+C*********************************************************************************
+
+C 
+      SUBROUTINE CORR_H2L2(p2, dp2,pl,Rsun_cf,Rmon_cf,dRsun_cf,dRmon_cf, 
+     *                     fgm, vw_i, r2000, dxyz, dvxyz,
+     *                     dRdhi_1_2000, dRdhi_2_2000, 
+     *                     dRdli_1_2000, dRdli_2_2000)
+C  
+C THIS SUBROUTINE GIVES THE OUT-OF-PHASE CORRECTIONS INDUCED BY 
+C MANTLE INELASTICITY IN THE DIURNAL BAND     (eq. 14) AND
+C                     IN THE SEMIDIURNAL BAND (eq. 15)
+C  
+C   Input variables : 
+C      1.p2(5,j)  -  Array P2 is 
+C                   (j = 1 for Sun, j = 2 for Moon) 
+C        P2(1,j) = P_2  (sin Phi_j)                   (eq. 11a)
+C        P2(2,j) = P_2^1(sin Phi_j)cos lambda_j, 
+C        P2(3,j) = P_2^1(sin Phi_j)sin lambda_j,      (eq. 11b)
+C        P2(4,j) = P_2^2(sin Phi_j)cos (2*lambda_j), 
+C        P2(5,j) = P_2^2(sin Phi_j)sin (2*lambda_j),  (eq. 11c)
+C      2.dp2(5,j)  - Array dP2 is derivative  dP2/dt 
+C                   (j = 1 for Sun, j = 2 for Moon)    
+C   
+C      3.pl(4)    - The sin and cosine of phi and lambda
+C                   pl(1) = cos phi,    pl(2) = sin phi,
+C                   pl(3) = cos lambda, pl(4) = sin lambda
+C      4. Rsun_cf - Distance of Sun (M) 
+C      5. Rmon_cf - Distance of Moon (M)
+C      6.dRsun_cf - Derivative of dRsun/dt (M/sec) 
+C      7.dRmon_cf - Derivative of dRmon/dt (M/sec)
+C      8.fgm(i,j) - Conversion factor (degree 2 (i=1) and degree 3(i=2)) 
+C                   (j = 1 for Sun, j = 2 for Moon) 
+C      9.vw_i(3,3)- Transformation matrix VW from the local VEN to the 
+C                   Earth-fixed coordinate system (Unitless) for I-th site
+C     10.r2000(3,3,3) - The complete transformation matrix J2000.0 and
+C                       the first two CT time derivatives of
+C                       that matrix. (Unitless, 1/Sec, 1/Sec**2)
+C   Output variables: 
+C      1. dxyz(3) - contribution to the vector displacement (x,y,z) (M) 
+C      2. dvxyz(3) - contribution to the velocity displacement (M/Sec) 
+C      3. dRdhi_1_2000(3,2)- partials of station position (j=1) and 
+C                            velocity (j=2) with respect to the Love
+C                            numbers hi for diurnal tides           (M, M/Sec)
+C      4. dRdhi_2_2000(3,2)- partials of station position (j=1) and 
+C                            velocity (j=2) with respect to the Love
+C                            numbers hi for semidiurnal tides       (M, M/Sec)  
+C      5. dRdli_1_2000(3,2)- partials of station position (j=1) and 
+C                            velocity (j=2) with respect to the Love
+C                            numbers li for diurnal tides           (M, M/Sec)
+C      6. dRdli_2_2000(3,2)- partials of station position (j=1) and 
+C                            velocity (j=2) with respect to the Love
+C                            numbers li for semidiurnal tides       (M, M/Sec)
+C  
+      IMPLICIT None
+C  
+      Integer j, KCORR_h2, KCORR_l2
+C
+      Real(8) p2(5,2), dp2(5,2), pl(4),Rsun_cf,Rmon_cf,dRsun_cf,dRmon_cf
+	Real(8) fgm(2,2), vw_i(3,3), r2000(3,3,3), dxyz(3), dvxyz(3)
+	Real(8) dr1(2,2), dn1(2,2), de1(2,2), dr2(2,2), dn2(2,2), de2(2,2)
+	Real(8) dr_s, dn_s, de_s, dr(3)
+	Real(8) dvr, dvn, dve, dv(3)
+	Real(8) Rj_cf(2), dRj_cf(2)
+	Real(8) s2phi, c2phi, s2lam, c2lam, coef(2)
+	Real(8) dRdhi_1_2000(3,2), dRdhi_2_2000(3,2)
+      Real(8) dRdli_1_2000(3,2), dRdli_2_2000(3,2)
+      Real(8) v1(3), v2(3), v(3)
+      Real(8) dRdhi_1(3,2), dRdhi_2(3,2), dRdli_1(3,2), dRdli_2(3,2)
+      Real(8) work(3), dwork(3) 
+C
+      Real(8) H02, L02, H22, L22, H3, L3, HI_1, LI_1, 
+     *        HI_2, LI_2, L1_1, L1_2
+      COMMON /LOVE/ H02, L02, H22, L22, H3, L3, HI_1, LI_1, HI_2, LI_2,
+     *              L1_1, L1_2
+C        HI_1, LOVE NUMBER hi for diurnal tides         -0.0025
+C        LI_1, LOVE NUMBER li for diurnal tides         -0.0007
+C        HI_2, LOVE NUMBER hi for semidiurnal tides     -0.0022
+C        LI_2, LOVE NUMBER li for semidiurnal tides     -0.0007
+C
+        Rj_cf(1) = Rsun_cf
+	  Rj_cf(2) = Rmon_cf
+	 dRj_cf(1) = dRsun_cf
+	 dRj_cf(2) = dRmon_cf
+C
+C  sin(2*phi)
+        s2phi=2.d0*pl(1)*pl(2)
+C  cos(2*phi)  
+        c2phi=pl(1)**2-pl(2)**2
+C  sin(2*lambda)
+        s2lam=2.d0*pl(3)*pl(4)
+C  cos(2*lambda)
+        c2lam=pl(3)**2-pl(4)**2
+C
+        dr_s = 0.d0
+        dn_s = 0.d0
+        de_s = 0.d0
+        dvr = 0.d0
+        dvn = 0.d0
+        dve = 0.d0
+C
+	  coef(1) = -3.d0*dRj_cf(1)/Rj_cf(1)
+	  coef(2) = -3.d0*dRj_cf(2)/Rj_cf(2)
+C  
+      do j = 1,2   ! j=1 - Sun
+C                  ! j=2 - Moon
+C  Contributions from diurnal tides     (eq.14)
+      dr1(j,1)=-0.5d0*hi_1*fgm(1,j)*s2phi*(p2(2,j)*pl(4)-p2(3,j)*pl(3))
+C      
+      dn1(j,1)=      -li_1*fgm(1,j)*c2phi*(p2(2,j)*pl(4)-p2(3,j)*pl(3))
+C
+	de1(j,1)=      -li_1*fgm(1,j)*pl(2)*(p2(2,j)*pl(3)+p2(3,j)*pl(4)) 
+C
+C  Contributions from diurnal tides to transverce velocity
+      dr1(j,2)=-0.5d0*hi_1*fgm(1,j)*s2phi*
+     *(coef(j)*( p2(2,j)*pl(4)- p2(3,j)*pl(3) )+
+     *          dp2(2,j)*pl(4)-dp2(3,j)*pl(3) )
+C           
+	dn1(j,2)=-li_1*fgm(1,j)*c2phi*
+     *(coef(j)*( p2(2,j)*pl(4)- p2(3,j)*pl(3) )+ 
+     +          dp2(2,j)*pl(4)-dp2(3,j)*pl(3) )
+C
+      de1(j,2)=-li_1*fgm(1,j)*pl(2)*
+     *(coef(j)*( p2(2,j)*pl(3)+ p2(3,j)*pl(4) )+
+     +          dp2(2,j)*pl(3)+dp2(3,j)*pl(4) )	
+
+C  Contributions from semidiurnal tides (eq.15)
+      dr2(j,1)=-0.25d0*hi_2*fgm(1,j)*pl(1)**2*
+     *                                  (p2(4,j)*s2lam-p2(5,j)*c2lam)
+      dn2(j,1)= 0.25d0*li_2*fgm(1,j)*s2phi* 
+     *                                  (p2(4,j)*s2lam-p2(5,j)*c2lam)
+      de2(j,1)=-0.50d0*li_2*fgm(1,j)*pl(1)*
+     *                                  (p2(4,j)*c2lam+p2(5,j)*s2lam)
+C
+C  Contributions from semidiurnal tides to transverce velocity
+      dr2(j,2)=-0.25d0*hi_2*fgm(1,j)*pl(1)**2*
+     *(coef(j)*( p2(4,j)*s2lam- p2(5,j)*c2lam)+
+     *          dp2(4,j)*s2lam-dp2(5,j)*c2lam)
+C
+      dn2(j,2)= 0.25d0*li_2*fgm(1,j)*s2phi*     
+     *(coef(j)*( p2(4,j)*s2lam- p2(5,j)*c2lam)+
+     +          dp2(4,j)*s2lam-dp2(5,j)*c2lam)
+C
+      de2(j,2)=-0.50d0*li_2*fgm(1,j)*pl(1)*
+     *(coef(j)*( p2(4,j)*c2lam+ p2(5,j)*s2lam)+
+     +          dp2(4,j)*c2lam+dp2(5,j)*s2lam)
+C
+C  Sum of the Sun and Moon effects
+        dr_s = dr_s + dr1(j,1) + dr2(j,1)
+        dn_s = dn_s + dn1(j,1) + dn2(j,1)
+        de_s = de_s + de1(j,1) + de2(j,1)
+        dvr  = dvr  + dr1(j,2) + dr2(j,2)
+        dvn  = dvn  + dn1(j,2) + dn2(j,2)
+        dve  = dve  + de1(j,2) + de2(j,2)
+	enddo
+	  dr(1) = dr_s
+	  dr(2) = de_s
+	  dr(3) = dn_s
+	  dv(1) = dvr
+	  dv(2) = dve
+	  dv(3) = dvn
+C
+C  Transformation from local VEN to the Earth-fixed coordinate system
+       CALL MUL_ARR_VEC (vw_i, dr, work)
+C  Then rotate vectors from crust-fixed to J2000 system.
+       CALL MUL_ARR_VEC (r2000(1,1,1), work, dxyz)
+C
+C  Similar transformation for velocity vector
+       CALL MUL_ARR_VEC (vw_i, dv, dwork)
+C
+       CALL MUL_ARR_VEC (r2000(1,1,1), dwork, v1)
+       CALL MUL_ARR_VEC (r2000(1,1,2),  work, v2)
+       CALL SUM_2VEC  (v1, v2, dvxyz)
+C
+C  End of calculation of corrections
+C---------------------------------------------------------------
+C---------------------------------------------------------------
+C  Computation of partials of station POSITION with respect to
+C  the Love numbers
+C        HI_1, LOVE NUMBER hi for diurnal tides         -0.0025
+C
+       dRdhi_1(1,1) = ( dr1(1,1)+dr1(2,1) ) / hi_1
+       dRdhi_1(2,1) = 0.d0
+       dRdhi_1(3,1) = 0.d0
+C
+C        HI_2, LOVE NUMBER hi for semidiurnal tides     -0.0022
+       dRdhi_2(1,1) = ( dr2(1,1)+dr2(2,1) ) / hi_2
+       dRdhi_2(2,1) = 0.d0
+       dRdhi_2(3,1) = 0.d0
+
+C        LI_1, LOVE NUMBER li for diurnal tides         -0.0007
+       dRdli_1(1,1) = 0.d0
+       dRdli_1(2,1) = ( de1(1,1)+de1(2,1) ) / li_1
+       dRdli_1(3,1) = ( dn1(1,1)+dn1(2,1) ) / li_1
+C
+C        LI_2, LOVE NUMBER li for semidiurnal tides     -0.0007
+       dRdli_2(1,1) = 0.d0
+       dRdli_2(2,1) = ( de2(1,1)+de2(2,1) ) / li_2
+       dRdli_2(3,1) = ( dn2(1,1)+dn2(2,1) ) / li_2
+C
+C---------------------------------------------------------------
+C  Computation of partials of station VELOCITY with respect to
+C  the Love numbers
+C        HI_1, LOVE NUMBER hi for diurnal tides         -0.0025
+C
+       dRdhi_1(1,2) = ( dr1(1,2)+dr1(2,2) ) / hi_1
+       dRdhi_1(2,2) = 0.d0
+       dRdhi_1(3,2) = 0.d0
+C
+C        HI_2, LOVE NUMBER hi for semidiurnal tides     -0.0022
+       dRdhi_2(1,2) = ( dr2(1,2)+dr2(2,2) ) / hi_2
+       dRdhi_2(2,2) = 0.d0
+       dRdhi_2(3,2) = 0.d0
+
+C        LI_1, LOVE NUMBER li for diurnal tides         -0.0007
+       dRdli_1(1,2) = 0.d0
+       dRdli_1(2,2) = ( de1(1,2)+de1(2,2) ) / li_1
+       dRdli_1(3,2) = ( dn1(1,2)+dn1(2,2) ) / li_1
+C
+C        LI_2, LOVE NUMBER li for semidiurnal tides     -0.0007
+       dRdli_2(1,2) = 0.d0
+       dRdli_2(2,2) = ( de2(1,2)+de2(2,2) ) / li_2
+       dRdli_2(3,2) = ( dn2(1,2)+dn2(2,2) ) / li_2
+C----------------------------------------------------------------
+C  Transformation from local VEN to the Earth-fixed coordinate system
+C  for position partials
+C
+C        HI_1
+       CALL MUL_ARR_VEC (vw_i, dRdhi_1(1,1), work)
+C  Then rotate vectors from crust-fixed to J2000 system.
+       CALL MUL_ARR_VEC (r2000(1,1,1), work, dRdhi_1_2000(1,1))
+C
+C  Similar transformation for velocity partials
+C        
+       CALL MUL_ARR_VEC (vw_i, dRdhi_1(1,2), dwork)
+C
+       CALL MUL_ARR_VEC (r2000(1,1,1), dwork, v1)
+       CALL MUL_ARR_VEC (r2000(1,1,2),  work, v2)
+       CALL SUM_2VEC  (v1, v2, dRdhi_1_2000(1,2))
+C..................................................
+C
+C        HI_2
+       CALL MUL_ARR_VEC (vw_i, dRdhi_2(1,1), work)
+C  Then rotate vectors from crust-fixed to J2000 system.
+       CALL MUL_ARR_VEC (r2000(1,1,1), work, dRdhi_2_2000(1,1))
+C
+C  Similar transformation for velocity partials
+C        
+       CALL MUL_ARR_VEC (vw_i, dRdhi_2(1,2), dwork)
+C
+       CALL MUL_ARR_VEC (r2000(1,1,1), dwork, v1)
+       CALL MUL_ARR_VEC (r2000(1,1,2),  work, v2)
+       CALL SUM_2VEC  (v1, v2, dRdhi_2_2000(1,2))
+C..................................................
+C
+C        LI_1
+       CALL MUL_ARR_VEC (vw_i, dRdli_1(1,1), work)
+C  Then rotate vectors from crust-fixed to J2000 system.
+       CALL MUL_ARR_VEC (r2000(1,1,1), work, dRdli_1_2000(1,1))
+C
+C  Similar transformation for velocity partials
+C        
+       CALL MUL_ARR_VEC (vw_i, dRdli_1(1,2), dwork)
+C
+       CALL MUL_ARR_VEC (r2000(1,1,1), dwork, v1)
+       CALL MUL_ARR_VEC (r2000(1,1,2),  work, v2)
+       CALL SUM_2VEC  (v1, v2, dRdli_1_2000(1,2))
+C..................................................
+C
+C        LI_2
+       CALL MUL_ARR_VEC (vw_i, dRdli_2(1,1), work)
+C  Then rotate vectors from crust-fixed to J2000 system.
+       CALL MUL_ARR_VEC (r2000(1,1,1), work, dRdli_2_2000(1,1))
+C
+C  Similar transformation for velocity partials
+C        
+       CALL MUL_ARR_VEC (vw_i, dRdli_2(1,2), dwork)
+C
+       CALL MUL_ARR_VEC (r2000(1,1,1), dwork, v1)
+       CALL MUL_ARR_VEC (r2000(1,1,2),  work, v2)
+       CALL SUM_2VEC  (v1, v2, dRdli_2_2000(1,2))
+C  End calculation of partials
+C**********************************************************************
+C
+C-------------------------------------------------------------------------------
+C  KCORR_h2 for debug output (/= 0)
+       KCORR_h2 = 0
+C-------------------------------------------------------------------------------
+C  Debug output
+      IF (KCORR_h2 .NE. 0) THEN
+    8   FORMAT(A, 3D22.15)
+C
+	  WRITE (*,'(1x,a)') 'Debug output (1) for subroutine CORR_H2L2'
+        call PR_ARR(' dr1  ',    2, 2, dr1, 2, 0, 
+     *              '(d25.16)', 'Number', 'Number')
+        call PR_ARR(' dr2  ',    2, 2, dr2, 2, 0, 
+     *              '(d25.16)', 'Number', 'Number')
+        call PR_ARR(' dn1  ',    2, 2, dn1, 2, 0, 
+     *              '(d25.16)', 'Number', 'Number')
+        call PR_ARR(' dn2  ',    2, 2, dn2, 2, 0, 
+     *              '(d25.16)', 'Number', 'Number')
+        call PR_ARR(' de1  ',    2, 2, de1, 2, 0, 
+     *              '(d25.16)', 'Number', 'Number')
+        call PR_ARR(' de2  ',    2, 2, de2, 2, 0, 
+     *              '(d25.16)', 'Number', 'Number')
+        WRITE(*,8)' dr  (diu) ',
+     *  dr1(1,1)+dr1(2,1),de1(1,1)+de1(2,1),dn1(1,1)+dn1(2,1)
+        WRITE(*,8)' dv  (diu) ',
+     *  dr1(1,2)+dr1(2,2),de1(1,2)+de1(2,2),dn1(1,2)+dn1(2,2)
+C
+        WRITE(*,8)' dr (semi) ',
+     *  dr2(1,1)+dr2(2,1),de2(1,1)+de2(2,1),dn2(1,1)+dn2(2,1)
+        WRITE(*,8)' dv (semi) ',
+     *  dr2(1,2)+dr2(2,2),de2(1,2)+de2(2,2),dn2(1,2)+dn2(2,2)
+C
+        call PR_ARR(' dr ', 1, 3, dr, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dv ', 1, 3, dv, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' vw_i ', 3, 3, vw_i, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dxyz ', 1, 3, dxyz, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dvxyz ', 1, 3, dvxyz, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+	pause
+	endif
+C**********************************************************************
+C  KCORR_L2 for debug output (/= 0)
+       KCORR_L2 = 0
+C----------------------------------------------------------------------
+C  Debug output
+      IF (KCORR_L2 .NE. 0) THEN
+C
+	WRITE (*,'(1x,a)') 'Debug output (2) for subroutine CORR_H2L2'
+C
+        call PR_ARR(' dRdhi_1 ', 3, 2, dRdhi_1, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dRdhi_2 ', 3, 2, dRdhi_2, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dRdli_1 ', 3, 2, dRdli_1, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dRdli_2 ', 3, 2, dRdli_2, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+C
+        call PR_ARR(' dRdhi_1_2000 ', 3, 2, dRdhi_1_2000, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dRdhi_2_2000 ', 3, 2, dRdhi_2_2000, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dRdli_1_2000 ', 3, 2, dRdli_1_2000, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dRdli_2_2000 ', 3, 2, dRdli_2_2000, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+	pause
+	endif
+C
+      RETURN  
+      END SUBROUTINE CORR_H2L2
+C
+C*********************************************************************

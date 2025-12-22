@@ -1,0 +1,218 @@
+      SUBROUTINE POLE_TIDE (cent, lat, lon, x, y, dxdt, dydt, vw_i, 
+     * r2000, dx_poltide, dv_poltide, 
+     * dx_pol_dx, dx_pol_dy, dv_pol_dx, dv_pol_dy)
+C
+C   SUBROUTINE POLE_TIDE calculates the variation of station coordinates
+C   caused by the pole tide in J2000.0 system. 
+C   The site displacements calculates according IERS Standards 2000.
+C
+C   The pole path is approximated by the liner trend:
+C   X_mean(t)" = X_mean(t_0) +(t-t_0)Xdot_mean(t_0),
+C   Y_mean(t)" = Y_mean(t_0) +(t-t_0)Ydot_mean(t_0),
+C   where
+C   t_0=2000,
+C   X_mean(t_0) = 0.054", Y_mean(t_0) = 0.357",
+C   Xdot_mean(t_0) = 0.00083 "/year , Ydot_mean(t_0) = 0.00395 "/year
+C
+C   The IERS Conventions (2000) topocentric displacements (in meters).
+C         Up
+C       S_r      = -32.D0 * DSIN( 2.D0*theta ) * 1.D-3 *
+C    *                ( m_1*DCOS(lambda) + m_2*DSIN(lambda) )
+C         South
+C       S_theta =  - 9.D0 * DCOS( 2.D0*theta ) * 1.D-3 *
+C    *                ( m_1*DCOS(lambda) + m_2*DSIN(lambda) )
+C         East
+C       S_lambda =   9.D0 * DCOS( theta ) * 1.D-3 *
+C    *                ( m_1*DSIN(lambda) - m_2*DCOS(lambda) )  ,
+C
+C    where theta = halfpi - lat, lambda = lon
+C          m_1 =   X - X_mean    (Arcsecond),
+C          m_2 = -(Y - Y_mean)   (Arcsecond),
+C         dm_1/dt =   dX/dt - Xdot_mean(t_0)/365.25/86400,  (Arcsec/Sec)
+C         dm_2/dt = -(dY/dt - Ydot_mean(t_0)/365.25/86400), (Arcsec/Sec)
+C -----------------------------------------------------------------------------------
+C    Input variables:
+C      1. cent      -  The number of Julian centuries elapsed since the epoch
+C                      January 1.5 2000.(Centuries)
+C      2. lat       -  The geodetic latitude at each site (RAD)
+C      3. lon       -  The geocentric east longitude at each site. (RAD)
+C                             (0 <= lon_gcen <= 2*pi)
+C      4. x         -  Interpolated value of x-component of polar motion (Arcsec)
+C      5. y         -  Interpolated value of y-component of polar motion (Arcsec)
+C      6. dxdt      -  Interpolated value of dx/dTAI                     (Arcsec/Sec)
+C      7. dydt      -  Interpolated value of dy/dTAI                     (Arcsec/Sec)
+C      8. vw_i(3,3) -  The matrix of transformation of the VEN geodetic
+C                      system to the Earth-fixed coordinate system (Unitless)
+C      9. r2000(3,3,3)-The complete transformation matrix from crust fixed to 
+C                      J2000.0 system and the first two CT time derivatives of
+C                      that matrix. (Unitless, 1/Sec, 1/Sec**2)
+C
+C    Output variables:
+C                       ALL vectors are in the J2000.0 geocentric system  
+C       1. dx_poltide(3)  - The vector displacement of the site due to pole tide (M)
+C       2. dv_poltide(3)  - The velocity vector of the site due to pole tide (M/Sec)
+C       3. dx_pol_dx(3)   - The partial derivative of the DX_POLTIDE with
+C                           respective to the X-wobble offset. (M/arcsec)
+C       4. dx_pol_dy(3)   - The partial derivative of the DX_POLTIDE with
+C                           respective to the Y-wobble offset. (M/arcsec)
+C       5. dv_pol_dx(3)   - The partial derivative of the DV_POLTIDE with
+C                           respective to the X-wobble offset. (M/Sec/arcsec)
+C       6. dv_pol_dy(3)   - The partial derivative of the DV_POLTIDE with
+C                           respective to the Y-wobble offset. (M/Sec/arcsec)
+C
+C----------------------------------------------------------------------
+C   SUBROUTINE POLE_TIDE  was written by V.Zharov 
+C
+C   VERSION 1.0   21 May 2005
+C   
+C----------------------------------------------------------------------    
+C
+      IMPLICIT NONE
+C
+      Integer KPOLE
+      Real(8) cent, lat, lon, x, y, dxdt, dydt
+	Real(8) r2000(3,3,3)
+	Real(8) vw_i(3,3), dx_poltide(3), dv_poltide(3)
+      Real(8) dt, x_mean, y_mean, xdot_mean, ydot_mean
+      Real(8) x_meant, y_meant, m_1, m_2, dm_1, dm_2, colat
+	Real(8) drse(3), drse_v(3), drsex(3), drsey(3)
+	Real(8) work(3), dwork(3), v1(3), v2(3)
+	Real(8) work2(3), work3(3)
+	Real(8) dx_pol_dx(3), dx_pol_dy(3), dv_pol_dx(3), dv_pol_dy(3)
+	Real(8) CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+	Real(8) PI, TWOPI, HALFPI
+C
+      COMMON /MATH1/ PI, TWOPI, HALFPI
+	COMMON /MATH2/ CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+C
+      data x_mean    / 0.054d0/,      y_mean / 0.357d0/
+	data xdot_mean / 0.00083d0/, ydot_mean / 0.00395d0/
+
+C----------------------------------------------------------------------
+C   Time interval t-t_0 from 2000.0
+        dt = cent*100.D0  
+C   Compute the secular mean values of the X and Y pole positions
+C   (arc-seconds)
+        x_meant = x_mean + xdot_mean * dt
+        y_meant = y_mean + ydot_mean * dt
+C
+C   Compute m_1 and m_2 (arcseconds)
+        m_1 =    x - x_meant
+	  m_2 = - (y - y_meant)
+C   Compute dm_1/dTAI and dm_2/dTAI (Arcsecond/Sec)
+        dm_1 =     dxdt - xdot_mean*100.d0/jul_cent/secday
+        dm_2 = - ( dydt - ydot_mean*100.d0/jul_cent/secday)
+C
+C   Compute the colatitude of the site
+        colat = halfpi - lat
+C
+C   The IERS Conventions (2000) topocentric displacements (in meters).
+C         Up
+        drse(1) = -32.D0 * DSIN( 2.D0*colat ) * 1.D-3 *
+     *             ( m_1*DCOS(lon) + m_2*DSIN(lon) )
+C         South
+        drse(3) = - 9.D0 * DCOS( 2.D0*colat ) * 1.D-3 *
+     *             ( m_1*DCOS(lon) + m_2*DSIN(lon) )
+C         East
+        drse(2) =   9.D0 * DCOS( colat ) * 1.D-3 *
+     *             ( m_1*DSIN(lon) - m_2*DCOS(lon) )  
+C
+C   Convert the Vertical-East-South system to the VEN system
+        drse(3) = - drse(3) 
+C  Transformation of the displacements from local VEN to the Earth-fixed coordinate system
+       CALL MUL_ARR_VEC (vw_i, drse, work)
+C  Then rotate vectors from crust-fixed to J2000 system.
+       CALL MUL_ARR_VEC (r2000(1,1,1), work, dx_poltide)
+C
+C
+C   The IERS Conventions (2000) sites velocities (in meters/s).
+C         Up
+        drse_v(1) = -32.D0 * DSIN( 2.D0*colat ) * 1.D-3 *
+     *              ( dm_1*DCOS(lon) + dm_2*DSIN(lon) )
+C         South
+        drse_v(3) = - 9.D0 * DCOS( 2.D0*colat ) * 1.D-3 *
+     *              ( dm_1*DCOS(lon) + dm_2*DSIN(lon) )
+C         East
+        drse_v(2) =   9.D0 * DCOS( colat ) * 1.D-3 *
+     *              ( dm_1*DSIN(lon) - dm_2*DCOS(lon) )  
+C   Convert the Vertical-East-South system to the VEN system
+        drse_v(3) = - drse_v(3) 
+C  Transformation of the velocities from local VEN to the Earth-fixed coordinate system
+       CALL MUL_ARR_VEC (vw_i, drse_v, dwork)
+C  Rotate velocity vectors from the crust-fixed to the J2000 system.
+       CALL MUL_ARR_VEC (r2000(1,1,1), dwork, v1)
+       CALL MUL_ARR_VEC (r2000(1,1,2),  work, v2)
+       CALL SUM_2VEC  (v1, v2, dv_poltide)
+C
+C  Compute the partial derivatives of the displacements w.r.t. X and Y (m/arcsec)
+C         Up
+        drsex(1) = -32.D0 * DSIN( 2.D0*colat ) * 1.D-3 * DCOS(lon)
+        drsey(1) = +32.D0 * DSIN( 2.D0*colat ) * 1.D-3 * DSIN(lon)
+C	
+C         East
+        drsex(2) = + 9.D0 * DCOS( colat ) * 1.D-3 * DSIN(lon)   
+        drsey(2) = + 9.D0 * DCOS( colat ) * 1.D-3 * DCOS(lon)   
+C
+C         North
+        drsex(3) = + 9.D0 * DCOS( 2.D0*colat ) * 1.D-3 * DCOS(lon)
+        drsey(3) = - 9.D0 * DCOS( 2.D0*colat ) * 1.D-3 * DSIN(lon) 
+C  Transformation from local VEN to the Earth-fixed coordinate system
+       CALL MUL_ARR_VEC (vw_i, drsex, work2)
+C  Rotate vectors from the crust-fixed to the J2000 system.
+       CALL MUL_ARR_VEC (r2000(1,1,1), work2, dx_pol_dx)
+       CALL MUL_ARR_VEC (r2000(1,1,2), work2, dv_pol_dx)
+C
+C  Transformation from local VEN to the Earth-fixed coordinate system
+       CALL MUL_ARR_VEC (vw_i, drsey, work3)
+C  Rotate vectors from the crust-fixed to the J2000 system.
+       CALL MUL_ARR_VEC (r2000(1,1,1), work3, dx_pol_dy)
+       CALL MUL_ARR_VEC (r2000(1,1,2), work3, dv_pol_dy)
+C
+C-------------------------------------------------------------------------------
+C  KPOLE for debug output (/= 0)
+       kpole = 0
+C-------------------------------------------------------------------------------
+C  Debug output
+      IF (kpole .NE. 0) THEN
+	WRITE (*,'(1x,a)') 'Debug output for subroutine POLE_TIDE'
+
+  40     FORMAT(A, D25.16)
+  42     FORMAT(A, 2D25.16)
+         WRITE(*,40) '         DT  ', dt
+         WRITE(*,42) '    x_meant, y_meant  ',  x_meant, y_meant
+         WRITE(*,42) '          x,       y  ',  x, y
+         WRITE(*,40) '        m_1  ',  m_1
+         WRITE(*,40) '        m_2  ',  m_2
+         WRITE(*,40) '       dm_1  ', dm_1
+         WRITE(*,40) '       dm_2  ', dm_2
+         WRITE(*,40) '      colat  ', colat
+       call PR_ARR(' VW_I', 
+     *   3, 3, vw_i, 3, 0, '(d23.16)', 'Number', 'Number')
+       call PR_ARR(' DRSE (m)', 
+     *   1, 3, drse, 1, 0, '(d23.16)', 'Number', 'Number')
+       call PR_ARR(' DRSE_V (m/s)', 
+     *   1, 3, drse_v, 1, 0, '(d23.16)', 'Number', 'Number')
+       call PR_ARR(' Displacements DX_POL_TIDE (m)', 
+     *   1, 3, dx_poltide, 1, 0, '(d23.16)', 'Number', 'Number')
+       call PR_ARR(' Velocities  DV_POL_TIDE (m/s)',  
+     *   1, 3, dv_poltide, 1, 0, '(d23.16)', 'Number', 'Number')
+       call PR_ARR(' drsex (m/arcsec)', 
+     *   1, 3, drsex, 1, 0, '(d23.16)', 'Number', 'Number')
+       call PR_ARR(' drsey (m/arcsec)', 
+     *   1, 3, drsey, 1, 0, '(d23.16)', 'Number', 'Number')
+       call PR_ARR(' work2  ', 
+     *   1, 3, work2, 1, 0, '(d23.16)', 'Number', 'Number')
+       call PR_ARR(' work3  ', 
+     *   1, 3, work3, 1, 0, '(d23.16)', 'Number', 'Number')
+       call PR_ARR(' DX_POL_DX (m/arcsec)', 
+     *   1, 3, dx_pol_dx, 1, 0, '(d23.16)', 'Number', 'Number')
+       call PR_ARR(' DV_POL_DX (m/s/arcsec)',  
+     *   1, 3, dv_pol_dx, 1, 0, '(d23.16)', 'Number', 'Number')
+       call PR_ARR(' DX_POL_DY (m/arcsec)', 
+     *   1, 3, dx_pol_dy, 1, 0, '(d23.16)', 'Number', 'Number')
+       call PR_ARR(' DV_POL_DY (m/s/arcsec)',  
+     *   1, 3, dv_pol_dy, 1, 0, '(d23.16)', 'Number', 'Number')
+	 pause
+	endif
+      RETURN
+      END

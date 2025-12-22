@@ -1,0 +1,111 @@
+       SUBROUTINE BASELINE( r2000, xsta_j2000t, vsta_j2000t, asta_j2000, 
+     *  base_line, B_cfs )
+
+C   SUBROUTINE BASELINE computes the J2000.0 geocentric baseline 
+C   position, velocity and acceleration vectors.
+C   Vectors are calculated as: site 2  - site 1 
+C
+C    Input variables :  
+C       1. r2000(3,3,3)    - The complete transformation matrix J2000.0 and
+C                            the first two CT time derivatives of
+C                            that matrix. (Unitless, 1/Sec, 1/Sec**2)
+C       2. xsta_j2000t(3,2)- The site position vector in the 2000.0
+C                            geocentric system (M) 
+C       3. vsta_j2000t(3,2)- The site velocity vector in the 2000.0
+C                            geocentric system (M/Sec) 
+C       4. asta_j2000(3,2) - The site acceleration vector in the 2000.0
+C                            geocentric system (M/Sec) 
+C
+C    Output variables :  
+C       1. base_line(3,2)  - The baseline position and velocity vectors in the 2000.0
+C                            geocentric system (M, M/Sec) 
+C                            Baseline vector is directed from site 1 to site 2
+C       2. B_cfs(3)        - The baseline position vector in the crust
+C                            fixed geocentric system (M) 
+C
+C----------------------------------------------------------------------
+C   SUBROUTINE BASELINE was written by V.Zharov 
+C
+C   VERSION 1.0   21 May 2005
+C----------------------------------------------------------------------    
+C
+      IMPLICIT None
+      Integer j, kbase1, kbase2, kbase3
+	Integer :: n=3
+C
+	Real(8) r2000(3,3,3), rT2000(3,3), B_cfs(3)
+      Real(8) base_line(3,2), xsta_j2000t(3,2), vsta_j2000t(3,2)
+      Real(8) asta_j2000(3,2)	 
+      Real(8) NORM, B(3)
+C
+C   Compute the J2000.0 geocentric baseline vectors.
+       CALL DIF_2VEC(xsta_j2000t(1,2), xsta_j2000t(1,1), base_line(1,1))
+	 CALL DIF_2VEC(vsta_j2000t(1,2), vsta_j2000t(1,1), base_line(1,2))
+C
+C  Calculation of the J2000.0 transposed rotation matrix
+        call TRANSP ( r2000(1,1,1), rT2000 )
+C
+C  Calculation of the crust fixed baseline vector.
+        call MUL_ARR_VEC ( rT2000, base_line(1,1), B_cfs )
+C
+        do j = 1, 3
+	    B(j) = base_line(j,1)
+	  enddo
+C
+        if ( NORM(B) < 1.d-1 ) then
+C  Writing information to LOG file
+          write(21,123) NORM(B)
+ 123      format(' One of baselines has length: ', d10.3/
+     *           ' Remove one of telescopes ')
+          pause ' pause in SUBROUTINE BASELINE (see LOG)'
+	  endif 
+C-------------------------------------------------------------------------------
+C  KBASE1 for debug output (/= 0)
+       kbase1 = 1
+C-------------------------------------------------------------------------------
+C  Debug output
+      IF (kbase1 .NE. 0) THEN
+	WRITE (6,'(1x,a)') 'Debug output(1) for subroutine BASELINE'
+C
+        call PR_ARR(' xsta_j2000t ', n, 2, xsta_j2000t, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' vsta_j2000t ', n, 2, vsta_j2000t, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+	pause
+      ENDIF
+
+C-------------------------------------------------------------------------------
+C  KBASE2 for debug output (/= 0)
+       kbase2 = 1
+C-------------------------------------------------------------------------------
+C  Debug output
+      IF (kbase2 .NE. 0) THEN
+	WRITE (6,'(1x,a)') 'Debug output(2) for subroutine BASELINE'
+C
+        call PR_ARR(' base_line ', n, 2, base_line, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' r2000 ', n, n, r2000, n, 0, 
+     *              '(D23.16)', 'Number', 'Number')
+        call PR_ARR(' rT2000 ', n, n, rT2000, n, 0, 
+     *              '(D23.16)', 'Number', 'Number')
+C
+	pause
+      ENDIF
+C-------------------------------------------------------------------------------
+C  KBASE3 for debug output (/= 0)
+       kbase3 = 1
+C-------------------------------------------------------------------------------
+C  Debug output
+      IF (kbase3 .NE. 0) THEN
+	WRITE (6,'(1x,a)') 'Debug output(3) for subroutine BASELINE'
+C
+        call PR_ARR(' B_cfs ', 1, n, B_cfs, 1, 0,
+     *              '(F21.5)', 'Number', 'Number')
+C
+	pause
+      ENDIF
+C
+      RETURN
+      END SUBROUTINE BASELINE
+C  **********************************************************************
+

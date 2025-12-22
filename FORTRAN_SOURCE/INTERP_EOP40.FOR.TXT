@@ -1,0 +1,422 @@
+       SUBROUTINE INTERP_EOP40(k_int, mjd, UTC, TT, 
+     * UT1, eop_int, deop_int, Arg_oc_tide, dEOP_diu, dEOP_lib)
+C
+C  SUBROUTINE INTERP_EOP interpolates the values of 
+C  UT1-TAI, polar coordinates x, y and nutation angles dpsi, deps 
+C  on moment of observation and the derivatives d(UT1 - TAI)/dTAI, 
+C  dx/dTAI etc. are evaluated. 
+C
+C  Interpolation can be made using cubic spline on 7 knots grid or
+C  fit a polynomial curve using least squares.
+C
+C    Input variables:
+C      1. K_int - Method of interpolation
+C                 K_int = 0 ( cubic spline interpolation )
+C                 K_int = 1 ( fit a polynomial curve using least squares )
+C      2. mjd  -  THE MODIFIED JULIAN DATE AT 0:00 UTC OF THE DATE IN QUESTION.
+C      3. UTC  -  THE UTC FRACTION OF THE UTC DAY. (HOUR/HOUR=SEC/SEC)
+C      4.  TT  -  TIME measured in days of TT. (DAYS)
+C
+C    COMMON block /UT1UTC/  UT1_UTC (from READ_CAT)
+C           4. UT1_UTC(NDATA,J) -   dates closest to date of observation (NDATA = 7, J = 7)
+C                          UT1_UTC(I_INT,1) = MJD 
+C                          UT1_UTC(I_INT,2) = UT1-UTC (Sec)
+C                          UT1_UTC(I_INT,3) = UT1-TAI (Sec)
+C                          UT1_UTC(I_INT,4) = x       (Arcsec)
+C                          UT1_UTC(I_INT,5) = y       (Arcsec)
+C                          UT1_UTC(I_INT,6) = Dpsi    (Arcsec)
+C                          UT1_UTC(I_INT,7) = Deps    (Arcsec)
+C    Output variables:
+C           1. UT1        - The UT1 time of the day.     (Sec)
+C           2. eop_int(5) - Interpolated value of UT1-UTC (Sec)
+C                                                  x     (Arcsec)
+C                                                  y     (Arcsec)
+C                                                 Dpsi or dX  (Arcsec)
+C                                                 Deps or dY  (Arcsec)
+C 
+C           3. deop_int(5)- Interpolated value of d(UT1 - TAI)/dTAI (Sec/Sec)
+C                                                 dx/dTAI        (Arcsec/Sec)
+C                                                 dy/dTAI        (Arcsec/Sec)
+C                                              dDpsi/dTAI        (Arcsec/Sec)
+C                                              dDeps/dTAI        (Arcsec/Sec)
+C           4. Arg_oc_tide(8)- The arguments of tides for calculation of 
+C                              partials of the amplitudes in DER_UT1 (Radian)
+C           5. dEOP_diu(3,2) - Tidal corrections in UT1-UTC (Sec) and
+C                              in X and Y components of polar motion (Arcsec)
+C                              (first index) and their time derivatives 
+C                              (second index) (in Sec/Sec and Arcsec/Sec)
+C           6. dEOP_lib(3,2) - Tidal corrections in UT1-UTC (Sec) 
+C                              due to libration for a non-rigid Earth
+C                              and in X and Y components of polar motion (Arcsec)
+C                              due to tidal gravitation for a nonrigid Earth
+C                              (first index) and their time derivatives
+C                              (second index) (in Sec/Sec and Arcsec/Sec)
+C
+C   SUBROUTINE INTERP_EOP was written by V.Zharov 
+C
+C   VERSION 1.0   21 May 2005
+C
+C   1) Tidal variations in the Earth's rotation are calculated by 
+C   subroutine UT1R_1996 (IERS Conventions 1996, Table 8.2)
+C   2) Diurnal and subdiurnal tide terms are calculated by 
+C   subroutine TERMS_8 (IERS Conventions 1996, Table 8.3, 8.4)
+C
+C   23 July 2008
+C   Correction to prevent stop in DCS1GD when UTC = 0 was made
+C   02 December 2008
+C   1) Correction of calculation of deop_int for X, Y
+C   2) Tidal variations in the Earth's rotation are calculated by 
+C   subroutine UT1R_2003 (IERS Conventions 2003, Table 8.1)
+C   2) Diurnal and subdiurnal tide terms are calculated by 
+C   subroutine TERMS_71 (IERS Conventions 2003, Table 8.2, 8.3)
+C   10 January 2012
+C   1) Tidal variations in the Earth's rotation are calculated by 
+C   subroutine UT1R_2010 (IERS Conventions 2010, Table 8.1)
+C
+C   VERSION 4.0   21 May 2005
+C
+C   When series EOP_C04_IAU2000 is used the parameters dX, dY
+C   are used instead of dpsi, deps.
+C   They [eop_int(4), eop_int(5)] are transformed to dpsi, deps 
+C   according (5.25) from IERS2010 in subroutine IAU_2000A. 
+C   Relationship (5.25) which is to first order in the quantities, 
+C   ensures an accuracy of one microarcsecond for one century, 
+C   for values of dpsi and deps lower than 1 mas.
+C
+C   The parameters x_p, y_p appearing in the transformation matrix
+C   (relating ITRS and TIRS -- Terrestrial Intermediate Reference System)
+C   and arising from "polar motion" are those published by the IERS
+C   with ADDITIONAL components to account for the effect of ocean tides
+C   (dx,dy)_ocean and for thr forced terms (dx,dy)_libration:
+C   
+C   (x_p, y_p) = (x,y)_IERS + (dx,dy)_ocean + (dx,dy)_libration
+C
+C   where (x,y)_IERS are pole coordinates provided by the IERS,
+C   (dx,dy)_ocean are the diurnal and semi-diurnal variations in 
+C   pole coordinates caused by ocean tides,
+C   (dx,dy)_libration are the variation in pole coordinates corresponding
+C   to motion with periods less than two days in space that are 
+C   not part of the IAU 2000 nutation model.
+C
+C   The subdaily variations are not part of the UT1 or LOD values reported
+C   to and distributed by the IERS and are therefore to be added 
+C   after interpolation.
+C
+C    UT1 = UT1_IERS + UT1_ocean + UT1_libration
+C
+C
+C   Subroutine TERMS_Lib was added to calculate (dx,dy)_libration 
+C   and UT1_libration in v.4.0  
+C----------------------------------------------------------------------
+       Implicit NONE
+C
+C  SPECIFICATIONS FOR LOCAL VARIABLES	 
+C   NDATA - Number of knots     
+       Integer, parameter :: NDATA=7 
+C  NFGRID = NDATA + 1 interpolant point 
+       Integer, parameter :: NFGRID = NDATA+1, NINTV = NDATA-1
+C
+       Integer I, J, NCOEF, k_int, idelt, I0, KINT1, KINT2
+	 Integer mjd, mjd_eop
+C
+       Real(8) f(5), fd(5)
+	 Real(8) UTC, UT1, TT, jd, ct, cent, dut, dlod, domega
+	 Real(8) UTC_eop, TAI_eop, TT_eop, jd0
+	 Real(8) dEOP_diu(3,2), dEOP_lib(3,2)
+	 Real(8) Arg_oc_tide(8)
+       Real(8) ut1_utc(NDATA,7), eop_int(5), deop_int(5)
+	 Real(8) CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+C  Arrays for cubic interpolation
+       Real(8) ANS0(NFGRID), ANS1(NFGRID)
+       Real(8) XDATA(NDATA), FDATA(NDATA), XVEC(NFGRID), FWORK(NDATA,5)
+       Real(8) BREAK(NDATA), CSCOEF(4,NDATA)
+C
+C  Arrays for least square solution
+       Integer, parameter :: NDEG=3
+C  NDEG   - Order of the fitted polynomial
+       Real(8) X_int, F_int, DF_int
+	 Real(8) B(NDEG+1), SSPOLY(NDEG+1), STAT(10)
+	 Logical CHECK
+C
+	 COMMON /MATH2/ CDEGRAD,CARCRAD,CTIMRAD,SECDAY,JD2000,JUL_CENT
+       COMMON /UT1UTC/ ut1_utc
+C	     
+C  Interpolation date on time of observation (in UTC)
+	 X_int = dfloat(mjd) - ut1_utc(1,1) + UTC
+C
+       UTC_eop = 0.d0
+C
+C  Set up interpolation points
+       do I=1, NDATA
+		jd = ut1_utc(I,1) + 2400000.5d0   
+          XDATA(I) = ut1_utc(I,1) - ut1_utc(1,1)
+	    do J = 3, 7
+	      if ( J .eq. 3 ) then
+C
+              mjd_eop = ut1_utc(I,1)
+              CALL TAITIME40 (mjd_eop, UTC_eop, TAI_eop, TT_eop)
+	        ct = TT_eop
+
+C  Compute the fundamental arguments 
+              CALL FUND_ARG40 (jd, ct, cent, f, fd)
+C  The effects of zonal Earth tides on the rotation of the Earth should be removed
+              CALL UT1R_2010 (f, dut, dlod, domega)
+C              CALL UT1R_2003 (f, dut, dlod, domega)
+
+C
+C  It is necessary to SUBTRACT them from the OBSERVED UT1-UTC
+C  (UT1-TAI) - dut = UT1S - TAI
+              FWORK(I,J-2) = ut1_utc(I,3)  - dut
+C
+	      else
+              FWORK(I,J-2) = ut1_utc(I,J)
+	      endif
+	    enddo
+       enddo
+
+C--------------------------------------------------------------------
+C  KINT1 for debug output (/= 0)
+       KINT1 = 0
+C--------------------------------------------------------------------
+C     Check for debug output.
+      if (KINT1 /= 0) then
+         WRITE(*,5)
+  5      FORMAT(1X,'Debug output(1) for subroutine INTERP_EOP')
+         WRITE(*,40) '      X_int(UTC) ', X_int
+         WRITE(*,6)  '        MJD      ', mjd
+         WRITE(*,40)  '       UTC      ', UTC
+         WRITE(*,40)  '        TT      ', TT
+  6      format(a, i10)
+C	   
+         write(*,*) '  Array ut1_utc' 
+	   write(*,'(F9.1,2F12.7,2F9.6,2F9.5)'), 
+     *        ((ut1_utc(i,j), j=1,7), i=1,ndata)
+         write(*,*) '  Xdata                   FWORK '
+	   write(*,'(F9.1,12x, F12.7,2F9.6,2F9.5)'), 
+     *        (xdata(i), (fwork(i,j), j=1,5), i=1,ndata)
+	 pause
+	endif
+C
+C  Correct XVEC - Array which contains the points at which the spline is to be
+C  evaluated.
+       NCOEF = NDATA
+C      
+       I = 1
+       do while (XDATA(I) .lt. X_int)
+	    XVEC(I) = XDATA(I)
+          I = I + 1
+       enddo 
+C  Interpolation date (in UTC)
+	 I0 = I 
+	 XVEC(I) = X_int
+	 do J = I+1, NFGRID
+	    XVEC(J) = XDATA(J-1)
+	 enddo
+C  If UTC = 0 correct data to prevent stop in DCS1GD
+       if ( UTC == 0.d0 ) XVEC(I0+1) = XVEC(I0)+1.d-15
+C
+C  THE JULIAN DATE AT 0:00 UTC OF THE DATE IN QUESTION.
+       jd0 = dfloat(mjd) + 2400000.5d0
+C
+C  Interpolation of each the Earth rotation parameter
+	 do J = 3, 7
+C 
+         do I=1, NDATA	 
+	     FDATA(I) = FWORK(I,J-2)
+	   enddo  
+C  Choice of the interpolation method
+         if ( k_int .eq. 0 ) then
+C
+C *********************************************************************************
+C  Evaluate the derivative of a cubic spline on a grid.
+C  CALL DCS1GD (IDERIV, N, XVEC, NINTV, BREAK, CSCOEF, VALUE)
+C ---------------------------------------------------------------------------------
+C  Input variables:
+C  IDERIV - Order of the derivative to be evaluated. 
+C           In particular, IDERIV = 0 returns the values of the cubic spline.
+C       N - Length of vector XVEC. 
+C    XVEC - Array of length N containing the points at which the cubic spline is to
+C           be evaluated. The points in XVEC should be strictly increasing.
+C   NINTV - Number of polynomial pieces. 
+C   BREAK - Array of length NINTV + 1 containing the breakpoints for the
+C           piecewise cubic representation. BREAK must be strictly increasing.
+C  CSCOEF - Matrix of size 4 by NINTV + 1 containing the local coefficients of
+C           the cubic pieces. 
+C
+C  Output variables:
+C   VALUE - Array of length N containing the values of the IDERIV-th derivative
+C           of the cubic spline at the points in XVEC. 
+C ---------------------------------------------------------------------------------
+c  Compute the cubic spline interpolant with the 'not-a-knot' condition.
+         CALL DCSINT (NDATA, XDATA, FDATA, BREAK, CSCOEF)
+C
+         CALL DCS1GD (0, NFGRID, XVEC, NINTV, BREAK, CSCOEF, ANS0)
+         CALL DCS1GD (1, NFGRID, XVEC, NINTV, BREAK, CSCOEF, ANS1)
+C
+	    F_int = ANS0(I0)
+	   DF_int = ANS1(I0)
+C          
+         go to 20
+	 else
+C
+C *********************************************************************************
+C   Fit a polynomial curve using least squares.
+C   CALL DRCURV (NOBS, XDATA, YDATA, NDEG, B, SSPOLY, STAT)
+C ---------------------------------------------------------------------------------
+C  Input variables:
+C	NDATA - Number of observations. 
+C     XDATA - Vector of length NDATA containing the x values. 
+C     YDATA - Vector of length NDATA containing the y values. 
+C      NDEG - Degree of polynomial. 
+C
+C  Output variables:
+C         B - Vector of length NDEG + 1 containing the coefficients
+C         The fitted polynomial is y = B0 + B1*X + B2*X**2 + ...
+C    SSPOLY - Vector of length NDEG + 1 containing the sequential sums of squares.
+C      STAT - Vector of length 10 containing statistics described in IMSL.
+C ---------------------------------------------------------------------------------
+         CALL DRCURV (NDATA, XDATA, FDATA, NDEG, B, SSPOLY, STAT)
+C
+C  Evaluate the value of a polynomial curve
+	   F_int = B(NDEG+1)
+	   do i = NDEG,1,-1
+	     F_int = F_int * X_int + B(i)
+	   enddo
+c	   if ( j .eq. 3 ) then
+C  Evaluate the derivative of a polynomial curve
+	     DF_int = B(NDEG+1) * dfloat(NDEG)
+           do i = NDEG,2,-1
+	       DF_int = DF_int * X_int + B(i) * dfloat(i-1)	   
+	     enddo
+c	   endif
+	 endif
+C  Here DF_int = d(UT1S - TAI)/dTAI (Sec/1Day) or dx/dTAI etc. (Arcsec/1Day)
+C
+  20   continue
+C  Calculation of interpolated values of UT1 - UTC
+C---------------------------------------------------------------------
+	 if ( J .eq. 3 ) then
+C  Compute the fundamental arguments 
+	   ct = TT
+         CALL FUND_ARG40 (jd0, ct, cent, f, fd)
+C	
+C  The effects of zonal Earth tides on the rotation of the Earth 
+C  should be restored
+         CALL UT1R_2010 (f, dut, dlod, domega)
+c		write(*,*) dut, domega
+C
+C  dut = UT1 - UT1R (Sec)
+C
+C  Now ADD DUT to obtain UT1 - TAI
+C
+         F_int = F_int + dut              
+ccc      write(*,*) F_int+32.d0, dut
+C
+C  Now ADD diurnal and semidiurnal variations 
+C----------------------------------------------------------------------
+         CALL	TERMS_71 (cent, f, fd, dEOP_diu, Arg_oc_tide)
+
+c       write(*,*)  dEOP_diu(2,1)*1.d6,dEOP_diu(3,1)*1.d6,
+c     *             dEOP_diu(1,1)*1.d6
+c       write(*,*)  dEOP_diu(2,2)*1.d6,dEOP_diu(3,2)*1.d6,
+c     *             dEOP_diu(1,2)*1.d6
+C
+         CALL TERMS_Lib (cent, f, fd, dEOP_lib )
+C
+         F_int = F_int + dEOP_diu(1,1) + dEOP_lib(1,1)
+C
+C  d(UT1 - TAI)/dTAI = d(UT1R - TAI)/dTAI + d(dut)/dTAI + d(dut_diu)/dTAI= 
+C =d(UT1R - TAI)/dTAI + (domega/2pi)*86400 + d(dut_diu)/dTAI
+C 
+         DF_int =  domega / ctimrad + dEOP_diu(1,2) + dEOP_lib(1,2) + 
+     +             DF_int/secday ! Sec/Sec
+C
+	   CALL NSEC (X_int + ut1_utc(1,1), idelt)
+C  Now ADD leap seconds to obtain UT1 - UTC
+	   F_int = F_int + dfloat(idelt)
+C
+	 endif  ! End of calculation of interpolated values of UT1 - UTC
+C----------------------------------------------------------------------
+C  Store the interpolated values of EOP and the first derivatives
+	 eop_int(J-2) =  F_int
+	deop_int(J-2) = DF_int
+C
+C  Correct coordinates of polar motion for diurnal and semidiurnal tides
+C  For X
+	if ( J == 4 ) then
+	   eop_int(J-2)  = F_int + dEOP_diu(2,1) + dEOP_lib(2,1)
+         deop_int(J-2) = deop_int(J-2) + dEOP_diu(2,2) + dEOP_lib(2,2)
+      endif
+C  For Y
+	if ( J == 5 ) then
+	   eop_int(J-2)  = F_int + dEOP_diu(3,1) + dEOP_lib(3,1)
+         deop_int(J-2) = deop_int(J-2) + dEOP_diu(3,2) + dEOP_lib(3,2)
+      endif
+C
+C  Here DF_int = dx/dTAI etc. (Arcsec/Sec)
+	if ( J /= 3 ) deop_int(J-2) = deop_int(J-2)/secday
+C
+	enddo ! J - Loop
+C
+c       go to 28
+C
+C  -------------------------------------------------------------------------
+C  If UTC = 0 interpolation is not necessary
+C  Row "3" of  ut1_utc(3,2) corresponds operator 
+C  do while ( dfloat(mjd) .lt. nscan(1)%mjd - 1.d0 )
+C  in subroutine Read_cat40
+	 if ( UTC == 0.d0 ) then
+         eop_int(1) = ut1_utc(3,2)
+         do j = 2, 5
+           eop_int(j) = ut1_utc(3,j+2)
+         enddo
+	 endif
+C
+       ut1 = eop_int(1) + utc * secday
+C
+C--------------------------------------------------------------------
+C  KINT2 for debug output (/= 0)
+       KINT2 = 0
+c	if ( UTC == 0.d0 ) KINT2 = 1
+C--------------------------------------------------------------------
+C     Check for debug output.
+      if (KINT2 /= 0) then
+         WRITE(*,30)
+  30     FORMAT(1X,'Debug output(2) for subroutine INTERP_EOP')
+C
+         if ( k_int .eq. 0 ) write (*,*) ' Cubic spline interpolation ' 
+         if ( k_int .eq. 1 ) 
+     *       write (*,*) ' Polynomial curve fitting using least squares' 
+  40     FORMAT(A, D25.16)
+C
+         call DWRRRL(' UT1_UTC(NDATA,J)', 
+     *   NDATA, NDATA, UT1_UTC,NDATA, 0, '(F13.7)', 'Number', 'Number')
+C
+         WRITE(*,40) '           JD_int(UTC)', jd0
+         WRITE(*,40) '                 ct   ', ct
+         WRITE(*,40) '               cent   ', cent
+         WRITE(*,40) '                dUT   ', dut
+         WRITE(*,40) '                UTC   ', UTC
+        call DWRRRL(' dEOP_diu ', 3, 2, dEOP_diu, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call DWRRRL(' dEOP_lib ', 3, 2, dEOP_lib, 3, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+C
+         WRITE(*,40) '           UT1-UTC_int',  eop_int(1)
+         WRITE(*,40) '                xp_int',  eop_int(2)
+         WRITE(*,40) '                yp_int',  eop_int(3)
+         WRITE(*,40) '              Dpsi_int',  eop_int(4)
+         WRITE(*,40) '              Deps_int',  eop_int(5)
+         WRITE(*,40) ' d(UT1 - TAI)/dTAI_int', deop_int(1)*86400.d0
+         WRITE(*,40) '           dx/dTAI_int', deop_int(2)*86400.d0
+         WRITE(*,40) '           dy/dTAI_int', deop_int(3)*86400.d0
+         WRITE(*,40) '        dDpsi/dTAI_int', deop_int(4)*86400.d0
+         WRITE(*,40) '        dDeps/dTAI_int', deop_int(5)*86400.d0
+         WRITE(*,40) '                   UT1', UT1
+	pause
+      endif
+C
+      Return
+      END SUBROUTINE INTERP_EOP40
+C
+C

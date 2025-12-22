@@ -1,0 +1,216 @@
+          SUBROUTINE CONSTANTS_40
+C
+C   THIS ROUTINE INITIALIZES:
+C
+C    - THE MAIN PHYSICAL PARAMETERS USED IN ARIADNA PACKAGE
+C    - THEY CORRESPONDS THE USED DE421 EPHEMERIDES
+C    - IERS RECOMMENDED VALUES ARE USED (IERS Conventions 2010, Ch.1,3)
+C      beginning from v.4.0
+C ---------------------------------------------------------------
+C !!!!!! NOTE !!!!!!
+C    - Geodetic parameters (equatorial axis of the Earth A_E and
+C      polar flattening (1/f) are given in the FREE-TIDE SYSTEM
+C      (not in the ZERO-TIDE system) because the ITRF2000 system
+C      is connected with the tide-free crust
+C      The adopted Earth's equatorial radius agrees with the
+C      EGM-96 gravity model 
+C      A_E = 6378136.3 m (the tide-free value)
+C      1/f = 298.25765   (the tide-free value) 
+C  but in IERS Conventions 2010
+C      A_E = 6378136.6 m (the zero tide value)
+C      1/f = 298.25642   (the zero tide value)
+C ---------------------------------------------------------------
+C
+C       . C, Velocity of light (M/SEC)
+C       . F, Earth's flattening factor (1/f) (UNITLESS)
+C       . AE, Earth's equatorial radius (M)
+C       . AU, Astronomical unit (M)
+C       . TAUA, Astronomical unit (S)
+C       . G , Constant of gravitation (M^3KG^{-1}S^{-2})
+C       . GSUN, Gravitational constant for the     SUN     (M^3S^{-2}))
+C       . GMOON, Gravitational constant for the    MOON    (M^3S^{-2}))
+C       . GEARTH, Gravitational constant for the   EARTH   (M^3S^{-2}))
+C       . GMERCURY, Gravitational constant for the MERCURY (M^3S^{-2}))
+C       . GVENUS, Gravitational constant for the   VENUS   (M^3S^{-2}))
+C       . GMARS, Gravitational constant for the    MARS    (M^3S^{-2}))
+C       . GJUPITER, Gravitational constant for the JUPITER (M^3S^{-2}))
+C       . GSATURN, Gravitational constant for the  SATURN  (M^3S^{-2}))
+C       . GURANUS, Gravitational constant for the  URANUS  (M^3S^{-2}))
+C       . GNEPTUNE, Gravitational constant for the NEPTUNE (M^3S^{-2}))
+C       . GPLUTO, Gravitational constant for the   PLUTO   (M^3S^{-2}))
+C       . MU,  Moon/Earth mass ratio
+C
+C   All Love numbers for anelastic model !!!
+C   Love numbers are taken from IERS2000 Ch.7
+C
+C       . H02, LOVE NUMBER h0                             0.6078
+C       . L02, LOVE NUMBER l0                             0.0847
+C       . H22, LOVE NUMBER h2  (latitude dependence)     -0.0006
+C       . L22, LOVE NUMBER l2  (latitude dependence)      0.0002
+C       . H3,  LOVE NUMBER h3                             0.292
+C       . L3,  LOVE NUMBER l3                             0.015
+C       . HI_1, LOVE NUMBER hi for diurnal tides         -0.0025
+C       . LI_1, LOVE NUMBER li for diurnal tides         -0.0007
+C       . HI_2, LOVE NUMBER hi for semidiurnal tides     -0.0022
+C       . LI_2, LOVE NUMBER li for semidiurnal tides     -0.0007
+C       . L1_1, LOVE NUMBER l1 for diurnal tides          0.0012
+C       . L1_2, LOVE NUMBER l1 for semidiurnal tides      0.0024
+C
+C    - MATHEMATICAL PARAMETERS (UNITLESS)
+C       . PI (3.14159...)
+C       . TWOPI, 2*PI
+C       . HALFPI, PI/2
+C
+C    - CONVERSION FACTORS
+C       . CDEGRAD, from degrees to radians      (RAD/DEG)
+C       . CARCRAD, from arc seconds to radians  (RAD/ARCSECOND)
+C       . CTIMRAD, from time seconds to radians (RAD/TIME SECOND)
+C
+C    - OTHER CONSTANTS
+C       . SECDAY, The number of time seconds per day (SECONDS/DAY)
+C       . JD2000, Julian date of the epoch January 1.5, 2000 (J2000.0)
+C       . JUL_CENT, The number of Julian days per Julian 
+C                   century (=36525 DAYS/CENT) 
+C
+C    - TIME TANSFORMATIONS
+C       . L_B, from TT to TCB  ( <TT/TCB>=1-L_B) (UNITLESS)
+C       . L_C, from TCG to TCB (<TCG/TCB>=1-L_C) (UNITLESS)
+C       . L_G, from TT to TCG  (dTT/dTCB =1-L_G) (UNITLESS) 
+C         L_G IS A DEFINING CONSTANT
+C       . T_0 = 2443144.5003725 
+C       . TDB_0 = -6.55 x 10^(-5) s is defining constant
+C
+C
+C   SUBROUTINE CONSTANTS was written by V.Zharov 
+C
+C   VERSION 1.0   21 May 2005
+C
+C   VERSION 4.0   06 July 2012
+C
+      IMPLICIT NONE
+
+      Real(8) C, F, AE, AU, TAUA, MU, G
+      Real(8) GSUN, GMOON, GEARTH, GMERCURY, GVENUS, GMARS,
+     *        GJUPITER, GSATURN, GURANUS, GNEPTUNE, GPLUTO
+      Real(8) MMERCURY, MVENUS, MMARS,
+     *        MJUPITER, MSATURN, MURANUS, MNEPTUNE, MPLUTO
+      Real(8) PI, TWOPI, HALFPI
+      Real(8) CDEGRAD, CARCRAD, CTIMRAD
+      Real(8) JD2000, JUL_CENT, SECDAY
+      Real(8) H02, L02, H22, L22, H3, L3, HI_1, LI_1, 
+     *        HI_2, LI_2, L1_1, L1_2
+      Real(8) L_B, L_C, L_G, T_0, TDB_0
+C
+      LOGICAL FLAG
+C          
+      COMMON /PHYS/ C, F, AE, AU 
+      COMMON /MATH1/ PI, TWOPI, HALFPI
+      COMMON /MATH2/ CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+      COMMON /GRAV/ GSUN, GMOON, GEARTH, GMERCURY, GVENUS, GMARS,
+     *              GJUPITER, GSATURN, GURANUS, GNEPTUNE, GPLUTO
+      COMMON /LOVE/ H02, L02, H22, L22, H3, L3, HI_1, LI_1, HI_2, LI_2,
+     *              L1_1, L1_2
+      COMMON /LTIME/ L_B, L_C, L_G, T_0, TDB_0
+
+C
+C   MATHEMATICAL PARAMETERS 
+      DATA     PI /3.141592653589793238463D0/,
+     *      TWOPI /6.283185307179586476925D0/,
+     *     HALFPI /1.570796326794896619231D0/,
+     *    CDEGRAD /1.745329251994329576924D-2/,
+     *    CARCRAD /4.848136811095359935899D-6/,
+     *    CTIMRAD /7.272205216643039903849D-5/,
+     *     SECDAY /86400.D0/,
+     *   JUL_CENT /36525.D0/
+C
+C   JULIAN DATA OF STANDARD EPOCH J2000.0
+      DATA JD2000 /2451545.0D0/    
+C
+C   VALUES FROM IERS (2010) 
+C 
+      DATA  C /2.99792458D8/, 
+     *      F /298.25765D0/,       ! the tide-free value
+     *     AE /6378136.3D0/,       ! the tide-free value
+     *     AU /149597870700.D0/,
+     *   TAUA /499.00478383616D0/
+     *      G /6.67428D-11/,
+     *   GSUN /1.327124400409440D20/,  	         
+     * GEARTH /3.98600436233D14/, 
+     *     MU /0.0123000371D0 / 
+C
+C   VALUES OF DE405 PLANETARY MASSES, EXPRESSED IN RECIPROCAL SOLAR MASSES
+      DATA MMERCURY /6023597.400017D0/, 
+     *       MVENUS /408523.718655D0/, 
+     *        MMARS /3098703.590267D0/,
+     *     MJUPITER /1047.348625D0/, 
+     *      MSATURN /3497.901768D0/, 
+     *      MURANUS /22902.981613D0/, 
+     *     MNEPTUNE /19412.237346D0/, 
+     *       MPLUTO /135836683.767599D0/
+C
+C   LOVE NUMBERS  IERS (1996)
+      DATA H02 / 0.6078D0/, L02 / 0.0847D0/
+      DATA H22 /-0.0006D0/, L22 / 0.0002D0/
+      DATA HI_1/-0.0025D0/, LI_1/-0.0007D0/
+      DATA H3  / 0.292D0/,  L3  / 0.015D0/
+      DATA HI_2/-0.0022D0/, LI_2/-0.0007D0/
+      DATA L1_1/ 0.0012D0/, L1_2/ 0.0024D0/
+
+C   COEFFICIENTS L_B, L_C, L_G OF TRANSFORMATIONS BETWEEN 
+C   THE DINAMICAL TIME SCALES
+C   (ACCORDING RESOLUTIONS OF XXIVth GA IAU) (Bull. 88) 
+      DATA L_B /1.550519768D-8/
+      DATA L_C /1.48082686741D-8/
+      DATA L_G /6.969290134D-10/
+	DATA TDB_0/-6.55D-5/
+	DATA T_0 /2443144.5003725D0/
+C
+C-----------------------------------------------------------------------
+C   NAMELIST translate data from internal to external form by 
+C   using the data types of the objects. The translated data is 
+C   then written to an external file.
+C 
+      NAMELIST /PHYSCONST/ C, F, AE, AU 
+      NAMELIST /MATHCONST/ PI, TWOPI, HALFPI, CDEGRAD, CARCRAD, CTIMRAD,
+     *              SECDAY, JD2000, JUL_CENT
+      NAMELIST /GRAVCONST/ GSUN, GMOON, GEARTH, GMERCURY, GVENUS, GMARS,
+     *              GJUPITER, GSATURN, GURANUS, GNEPTUNE, GPLUTO
+      NAMELIST /LOVECONST/ H02, L02, H22, L22, H3, L3, HI_1, LI_1, HI_2, 
+     *                     LI_2, L1_1, L1_2
+      NAMELIST /TIMECONST/ L_B, L_C, L_G
+
+C   Gravitational constant for the PLANETS
+C   The SUN Gravitational Constant is given in TCB-units
+C   All Planets Gravitational Constants are calculated in TCB-units
+
+         GMOON = MU * GEARTH
+      GMERCURY = GSUN / MMERCURY
+        GVENUS = GSUN / MVENUS 
+         GMARS = GSUN / MMARS
+      GJUPITER = GSUN / MJUPITER
+       GSATURN = GSUN / MSATURN
+       GURANUS = GSUN / MURANUS
+      GNEPTUNE = GSUN / MNEPTUNE
+        GPLUTO = GSUN / MPLUTO
+C  ------------------------------------------------------------------
+C      FLAG = .FALSE. !FOR DEBUGGING
+      FLAG = .true.
+C   Check FLAG for debug
+      IF (FLAG) GO TO 100
+
+C   !!! WARNING !!!
+C   Default output format for REAL(8) data type is 1PG24.15E3
+C
+        WRITE (*, *) '  Debug output for subroutine CONSTANTS'
+        WRITE (*, PHYSCONST) 
+        WRITE (*, MATHCONST) 
+        WRITE (*, GRAVCONST)
+        WRITE (*, LOVECONST)
+        WRITE (*, TIMECONST)
+C
+  100 CONTINUE
+    
+      RETURN
+      END
+
+C*******************************************************************

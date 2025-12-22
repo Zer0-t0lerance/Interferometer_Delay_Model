@@ -1,0 +1,1575 @@
+        module main
+C
+C   Determine maximum number of stations (n_sta),
+C   sources (n_sou), baselines (n_bases), times (n_time)
+        Integer, parameter :: n_sta = 25, n_sou = 260
+        Integer, parameter ::	n_bases = 190, n_time = 1500
+        Integer, parameter ::	max_obs = 40000
+c	  Integer, parameter :: n_ant = 61  
+	  Real(8) scan_time(n_time)
+C
+C   Determine maximum number of dates of satellite positions
+C   If positions was calculated throught 1 minute then for 
+C   24h-period position file will contain 1440 raws
+c	  Integer, parameter :: n_obs_sat = 1500	        
+C   If positions was calculated throught 1 second then for 
+C   24h-period position file will contain 86400 raws
+cc	  Integer, parameter :: n_obs_sat = 86500 	  
+C
+C   Names n_sta,n_sou,n_bases, n_time will be accessible
+C   for all components
+C   ---------------------------------------------------------------
+C   Determine path for all catalogs
+C   ---------------------------------------------------------------
+C  All catalogs have to be placed in this directory
+c      character(60) :: path = 'e:\user\zharov\ariadna\catalogs\'
+C  Path to TEMP directory
+c     character(60) :: path_temp = 'e:\user\zharov\ariadna\temp\'
+C  Path to data directory
+c      character(60) path_dat
+
+c??? added
+c       INTEGER(4)          n_orbit_pts
+       CHARACTER(256)      exePath
+       CHARACTER(7)       task_num
+       character(256)      path_tmp
+       Integer             n_obs_sat
+
+C  All catalogs have to be placed in this directory
+c??      character(60) ::
+c??     *path = 'e:\user\ZHAROV\ARIADNA40_corr\catalogs\'
+C  Path to TEMP directory
+c??      character(60) ::
+c??     *path_temp = 'e:\user\ZHAROV\ARIADNA40_corr\temp\'
+C  Path to data directory
+c???      character(60) path_dat
+c??      character(60) ::
+c??     *path_datafile =  'e:\user\ZHAROV\ARIADNA40_corr\data\'
+C
+C  Catalog of stations (ITRF)
+cc      character(30) :: cat_stations1 = 'ITRF2005_3.cat'
+      character(30) :: cat_stations1 = 'VTRF2008a.cat'       
+C  Additional information
+      character(30) :: cat_stations2 = 'ITRF2005_2.cat'	
+C  Main catalog of sources
+cc      character(12) :: cat_sources1 = 'icrf2000.cat'
+      character(17) :: cat_sources1 = 'icrf2-non-vcs.cat'      
+C  Additional catalog of sources
+cc      character(14) :: cat_sources2 = 'add_source.cat'
+      character(18) :: cat_sources2 = 'icrf2-vcs-only.cat'      
+C  Catalog of "bad" sources
+      character(14) :: cat_sources3 = 'bad_source.cat'
+C  Catalog of stable sources
+cc      character(13) :: cat_sources4 = 'stable199.cat'
+c      character(14) :: cat_sources4 = 'stable_def.cat'
+      character(18) :: cat_sources4 = 'stable_def_can.cat'
+C  Catalog of stable sources
+      character(13) :: cat_sources5 = 'alt_names.cat'
+C  JPL Ephemeris DE405
+cc	character(10) :: eph = 'jpleph.405'
+C  JPL Ephemeris DE421
+	character(10) :: eph = 'jpleph.421'	
+C  Catalog of the sites ocean loading
+      character(18) :: cat_ocean = 'vlbi_ocload_40.cat'
+C  Catalog of the sites atmosphere loading
+      character(18) :: cat_atmos = 'vlbi_atmload.cat'
+C  EOPC04 1962-now
+      character(28) :: eop_c04   = 'eopc04_14_IAU2000_62-now.cat' 	     
+C  EOP rapid and predictions
+      character(21) :: eop_pred  = 'finals2000A.daily.txt'      
+C  Telescope parameters
+cc      character(15) :: ant_par   = 'antenna_par.dat'
+      character(16) :: ant_par   = 'antenna-info.dat'      
+C  Special telescopes
+      character(8) :: Earth_cen = 'CENTER  '
+      character(8) :: Space_tel = 'RASTRON '
+C  Geopotential model
+      character(9) :: Geo_potential = 'EGM96.cat'
+C  IPM orbit (date, position and velocity vectors)
+c      character(16) :: IPM_orbit = 'orbita_ipm13.cat'
+c       character(16) :: IPM_orbit = 'orbita_ipm08.cat'
+c      character(16) :: IPM_orbit = 'champ080912.cat'
+cc      character(80) :: IPM_orbit = 'RA120314j.scf'
+      character(80) :: IPM_orbit = 'RA160508temp2.scf'
+     
+C
+C   ---------------------------------------------------------------
+C   Determine main additional arrays
+C   ---------------------------------------------------------------
+C   type (station) determines record:
+C   name of station,
+C   rectangular coordinates x,y,z (in m),
+C   velocities vx,vy,vz (in m/year),
+C   type of mount and axis offset
+C   number of row determines number of station
+        type station
+	    integer Id
+          character(8) name
+          character(4) plate
+          real(8) x,y,z, vx,vy,vz
+          character(4) axsty
+          real(8) offs
+          character(9) domes
+          character(54) descr          
+        end type station
+C   ---------------------------------------------------------------
+C   type (source) determines record:
+C   name of source, coordinates: alpha, delta (in radians)
+C   number of row determines number of source
+        type source
+          character(8) name
+          character(8) name1950
+          character(16) ICRFname
+          character(10) IAUname 
+          real(8) al, del
+          real(8) dot_al, dot_del
+        end type source
+C   ---------------------------------------------------------------
+C   type (scan) determines record:
+C   record number
+C   site 1 number, site 2 number, source number
+C   time (mjd, utc), delay, error, fringe frequency, error,
+C   cable correction for site 1, cable correction for site 2
+C   delay ion. correction, error, delay rate ion. correction, error
+C
+C   Meteo parameters for station 1 and 2:
+C   ambient temperature (C), ambient pressure (mb)
+C   atmospheric humidity parameter
+C   flag of dimension of humidity parameter: kw
+C   kw = 0 (relative humidity    - percent)
+C   kw = 1 (dew point            - degree )
+C   kw = 2 (wet bulb temperature - degree )
+        type scan
+          integer k, sta1, sta2, sou
+          integer mjd
+          real(8) utc, tau, dtau, f, df
+	    real(8) cab1, cab2
+	    real(8) d_ion, sg_d_ion, r_ion, sg_r_ion
+          real(8) t1,p1,e1,t2,p2,e2
+          integer kw1, kw2
+        end type scan
+C   ---------------------------------------------------------------
+C   type (t_def) determines parameters of the telescope mount
+C
+C  name     - names of selected telescopes
+C  t_0      - Reference temperature (degree C)
+C  p_0      - Reference pressure (hPa)
+C  ant_diam - Antenna diameter (m)
+C  hf       - Height of foundation (m)
+C  gamma_hf - Foundation thermal expansion coefficient (1/K)
+C  hp       - Length of the fixed axis (m)
+C  gamma_hp - Fixed axis thermal expansion coefficient (1/K)
+C  AO       - Length of the axis offset (m)
+C  gamma_AO - Axis offset thermal expansion coefficient (1/K)
+C  hv       - Distance from the movable axis to the antenna vertex (m)
+C  gamma_hv - Thermal expansion coefficient of the structure from
+C             the movable axis to the antenna vertex (1/K)
+C  hs       - Height of the sub-reflector/primary focus above the vertex (m)
+C  gamma_hs - Sub-reflector/primary focus mounting legs thermal 
+C             expansion coefficient (1/K) 
+C
+        type t_def
+          character(8) name
+          real(8) t_0, p_0, ant_diam
+          real(8) hf, gamma_hf               ! foundation parameters
+          real(8) hp, gamma_hp, AO, gamma_AO ! axis parameters
+          real(8) hv, gamma_hv, hs, gamma_hs
+        end type t_def	    
+C
+C   ---------------------------------------------------------------
+C   type (space_station) determines record:
+C   date (MJD), UTC
+C   position: X, Y, Z (km) in GCRS
+C   velocity: V_X, V_Y, V_Z (km/s) in GCRS
+C
+        type space_station
+          integer j, mjd
+          real(8) utc
+          real(8) x, y, z, vx, vy, vz, ax, ay, az 
+        end type space_station	   
+C   ---------------------------------------------------------------
+C   type (pr_orbita) determines record:
+C   date (MJD), UTC 
+C   dopler frequency: fres (Hz)
+C   dopler phase: phi (rad) (modulo 2pi)
+C   dopler phase: phi_corrected (rad) (2pi added)
+C 
+        type pr_orbita
+          integer j, mjd, two
+          real(8) utc, fres, phi, cor
+        end type pr_orbita	  	          
+C   ---------------------------------------------------------------
+C  Array nscan(nobs) is defined by structure of  type(scan)
+        type(scan),    allocatable :: nscan(:)
+C  Array sta(ista)   is defined by structure of  type(station)
+        type(station), allocatable :: sta(:)
+C  Array sou(isou)   is defined by structure of  type(source)
+        type(source),  allocatable :: sou(:)
+C  Array B_conf(n_time,n_sta,n_sta) is sorted by times and baselines
+        Integer(2),  allocatable ::  B_conf(:,:,:)
+C  Array def_par(n_sta) is defined by structure of  type(t_def)
+        type(t_def),  allocatable :: def_par(:) 
+C  Array space_sta is defined by structure of type(space_station)
+        type(space_station), allocatable :: space_sta(:)
+C  Array prev_orb is defined by structure of type(pr_orbita)
+        type(pr_orbita), allocatable :: prev_orb(:)
+C   ---------------------------------------------------------------
+C
+      end module main
+C
+C   ---------------------------------------------------------------
+C
+                       PROGRAM ARIADNA
+C
+C   ARIADNA Package (Analysis and ReductIon of
+C                    rADiointerferometric NAbludenij)
+C
+C   VERSION 3.0 (for correlator)
+C
+C   29 July 2008
+C   All calculations are made in the ITRF2005
+C   Seismic and other motions of stations were used
+C   Subroutine READ_CAT was corrected significantly
+C
+C   ARIADNA 3_5 is used for correlator and Radioastron
+C   23 February 2011
+C   1) Type (space_station) was added to point the position 
+C   and velocity of satellite from an external file
+C   2) Subroutine READ_CAT was corrected to read 
+C   the file with the position and velocity of satellite
+C   3) Subroutine INTEGRATION was written.  
+C   Method for integrating Orbits presented by E.Everhart 
+C   was realized
+C   The file with the geopotential coefficients (EGM96)
+C   will be read in Subroutine INTEGRATION to allocate memory
+C   for large arrays only for integration
+C
+C   VERSION 4.0 (for correlator)
+C   25 July 2012
+C   Method for computation of the GCRS-to-ITRS transformation matrix:
+C   IAU 2000A nutation-precession, equinox based, using classical angles
+C   In this case the nutation corrections (dpsi, deps) must be obtained 
+C   by appropriately transforming the CIP corrections (dX, dY). 
+C   It is necessary to calculate the GMST and EqEq  that 
+C   match the IAU 2000A precession.
+C   So as standard the EOP series the eopc04_08_IAU2000_62-now is used.
+C
+C   VERSION 4.2 (for correlator)
+C   19 March 2013
+C   Correct reading of the SKED file
+
+C   VERSION 4.5 (for correlator)
+C   24 March 2020
+C   Transformation of ITRS -> BCRS according IAU2000/2006 model
+
+
+      USE main
+	USE dfimsl
+	USE Open_Data_File
+c	INCLUDE 'link_fnl_shared.h'
+c	USE IFPORT
+C
+C   PROGRAM INTERFACE
+C**********************************************************************
+      IMPLICIT NONE
+C
+      Integer ios, nobs, i, j, k, k_f, j1, j2, j3
+	Integer l, length, n_f, n_dir, n_fil
+      Integer ista, isor, j_time, i_good, m_fr, NDEG, k_int
+      Integer mjd, mjd_mean, mjd_beg
+	Integer i_choice
+	Integer	Array_bad_sou(n_sou), Kol_sou(n_sou)
+	Integer site1, site2, trst, src1
+	Integer, parameter :: n_ant = 61	
+
+      Integer N_segm, K_ch_C, K_ch_Z, K_cheb, key
+C
+      Real(8) UTC,  TAI, ct, UT1, TT, ct_beg, utc_beg
+	Real(8) UT1_mean, UTC_mean, TAI_mean, TT_mean
+	Real(8) dtai_dct, dyear, t_mean, jd, cent, jd1
+	Real(8) dut1dtai, dtaidct, diurnv, gmst, eps2000, eps_P03_2000
+	Real(8) f(5), fd(5), dpsir(2), depsr(2), e_mn(2), eps(2)
+	Real(8) gast(2), rs(3,3,3)
+	Real(8) eop_int(5), deop_int(5), eop_int_mean(5), deop_int_mean(5)
+	Real(8)	eop_int_mean_IERS(5)
+	Real(8) Arg_oc_tide(8)
+	Real(8) dEOP_diu(3,2), dEOP_lib(3,2)
+	Real(8) dEOP_diu_mean(3,2), dEOP_lib_mean(3,2)
+	Real(8) bias_matr(3,3), bpn(3,3)
+	Real(8) pr(3,3,2), rn(3,3,2), ryx(3,3,2), r2000(3,3,3)
+      Real(8) YdXdx(3,3), dYdyX(3,3), ddxdYX(3,3), ddydYX(3,3)
+	Real(8) dNdpsi(3,3,2), dNdeps(3,3,2)
+	Real(8) dxtide(3,2), dvtide(3,2), dx_octide(3,2), dv_octide(3,2)
+	Real(8) dx_poltide(3,2), dv_poltide(3,2)
+	Real(8) dx_atm(3,2), dv_atm(3,2)
+	Real(8) dx_pol_dx(3,2), dx_pol_dy(3,2)
+	Real(8) dv_pol_dx(3,2), dv_pol_dy(3,2)
+	Real(8) dx_temp(3,2), dv_temp(3,2)
+      Real(8) site_xyz(3,n_sta), site_vel(3,n_sta), sph_rad(n_sta)
+      Real(8) lat_geod(n_sta), h_geod(n_sta)
+      Real(8) lat_gcen(n_sta), lon_gcen(n_sta)
+      Real(8) u_site(n_sta), v_site(n_sta)
+	Real(8) vw(3,3,n_sta)
+	Real(8) site_meteo(3,n_sta), tc1, tc2
+	Real(8) K_star(3,n_sou), K_s(3)
+	Real(8) E(2,2), Az(2,2)
+	Real(8) Earth(3,3), Sun(3,2), Moon(3,2)
+      Real(8) base_line(3,2), B_cfs(3), uv_coor(3)
+	Real(8) xsta_j2000t(3,2), vsta_j2000t(3,2), asta_j2000(3,2)
+	Real(8) T_coef(16,n_sta), P_coef(16,n_sta), Hum_coef(16,n_sta)
+	Real(8) dTdt(2), dPdt(2), dHumdt(2)
+      Real(8) Datmc_d(2,2), Datmc_w(2,2), Datmp_hmf(2,2), Datmp_wmf(2,2)
+	Real(8) Dgrad_N(2,2), Dgrad_E(2,2)
+      Real(8) Zen_dry(2,2), Zen_wet(2,2)
+	Real(8) t2_t1, dt2_t1, phase1
+	Real(8) doff_dl(2,2), d_dax(2,2), dtau_off(2,2)
+	Real(8) dStar(2,2), dStar_rate(2,2)
+	Real(8) dSite(3,2,2), dSite_v(3,2,2), dWOB(2,2)
+C
+      Real(8) dRdrh0_3(3,2,n_sta), dRdh02_3(3,2,n_sta)
+	Real(8) dRdrl0_3(3,2,n_sta), dRdl02_3(3,2,n_sta)
+	Real(8) dRdh3_3(3,2,n_sta), dRdl3_3(3,2,n_sta)
+	Real(8) dRdl1_1_2000_3(3,2,n_sta), dRdl1_2_2000_3(3,2,n_sta)
+	Real(8) dRdhi_1_2000_3(3,2,n_sta), dRdhi_2_2000_3(3,2,n_sta)
+      Real(8) dRdli_1_2000_3(3,2,n_sta), dRdli_2_2000_3(3,2,n_sta)
+C
+      Real(8) dr1_dA2000(4,3,3), dr1_dB2000(4,3,3)
+      Real(8) dr2_dA2000(4,3,3), dr2_dB2000(4,3,3)
+      Real(8) dv1_dA2000(4,3,3), dv1_dB2000(4,3,3)
+      Real(8) dv2_dA2000(4,3,3), dv2_dB2000(4,3,3)
+      Real(8) dr_dReg2000(3,2), dv_dReg2000(3,2)
+      Real(8) dt_dA(4,3,2), dt_dB(4,3,2), dt_dReg(2)
+      Real(8) df_dA(4,3,2), df_dB(4,3,2), df_dReg(2)
+C
+      Real(8) dUT1_TAI(2), dUT1_Aj(8,2), dUT1_Bj(8,2)
+	Real(8) dX_Aj(8,2), dX_Bj(8,2), dY_Aj(8,2), dY_Bj(8,2)
+	Real(8) dnut(2,2)
+      Real(8) dRSdp_ls(3,3,2), dRSdp_pl(3,3,2), dPr_lspl(2,2)
+      Real(8) dPdp_ls(3,3,2), dPdp_pl(3,3,2), dPdp_om(3,3,2)      
+      Real(8) d_dh0(2), d_dh02(2), d_dl0(2), d_dl02(2)
+	Real(8) d_dh3(2), d_dl3(2), d_dl1_1(2), d_dl1_2(2)
+	Real(8) d_dhi_1(2), d_dhi_2(2), d_dli_1(2), d_dli_2(2)
+	Real(8) work(3), work2(3)
+	Real(8) dpsi_tot(2) , deps_tot(2)
+	Real(8) delay0, d_grav
+C  Only for correlator
+C  ---------------------------------------
+       INTEGER KORDER, NCOEF, NDATA, NKNOT
+       INTEGER NPPCF, delta_min, delta_hou, delta_day
+       INTEGER year_t, mon_t, day_t, hou_t, min_t, sss_t
+       INTEGER year_t0, mon_t0, day_t0, hou_t0, hou_t1, min_t0, min_t1   
+       INTEGER N_wr1, N_wr2, N_wr3, N_wr_tot   
+       INTEGER max_n, max_m, ih, im   
+       INTEGER N_seg_tot, L_segm
+       Real(8) sec_t, sec_t0, sec_t1,  OFF_V, Delta_sec  
+       Real(8) XYZ(3), VXVYVZ(3)
+C	     
+       Real(8) dates(3500), delay(3500), fr_int(3500), phase(0:3499) 
+       Real(8) X_0, delay_0,delay_1,delay_2,delay_3
+       Real(8) , allocatable :: XDATA(:), XKNOT(:), FDATA(:)
+       Real(8) , allocatable :: BSCOEF(:), BREAK(:), PPCOEF(:,:)
+       Real(8) , allocatable :: B_COEF(:), SSPOLY(:), STAT_(:)
+       Real(8) , allocatable :: B_COEF_PH(:)
+C
+       Real(8) sat_xyz(3), sat_vel(3)
+       Real(8) PI, TWOPI, HALFPI
+c	 Real(8) hc(2555), hs(2555)             ! for JGM3 model
+C 
+      character(8) END_card     
+      character(4) TECH, OFF_T 
+      character(37) str_temp     
+C  ---------------------------------------
+C
+      Integer, allocatable :: Arr_good(:)
+	Real(8), allocatable :: M_pd(:,:), Y(:), W(:)
+	Real(8), allocatable :: d_eop_int(:)
+	Real(8), allocatable :: r_sat_pr(:,:)
+C
+C  Data file
+      character(20) File_name(100), data_file
+C
+C  Paths of all catalogs
+      character(280) path_data, path_sta1, path_sta2
+      character(280) path_sou1,path_sou2, path_sou3, path_sou4,path_sou5
+      character(280) path_eop, path_atm, path_tel, path_oc
+	character(280) path_eph, path_geop, path_orb, path_pred
+C
+C  COMMON BLOCKS for transmission of the paths to catalogs
+      COMMON /CATS1/ path_data, path_sta1, path_sta2,
+     *               path_sou1,path_sou2,path_sou3,path_sou4,path_sou5
+      COMMON /CATS2/ path_oc, path_eop, path_atm
+	COMMON /CATS3/ path_tel
+	COMMON /CATS4/ path_geop, path_orb, path_pred
+	COMMON /EPH403/ path_eph
+      COMMON /MATH1/ PI, TWOPI, HALFPI
+c --------- ??? my add ----------------
+
+       character(256)      arg0
+       CHARACTER(3)        drv
+       CHARACTER(256)      catPath
+       CHARACTER(256)      path_datafile
+       character(60)       path_dat
+       CHARACTER(256)      name
+       CHARACTER(256)      ext
+       INTEGER(4)          res
+       INTEGER(4)          narg
+c       character(256)      IPM_orbit
+       INTEGER(4)          n_orbit_pts
+C------------------------------------------------------------------       
+C   For new SKED
+	Integer ks1, ks2, ksrc1
+	Integer RAH,RAM, DECD,DECM
+	Real(8) ep1, XYZ1(3), VXVYVZ1(3), OFF_V1	
+	Real(8) ep2, XYZ2(3), VXVYVZ2(3), OFF_V2	
+c	Real(8) ep3, XYZ3(3), VXVYVZ3(3), OFF_V3		
+	Real(8) ep4, RAS, DECS, RA, DEC
+      character(1) SIGN	 
+      character(8) Name_site1, Name_site2, Name_sour, Track_site	
+      character(4) OFF_T1, OFF_T2 !, OFF_T3
+      character(130) str
+C------------------------------------------------------------------         
+      n_orbit_pts = 1500
+c      IPM_orbit = 'pu20111115-000002.txt'
+      task_num = '_181211'
+c      narg = NARGS()
+c      CALL GETARG(0,arg0)
+c      res = SPLITPATHQQ (arg0, drv, exePath, name, ext)
+c      exePath = trim(drv)//trim(exePath)
+      exePath = 'e:\user\ZHAROV\ARIADNA40_corr\'  !!
+
+c      if (narg .ge. 2) then
+c        CALL GETARG(1,task_num)
+c        task_num = '_'//trim(task_num)
+c      endif
+      catPath = trim(exePath)//'catalogs\'
+      path_datafile = trim(exePath)//'data\'
+      path_dat = path_datafile
+      path_tmp = trim(exePath)//'temp\'
+   
+
+C---------------------------------------------------------
+C  The directories of different catalogs
+C
+       path_sta1 = trim(catPath)//cat_stations1
+       path_sta2 = trim(catPath)//cat_stations2
+       path_sou1 = trim(catPath)//cat_sources1
+       path_sou2 = trim(catPath)//cat_sources2
+       path_sou3 = trim(catPath)//cat_sources3
+       path_sou4 = trim(catPath)//cat_sources4
+       path_sou5 = trim(catPath)//cat_sources5
+       path_eph  = trim(catPath)//eph
+       path_oc   = trim(catPath)//cat_ocean
+       path_atm  = trim(catPath)//cat_atmos	
+       path_eop  = trim(catPath)//eop_c04
+       path_tel  = trim(catPath)//ant_par  	
+       path_geop = trim(catPath)//Geo_potential
+       path_orb  = trim(catPath)//IPM_orbit
+       path_pred = trim(catPath)//eop_pred       
+C
+C**********************************************************************
+c??  
+        open(1001, file=trim(exePath)//'temp\UV_PLANE'//
+     *trim(task_num)//'.txt')
+           
+c        OPEN(4, FILE=trim(exePath)//'SKED_180402.dat', 
+c     * status='old' )
+
+        OPEN(4, FILE=trim(exePath)//'SKED_181211.dat', !!
+     * status='old' )
+
+
+c	 write(*,*) trim(exePath)//'SKED_23.dat'
+C           
+C  SKED form
+C  1) Name of Station, 
+C  2) ks=0 or = any number 
+C     if ks  = 0 then program use catalog coordinates
+C     if ks /= 0 then program use information from line: 
+C     a) ep is epoch (in MJD)
+C     b) XYZ(3) are X,Y,Z coordinates of station for epoch (ep) (in m)
+C     c) VXVYVZ(3) are VX,VY,VZ velocities of station for epoch (ep) (in m/year)
+C     d) OFF_T is tipe of mount
+C     e) OFF_V is value of offset (in m)
+C
+        READ (4,'(A130)') str
+        READ (str,2) Name_site1, ks1,
+     *               ep1, XYZ1, VXVYVZ1, OFF_T1, OFF_V1
+C
+        READ (4,'(A130)') str
+        READ (str,2) Name_site2, ks2, 
+     *               ep2, XYZ2, VXVYVZ2, OFF_T2, OFF_V2
+C
+        READ (4,'(20x,A8)') Track_site
+C 
+  2     format (20x,A8,1x,i1, f8.1,3f13.3,3f8.4,1x, a4,f9.5 )    
+C  1) Name of Source, 
+C  2) ksrc=0 or = any number 
+C     if ksrc  = 0 then program use catalog coordinates
+C     if ksrc /= 0 then program use information from line:  
+C     a) ep is epoch (in MJD); ep = 51544.0 (J2000.0) !!!!
+C     b) Right ascension (h,m,s) and declination (gradus, arcmin, arcsec)
+C        for J2000.0 (format is from ICRF2-non-vcs)
+C       
+        READ (4,'(A130)') str
+        Read (str, 4) Name_sour, ksrc1, ep4, 
+     *  RAH,RAM,RAS, SIGN,DECD,DECM,DECS
+  4     format (20x,A8,1x,i1, f8.1, i4,i3,f12.8, 2x,a1,i2,i3,f11.7 )
+C----
+        write (*,2) Name_site1, ks1,
+     *              ep1, XYZ1, VXVYVZ1, OFF_T1, OFF_V1
+        write (*,2) Name_site2, ks2, 
+     *               ep2, XYZ2, VXVYVZ2, OFF_T2, OFF_V2
+        write (*,'(20x,A8)') Track_site
+        write (*,4) Name_sour, ksrc1, ep4, 
+     *  RAH,RAM,RAS, SIGN,DECD,DECM,DECS
+c  6     format (20x,A8,1x,i1, f8.1, 2f21.15 )
+
+C----
+        Read (4, '(20x,i4)') N_seg_tot    ! number of segments
+        Read (4, '(20x,i4)') N_wr_tot     ! lenght of each segment
+        Read (4, '(20x,i4)') KORDER       ! order of polynomial
+        Read (4, '(20x,f5.1)') Delta_sec  ! time interval between data (in sec)
+        Read (4, '(20x,i4)') year_t0      ! beginning of the fisrt segment
+        Read (4, '(20x,i4)') mon_t0
+        Read (4, '(20x,i4)') day_t0
+        Read (4, '(20x,i4)') hou_t0
+        Read (4, '(20x,i4)') min_t0
+        Read (4, '(20x,i4)') sss_t
+	write(*,*) N_seg_tot, N_wr_tot, KORDER, Delta_sec
+      write(*,*) year_t0, mon_t0,day_t0,hou_t0,min_t0, sss_t
+C      
+	call JULIAN(year_t0,mon_t0,day_t0, jd)
+c      pause 
+c????      
+        if (Name_site1 == Space_tel .or. Name_site2 == Space_tel) then
+            Read (4, *) IPM_orbit
+            Read (4, *) n_orbit_pts
+            path_orb  = trim(IPM_orbit)
+        endif
+        n_obs_sat = n_orbit_pts
+C        
+        sec_t0 = dfloat(sss_t) 
+c        CALL JULIAN (year_beg, mon_beg, day_beg, DJ_beg)
+C        
+        close(4)     
+
+C------------------------------------------------------------
+C  Allocate Structure(pr_orbita)
+C  Keep number of records n_obs_sat for file of dopler residuals
+C  Number of n_obs_sat is defined in SKED
+C  But if time interval for dopler residuals is 40 ms (25 per second)
+C  and n_obs_sat = 90000 then 
+C  maximum length of doppler series is 90000/25 = 3600 s (1 hour)
+       ALLOCATE (prev_orb(n_obs_sat),STAT=ios)
+       if ( ios/= 0 ) 
+     * Stop ' Can not allocate memory for array PREV_ORB '
+C------------------------------------------------------------
+C
+C  Path to record the schedule file as NGS-file 
+        path_data = trim(path_tmp)//trim(Name_site2)   
+C
+C  Path for delays file
+      open(27,
+     *file=trim(exePath)//'temp\delay3'//trim(task_num)//'.dat')
+
+C--------------------------------------------------------------------	  
+C****************************************************************
+C  Sequential calculation            
+c        do L_segm = 1, N_seg_tot
+        L_segm = 1
+  13  continue
+
+          write(*,15) L_segm, N_seg_tot
+  15      format('  Segment number ', 2i4 )
+c      pause	   
+	         
+C                  
+        END_card = '$END    '
+        TECH = 'TEST'            
+        str_temp = '  .2212990000000D+04           GR PH' 
+c
+        OFF_T = 'AZEL'
+        XYZ = 0.d0
+        OFF_V = 0.d0   
+        N_wr2 = 0                        
+        N_wr3 = 1                        
+C	      
+C  Record the schedule file as NGS-file    
+        OPEN(4, FILE = path_data )
+C
+        WRITE (4,'(A4)') TECH
+        WRITE (4,'(A8)') END_card
+      WRITE (4,'(a8,2x,3f15.5,1x,a4,f10.5)') Name_site1,XYZ,OFF_T,OFF_V
+      WRITE (4,'(a8,2x,3f15.5,1x,a4,f10.5)') Name_site2,XYZ,OFF_T,OFF_V
+
+        WRITE (4,'(A8)') END_card
+        WRITE (4,'(A8)') Name_sour      
+        WRITE (4,'(A8)') END_card
+        WRITE (4,'(A37)') str_temp           
+        WRITE (4,'(A8)') END_card
+C------------------------------------------------------
+           do L = 1, N_wr_tot
+C          
+           N_wr1 = L
+             sec_t = sec_t0 + dfloat(L-1) * Delta_sec
+             sec_t1 = dmod(sec_t, 60.d0)
+c             write(*,'(2f15.10)') sec_t, sec_t1
+             delta_min = idint(sec_t / 60.d0)
+c             write(*,*) delta_min
+C             
+             min_t = min_t0 + delta_min
+             min_t1 = mod(min_t, 60 )
+c             write(*,'(2i6)') min_t, min_t1
+             delta_hou = int(min_t / 60 )               
+C
+             hou_t = hou_t0 + delta_hou
+             hou_t1 = mod(hou_t, 24 )
+c             write(*,'(2i6)') hou_t, hou_t1
+             delta_day = int(hou_t / 24 )  
+C  Test of beginning of new month	
+             if ( delta_day /= 0 ) then	    		   
+		     jd1 = jd + delta_day
+               call DE_JULIAN(jd1,year_t,mon_t,day_t, UTC,ih,im,sec_t0)
+	       else
+               year_t = year_t0
+		     mon_t = mon_t0
+	         day_t = day_t0
+             endif			 	  
+C   
+           WRITE (4, 299) 
+     *     Name_site1,Name_site2,Name_sour,
+     *     year_t,mon_t,day_t,hou_t1,min_t1,sec_t1, N_wr1, N_wr2, N_wr3
+  299      format (a8,2x,a8,2x,a8,i5,4i3, f15.10, 14x, i4,2i1)  
+C     
+          enddo    ! L      		            
+        CLOSE(4)   
+C-----------------------------------------------------------------	  
+C  End recording and close
+C	     
+        k_f = 2   
+C	        
+C  Copy last values year_t,mon_t,day_t,hou_t1,min_t1,sec_t1
+             sec_t0 = sec_t1 + 1
+             min_t0 = min_t1
+C
+             hou_t0 = hou_t1
+             day_t0 = day_t
+C
+             year_t0 = year_t
+		   mon_t0 = mon_t	  
+C	                                              
+        go to 350
+C------------------------------------------------------------
+C  This block is indended for selection of the data files
+C
+C  Open the Explorer-style dialog box:
+C  the directory and filename strings are COMMA separated
+C
+C  k_f is number of selected files + 2 !
+c      call fileopen(k_f)
+C
+cc       write(*,*) k_f
+cc       write(*,*) N_files(1:k_f)
+cc       write(*,*) ' Filespec is ',dir_file_spec(1:N_files(k_f))
+C
+	if ( k_f == 2 ) then
+C  If only one file is selected then the drive, directory and
+C  filename is copied to the PATH_DATA
+	   length = N_files(k_f) - 2
+         do l = 1, length
+           path_data(l:l) = dir_file_spec(l:l)
+	   enddo
+C
+	   n_f = len_trim(path_datafile)
+C
+	     do l = n_f+1, n_f+9
+	       data_file(l-n_f:l-n_f) = dir_file_spec(l:l)
+           enddo
+c	
+cc        write(*,'(a9)') data_file
+C
+	else
+	   length = N_files(1)-1
+         do l = 1, length
+           path_dat(l:l) = dir_file_spec(l:l) ! the drive and directory
+	   enddo
+	   path_dat(l:l) = '\'
+       write(*,*) ' Directory is ', path_dat
+C  Copy of data files
+         do n_f = 1, k_f-2
+	     do l = N_files(n_f)+1, N_files(n_f+1)-1
+	       data_file(l-N_files(n_f):l-N_files(n_f)) =
+     =	   dir_file_spec(l:l)
+           enddo
+c	
+           File_name(n_f) =  adjustl(data_file)
+	   enddo
+C
+        write(*,333) (l,File_name(l), l=1,k_f-2)
+ 333    format(/i4, 3x, a20)
+      endif
+
+C  End of selection block
+C**********************************************************************
+ 350     continue
+c 	pause
+C  For each selected file repeat reduction procedure
+C
+	 do n_f = 1, k_f-1
+	   if ( k_f /= 2 ) then
+	     if ( n_f == k_f-1 ) exit
+	     n_dir = N_files(n_f)
+	     n_fil = N_files(n_f+1)- n_dir -1
+C
+         write(*,*) n_dir, n_fil
+C
+           path_data=trim(path_dat)
+	     data_file = File_name(n_f)
+C
+		 do l = 1, n_fil
+	       path_data(N_files(1)+l:N_files(1)+l) = data_file(l:l)
+		 enddo
+
+         write(*,334) n_f, path_data
+C
+	   endif	
+C
+ 334     format(/i4, 3x, a50)	
+ 335     format(/i4, 3x, a1)	  	
+c       pause ' File'
+C
+
+C--------------------------------------------------------------------
+C   SUBROUTINE CORR_DATA reads and rewrite the data file.
+C -------------------------------------------------------------------
+
+
+c         CALL CORR_DATA()
+
+
+C--------------------------------------------------------------------
+C   Initialization of Constants
+C--------------------------------------------------------------------
+C  i_choice = 1 (IAU 1980 Theory of Nutation)
+C  i_choice = 2 (IAU 2000 Theory of Nutation)
+C  i_choice = 3 (ZP 2003 Theory of Nutation)
+C  i_choice = 4 (GF 1999 Theory of Nutation)
+C
+        i_choice = 2    ! from 1 to 4
+C
+        CALL CONSTANTS_40
+        CALL PREC_CONSTANTS (i_choice)
+C--------------------------------------------------------------------
+C
+C   SUBROUTINE READ_CAT checks if the sources and stations contained in
+C   the data file are included in the catalogs,
+C   reads the catalogs of the sites ocean loading etc.
+C ------------------------------------------------------------------- 
+       CALL READ_CAT42corr(nobs, ista, isor, j_time, Array_bad_sou,  
+     * Kol_sou, dyear, mjd_mean, UTC_mean, t_mean)  
+C          
+C  ---------- Block for corrected SKED ------------------------------
+       if ( ks1 /= 0 ) then
+C  Test of epoch for station1
+         if ( ep1 /=  51544.0d0 ) then
+C  If epoch /= J2000.0 then convert coordinates to J2000.0
+C  and save mount type and offset
+            sta(1)%x     = XYZ1(1)-VXVYVZ1(1)*(ep1-51544.0d0)/365.25d0
+            sta(1)%y     = XYZ1(2)-VXVYVZ1(2)*(ep1-51544.0d0)/365.25d0
+            sta(1)%z     = XYZ1(3)-VXVYVZ1(3)*(ep1-51544.0d0)/365.25d0
+            sta(1)%axsty = OFF_T1
+            sta(1)%offs  = OFF_V1
+            sta(1)%vx    = VXVYVZ1(1)
+            sta(1)%vy    = VXVYVZ1(2)
+            sta(1)%vz    = VXVYVZ1(3)
+         endif
+       endif
+C
+       if ( ks2 /= 0 ) then
+C  Test of epoch for station2
+         if ( ep2 /=  51544.0d0 ) then
+C  If epoch /= J2000.0 then convert coordinates to J2000.0
+C  and save mount type and offset
+            sta(2)%x     = XYZ2(1)-VXVYVZ2(1)*(ep2-51544.0d0)/365.25d0
+            sta(2)%y     = XYZ2(2)-VXVYVZ2(2)*(ep2-51544.0d0)/365.25d0
+            sta(2)%z     = XYZ2(3)-VXVYVZ2(3)*(ep2-51544.0d0)/365.25d0
+            sta(2)%axsty = OFF_T2
+            sta(2)%offs  = OFF_V2
+            sta(2)%vx    = VXVYVZ2(1)
+            sta(2)%vy    = VXVYVZ2(2)
+            sta(2)%vz    = VXVYVZ2(3)
+         endif
+       endif
+C
+       if ( ksrc1 /= 0 ) then
+C  Test of epoch for station2
+         if ( ep4 /=  51544.0d0 ) 
+     *       stop ' Epoch for source must be J2000.0 (MJD51544.0)'
+
+C   Convert coordinates to radians        
+            RA = (RAH+RAM/60.D0+RAS/3600.D0)*twopi/24.D0
+            DEC = (DECD+DECM/60.D0+DECS/3600.D0)*twopi/360.D0
+            IF (SIGN.EQ.'-') DEC=-DEC
+            sou(1)%al   = RA
+            sou(1)%del  = DEC
+C  Velocities of sources
+            sou(1)%dot_al   = 0.d0
+            sou(1)%dot_del  = 0.d0
+C
+       endif
+C----------------------------------------------------------------------
+C  For Radioastron 
+C------------------------------------------------------------
+C  Allocate memory for previous orbit coordinates
+
+       ALLOCATE (r_sat_pr(nobs,3))
+C
+C  Calculation of the coordinate time T_eph at geocenter (!)
+C  for initial data
+	 do l= 1, ista
+ 	   if ( sta(l)%name == Space_tel ) then
+C
+           mjd_beg = space_sta(1)%mjd
+           utc_beg  = space_sta(1)%utc
+		 jd = dfloat(mjd_beg) + 2400000.5d0
+C
+           CALL TAITIME40 (mjd_beg, utc_beg, TAI, TT)
+C
+C  K_int = 0 ( cubic spline interpolation )
+C  K_int = 1 ( fit a polynomial curve using least squares )
+       k_int = 0
+cc           CALL INTERP_EOP (k_int, mjd_beg, UTC, TT, UT1,
+cc     *	 eop_int, deop_int, Arg_oc_tide, dEOP_diu)
+       CALL INTERP_EOP40 (k_int, mjd_beg, UTC_beg, TT, UT1, 
+     * eop_int, deop_int, Arg_oc_tide,
+     * dEOP_diu, dEOP_lib)          
+C
+	     CALL T_EPH40 ( JD, TAI, UT1, TT, 0.d0,
+     *                  0.d0, 0.d0, CT_beg, dTAIdCT )     
+C
+	   endif
+       enddo
+C----------------------------------------------------------------------
+cc        print '(1x, a, $)', ' Enter --- N_segm, K_ch_C, K_ch_Z '
+cc	  read *, N_segm, K_ch_C, K_ch_Z
+
+        N_segm = 1
+	  K_ch_C = 2
+	  K_ch_Z = 4
+
+
+        K_cheb  = max ( K_ch_C, K_ch_Z )
+
+C   Calculation of midtime point of observation
+C -------------------------------------------------------------------
+C
+C   SUBROUTINE TAITIME computes the atomic time fraction of the
+C   atomic time day from the UTC time
+           CALL TAITIME40 (mjd_mean, UTC_mean, TAI_mean, TT_mean)
+C -------------------------------------------------------------------
+C  SUBROUTINE INTERP_UT1 interpolates the UT1-TAI, x,y, Dpsi, Deps
+C  values on midtime point of observation
+C  K_int = 0 ( cubic spline interpolation )
+C  K_int = 1 ( fit a polynomial curve using least squares )
+C
+       k_int = 0
+C
+c       CALL INTERP_EOP (k_int, mjd_mean, UTC_mean, TT_mean,
+c     * UT1_mean, eop_int_mean, deop_int_mean, Arg_oc_tide,dEOP_diu_mean)
+       CALL INTERP_EOP40 (k_int, mjd_mean, UTC_mean, TT_mean,  
+     * UT1_mean, eop_int_mean, deop_int_mean, Arg_oc_tide,
+     * dEOP_diu_mean, dEOP_lib_mean)
+
+C  Subroutine INTERP coded by Ch. BIZOUARD (Observatoire de Paris)
+C  was used to compare the EOP estimations calculated by
+C  different softwares
+C
+       CALL INTERP_IERS (mjd_mean, UTC_mean, eop_int_mean_IERS)
+
+C
+C -------------------------------------------------------------------
+C  Allocation of memory for matrix of the partial derivatives
+C
+	 Allocate (M_pd(nobs,71+41*ista+4*isor))
+	 Allocate (Y(nobs), W(nobs))
+       Allocate (d_eop_int(nobs))
+       Allocate (Arr_good(nobs))
+C
+C  Clear matrix M_pd
+       M_pd = 0.d0
+C  Clear vector of right side (observed minus theoretical values)
+       Y = 0.d0
+C  Clear vector of weights
+       W = 0.d0
+C
+       Arr_good = 0
+C
+       d_eop_int = 0.d0
+C
+C -------------------------------------------------------------------
+C
+C  SUBROUTINE SITE calculates the site position in geodetic coordinate
+C  systems for the stations participating in the current observation and
+C  transformation matrix VW from VEN to the Earth-fixed coordinate system
+C
+       CALL SITE_corr (ista, dyear,
+     *            site_xyz, site_vel, lat_geod, h_geod,
+     *        	lat_gcen, lon_gcen, sph_rad, u_site, v_site,
+     *            vw, site_meteo)     
+c       CALL SITE40_corr(ista, dyear, 
+c     *            site_xyz, site_vel, lat_geod, h_geod,
+c     *        	lat_gcen, lon_gcen, sph_rad, u_site, v_site, 
+c     *            vw)     
+C -------------------------------------------------------------------
+C   SUBROUTINE DMETEO1_DT computes the coefficients of the fitted
+C   polynomial for temperature and pressure for each site
+c       CALL DMETEO1_40corr ( nobs,ista, t_mean, 
+c     *                   NDEG, T_coef, P_coef, Hum_coef )
+        CALL DMETEO1_DTcorr ( nobs, ista, t_mean, site_meteo, 
+     *                        NDEG, T_coef, P_coef, Hum_coef )
+C -------------------------------------------------------------------
+C  SUBROUTINE SOURCE_VEC computes the J2000.0 unit vectors in the
+C  direction of the sources.
+C
+       CALL SOURCE_VEC40 (isor, t_mean, K_star)
+C
+C *******************************************************************
+C  BEGINNING OF MAIN LOOP
+C *******************************************************************
+C
+       i = 1
+	 i_good = 0
+C   Read the line of nscan
+       do while ( i <= NOBS )
+C
+         if (nscan(i)%k /= 0 ) then
+C  Number of good observations
+	     i_good = i_good + 1
+           mjd = nscan(i)%mjd
+           utc = nscan(i)%utc
+	     j1 = nscan(i)%sta1
+	     j2 = nscan(i)%sta2
+	     j3 = nscan(i)%sou
+C  Array of good observations
+           Arr_good(i_good) = i
+
+C  Clear memory
+	     dxtide = 0.d0 
+	     dvtide = 0.d0
+           dx_octide = 0.d0 
+		 dv_octide = 0.d0
+	     dx_poltide = 0.d0 
+		 dv_poltide = 0.d0
+	     dx_atm = 0.d0 
+		 dv_atm = 0.d0
+           dx_temp = 0.d0
+		 dv_temp = 0.d0
+	     dtau_off = 0.d0
+           uv_coor = 0.d0
+C
+c       if ( i > 9990 ) then
+        write(*,'(2i4, i8, f13.9, 3i4)')
+     *   i, i_good, nscan(i)%mjd,nscan(i)%utc, j1,j2,j3
+c	write(*,*) i, i_good, Arr_good(i_good), nscan(Arr_good(i_good))%k
+ 	pause
+c	endif
+
+C  Copy local temperature
+C
+           tC1 = nscan(i)%t1
+           tC2 = nscan(i)%t2
+C
+C -------------------------------------------------------------------
+C   SUBROUTINE DMETEO2_DT computes the time derivatives
+C   of the meteo parameters
+       if ( sta(j1)%name /= Earth_cen .and. sta(j1)%name /= Space_tel) 
+     * CALL DMETEO2_DT ( j1, ista, NDEG, mjd, utc, t_mean,
+     * T_coef, P_coef, Hum_coef, dTdt(1), dPdt(1), dHumdt(1) )
+C -------------------------------------------------------------------
+       if ( sta(j2)%name /= Earth_cen .and. sta(j2)%name /= Space_tel) 
+     * CALL DMETEO2_DT ( j2, ista, NDEG, mjd, utc, t_mean,
+     * T_coef, P_coef, Hum_coef, dTdt(2), dPdt(2), dHumdt(2) )
+C -------------------------------------------------------------------
+C  Operators for temporal output
+cc	  if (j1==1)
+cc     *  write(15, 33) dfloat(mjd)+utc, dTdt(1), dPdt(1), dHumdt(1)
+cc	  if (j2==2)
+cc     *  write(16, 33) dfloat(mjd)+utc, dTdt(2), dPdt(2), dHumdt(2)
+cc  33   format ( f15.8, 3f20.13 )
+C -------------------------------------------------------------------
+
+C  Copy of the J2000.0 unit vectors in the direction of the source.
+	   do j = 1, 3
+	     K_s(j) = K_star(j,j3)
+	   enddo
+C
+C   JD is the JULIAN DATE at zero hours UTC of the date (DAYS)
+		  jd = dfloat(mjd) + 2400000.5d0
+C
+C -------------------------------------------------------------------
+C   SUBROUTINE TAITIME computes the atomic time fraction of the
+C   atomic time day from the UTC time
+           CALL TAITIME40 (mjd, UTC, TAI, TT)
+C -------------------------------------------------------------------
+C
+C  SUBROUTINE INTERP_UT1 interpolates the UT1-TAI, x,y, Dpsi, Deps
+C  values on moment of observation and
+C  the derivative d(UT1 - TAI)/dTAI is evaluated.
+C  K_int = 0 ( cubic spline interpolation )
+C  K_int = 1 ( fit a polynomial curve using least squares )
+c           CALL INTERP_EOP (k_int, mjd, UTC, TT, UT1,
+c     *	 eop_int, deop_int, Arg_oc_tide, dEOP_diu)
+      
+          CALL INTERP_EOP40 (k_int, mjd, UTC, TT, UT1, 
+     *	 eop_int, deop_int, Arg_oc_tide, dEOP_diu, dEOP_lib)
+
+C -------------------------------------------------------------------
+           d_eop_int(i_good) = eop_int_mean(1) - eop_int(1)
+C -------------------------------------------------------------------
+C
+C   SUBROUTINE T_EPH computes the coordinate time T_EPh fraction
+C   of the coordinate time day at observing site #1
+	     CALL T_EPH40 ( JD, TAI, UT1, TT, lon_gcen(j1),
+     *                  u_site(j1), v_site(j1), CT, dTAIdCT )
+C -------------------------------------------------------------------
+C  SUBROUTINE JPLEPH_421 is interface Subroutine which obtains
+C  the solar system bodies  coordinates from the
+C  JPL DE405/LE405 ephemeris.
+           CALL JPLEPH_421 ( jd, ct, Earth, Sun, Moon )
+C  Coordinates and velocities of other planets were saved in COMMON BLOCK
+C -------------------------------------------------------------------
+C  SUBROUTINE FUND_ARG computes the fundamental arguments and the number
+C  of Julian centuries  elapsed since the epoch January 1.5 2000.
+           CALL FUND_ARG40 (jd, ct, cent, f, fd)
+C -------------------------------------------------------------------
+C  SUBROUTINE EPS_A06 calculates the mean obliquity
+           CALL EPS_A06 ( jd, ct, eps2000, eps_P03_2000, e_mn )
+C-------------------------------------------------------------------- 
+C  SUBROUTINE PREC_MATRIX4_10 calculates the   
+C  precession J2000.0 rotation matrix according the IAU2000/2006 model
+C  and the CT time derivative of that matrix.
+C
+C  Precession-nutation, IAU 2000/2006 model, supporting
+C  classical (equinox-based) use:
+C  PR = R_1 [-eps_P03_2000]R_3 [psi_A]R_1 [om_A]R_3 [-xi_A]
+           CALL PREC_MATRIX4_10 (jd, ct, 
+     *          eps_P03_2000, pr, dPdp_ls, dPdp_pl, dPdp_om )
+C-------------------------------------------------------------------- 
+C  Subroutine BIAS is used for calculation of the frame bias matrix
+           CALL BIAS40( eps2000, bias_matr )
+C-------------------------------------------------------------------- 
+C   SUBROUTINE IAU_2000A returns the values for nutation in longitude
+C   and nutation in obliquity. 
+C   IAU 2000/2006 Theory of Nutation is used with corrections .
+C   The routine first computes the IAU 2000A nutation, then applies
+C   adjustments: for P03 and for dX,dY corrections from GCRS to 
+C   mean of date.
+C
+            CALL IAU_2000_2006( jd, ct, f, fd, 
+     *           eop_int(4),deop_int(4), eop_int(5),deop_int(5),
+cc     *                    0.d0, 0.d0, 0.d0, 0.d0,
+     *           eps_P03_2000, e_mn,
+     *           dpsir, depsr, eps, rn, dNdpsi, dNdeps) 
+
+C -------------------------------------------------------------------
+C  SUBROUTINE GASTIME computes  
+C  the Greenwich Apparent Siderial Time (GAST) and its CT time derivative,
+C  the diurnal angular velocity of the Earth
+C  Time argument is CT = T_eph( !!!)
+            CALL GASTIME42 ( JD, UT1, CT, f, fd, 
+     *                    dpsir, depsr, e_mn, eps, dTAIdCT, deop_int(1),  
+     *                    diurnv, GAST, RS, dRSdp_ls, dRSdp_pl )
+
+C -------------------------------------------------------------------
+C   SUBROUTINE WOBBLE calculates the rotation matrix YX due to polar motion.
+C   The x and y components of the pole position are the IERS components.
+           CALL WOBBLE40 ( cent, eop_int(2), eop_int(3), deop_int(2), 
+     *                  deop_int(3), ryx, YdXdx, dYdyX, ddxdYX, ddydYX )
+C -------------------------------------------------------------------
+C   SUBROUTINE PNSXY40 calculates the transformation matrix PNSXY and
+C   its first two CT time derivatives.
+           CALL PNSXY40 ( bias_matr, pr, rn, rs, ryx, r2000 )
+C
+C  --------------------------------------------------------------------------
+C   Calculate the Earth tidal effect, ocean loading effect,
+C   the effects of the pole tide and thermal deformations for two sites.
+C
+C   SUBROUTINE SITE_TIDE computes effects of the solid Earth tides
+C   and partials of station position and velocity
+C   with respect to the Love numbers for the degree 2 and 3 tides
+       if ( sta(j1)%name /= Earth_cen .and. sta(j1)%name /= Space_tel ) 
+     *     CALL SITE_TIDE_SOLID (site_xyz(:,j1),
+     *     lat_gcen(j1), lon_gcen(j1),
+     *     sun, moon, f, fd, vw(:,:,j1), gast, r2000,
+     *     dxtide(1,1), dvtide(1,1),
+     *     dRdrh0_3(:,:,j1), dRdh02_3(:,:,j1),
+     *     dRdrl0_3(:,:,j1), dRdl02_3(:,:,j1),
+     *     dRdh3_3(:,:,j1), dRdl3_3(:,:,j1),
+     *     dRdl1_1_2000_3(:,:,j1), dRdl1_2_2000_3(:,:,j1),
+     *     dRdhi_1_2000_3(:,:,j1), dRdhi_2_2000_3(:,:,j1),
+     *     dRdli_1_2000_3(:,:,j1), dRdli_2_2000_3(:,:,j1))
+C
+        if ( sta(j2)%name /= Earth_cen .and. sta(j2)%name /= Space_tel )
+     *     CALL SITE_TIDE_SOLID (site_xyz(:,j2),
+     *     lat_gcen(j2), lon_gcen(j2),
+     *     sun, moon, f, fd, vw(:,:,j2), gast, r2000,
+     *     dxtide(1,2), dvtide(1,2),
+     *     dRdrh0_3(:,:,j2), dRdh02_3(:,:,j2),
+     *     dRdrl0_3(:,:,j2), dRdl02_3(:,:,j2),
+     *     dRdh3_3(:,:,j2), dRdl3_3(:,:,j2),
+     *     dRdl1_1_2000_3(:,:,j2), dRdl1_2_2000_3(:,:,j2),
+     *     dRdhi_1_2000_3(:,:,j2), dRdhi_2_2000_3(:,:,j2),
+     *     dRdli_1_2000_3(:,:,j2), dRdli_2_2000_3(:,:,j2))
+     
+C -------------------------------------------------------------------
+C   SUBROUTINE SITE_TIDE_OC computes the local site displacement and velocity
+C   due to ocean loading.
+       if ( sta(j1)%name /= Earth_cen .and. sta(j1)%name /= Space_tel ) 
+     *     CALL SITE_TIDE_OC ( j1, jd, ut1, vw(:,:,j1), r2000,
+     *                         dx_octide(1,1), dv_octide(1,1))
+       if ( sta(j2)%name /= Earth_cen .and. sta(j2)%name /= Space_tel ) 
+     *     CALL SITE_TIDE_OC ( j2, jd, ut1, vw(:,:,j2), r2000,
+     *                         dx_octide(1,2), dv_octide(1,2))   
+C -------------------------------------------------------------------
+C   SUBROUTINE POLE_TIDE calculates the variation of station coordinates
+C   caused by the pole tide.
+       if ( sta(j1)%name /= Earth_cen .and. sta(j1)%name /= Space_tel ) 
+     *     CALL POLE_TIDE (cent, lat_geod(j1), lon_gcen(j1),
+     *     eop_int(2), eop_int(3), deop_int(2), deop_int(3),
+     *     vw(:,:,j1), r2000, dx_poltide(1,1), dv_poltide(1,1),
+     *  	 dx_pol_dx(1,1),dx_pol_dy(1,1), dv_pol_dx(1,1),dv_pol_dy(1,1))
+C
+       if ( sta(j2)%name /= Earth_cen .and. sta(j2)%name /= Space_tel )            
+     *     CALL POLE_TIDE (cent, lat_geod(j2), lon_gcen(j2),
+     *     eop_int(2), eop_int(3), deop_int(2), deop_int(3),
+     *     vw(:,:,j2), r2000, dx_poltide(1,2), dv_poltide(1,2),
+     *  	 dx_pol_dx(1,2),dx_pol_dy(1,2), dv_pol_dx(1,2),dv_pol_dy(1,2))
+C -------------------------------------------------------------------
+C   SUBROUTINE THERM_DEF computes the thermal deformation effect
+C   of the telescope.
+       if ( sta(j1)%name /= Earth_cen .and. sta(j1)%name /= Space_tel ) 
+     *     CALL THERM_DEF40 ( j1, nobs, tC1, dTdt(1),   
+     *     vw(:,:,j1), r2000, dx_temp(1,1), dv_temp(1,1))	
+       if ( sta(j2)%name /= Earth_cen .and. sta(j2)%name /= Space_tel) 
+     *     CALL THERM_DEF40 ( j2, nobs, tC2, dTdt(2),
+     *     vw(:,:,j2), r2000, dx_temp(1,2), dv_temp(1,2))
+C -------------------------------------------------------------------
+C   SUBROUTINE SITE_ATM computes the local sites displacement and velocity
+C   due to atmosphere loading.
+
+	     CALL SITE_ATM40 ( i, nobs, ista, mjd, utc, dPdt, 
+     *     vw, r2000, dx_atm, dv_atm,
+     *     dr1_dA2000,dr1_dB2000,dv1_dA2000,dv1_dB2000,
+     *     dr2_dA2000,dr2_dB2000,dv2_dA2000,dv2_dB2000,
+     *     dr_dReg2000,dv_dReg2000)
+C -------------------------------------------------------------------
+C   SUBROUTINE SITE_INST computes the site position and velocity
+C   vectors in the 2000.0 geocentric system by adding the
+C   corrections for the Earth tides, the pole tide and ocean tide,
+C   atmospheric loading, temperature deformation of telescope.
+           CALL SITE_INST (site_xyz(:,j1), site_xyz(:,j2), r2000,
+     *     dxtide, dvtide, dx_octide, dv_octide, dx_poltide,dv_poltide,
+     *     dx_atm, dv_atm, dx_temp, dv_temp,
+     *     xsta_j2000t, vsta_j2000t, asta_j2000)
+C -------------------------------------------------------------------
+C  SUBROUTINE ABER_SOURCE computes the source position
+C  corrected for the annual and diurnal aberration.
+           CALL ABER_SOURCE (i, r2000, lat_geod(j1), lat_geod(j2),
+     *	 h_geod(j1), h_geod(j2), K_s, Earth, vsta_j2000t, vw, jd, ct,
+     *     E, Az)
+C -------------------------------------------------------------------
+C  SUBROUTINE MOUNT_TEL computes instrumental delay that caused by
+C  the axis offset. The offset changes the site position
+C  due to axis offset orientation.
+           CALL MOUNT_TELcorr(i, r2000, lat_gcen(j1),lat_gcen(j2),
+     *     lat_geod(j1), lat_geod(j2), h_geod(j1), h_geod(j2),
+     *     sph_rad(j1), sph_rad(j2), K_star, vw,
+     *     E, Az, doff_dl, d_dax, dtau_off)
+C -------------------------------------------------------------------
+C  Motion of space telescope 
+       phase1 = 0.d0
+C
+       if ( sta(j1)%name == Space_tel ) then
+C Integr0 without my integration
+c my correct ???     integr1 on integr2
+           CALL INTEGR8asc( 1, i, nobs, L_segm, N_wr_tot, Delta_sec,
+     *     Track_site,
+     *     mjd_beg, utc_beg, ct_beg, mjd, utc, ct,
+     *     dyear, r2000,
+     *     xsta_j2000t, vsta_j2000t, asta_j2000, r_sat_pr,
+     *     K_s,
+     *     phase1 )           
+c            CALL INTEGR6( 1, i, nobs, L_segm, N_wr_tot, Delta_sec, 
+c     *     mjd_beg, utc_beg, ct_beg, mjd, utc, ct,
+c     *     xsta_j2000t, vsta_j2000t, asta_j2000,
+c     *     phase1 )
+ 
+       endif
+
+       if ( sta(j2)%name == Space_tel ) then
+
+           CALL INTEGR8asc( 2, i, nobs, L_segm, N_wr_tot, Delta_sec,
+     *     Track_site,
+     *     mjd_beg, utc_beg, ct_beg, mjd, utc, ct,
+     *     dyear, r2000,
+     *     xsta_j2000t, vsta_j2000t, asta_j2000, r_sat_pr,
+     *     K_s,
+     *     phase1 )
+c            CALL INTEGR6( 2, i, nobs, L_segm, N_wr_tot, Delta_sec, 
+c     *     mjd_beg, utc_beg, ct_beg, mjd, utc, ct,
+c     *     xsta_j2000t, vsta_j2000t, asta_j2000,
+c     *     phase1 )
+
+       endif
+C -------------------------------------------------------------------
+C  The J2000.0 geocentric baseline position and velocity
+C  vectors are calculated.
+C
+           CALL BASELINE( r2000, xsta_j2000t, vsta_j2000t, asta_j2000,
+     *     base_line, B_cfs )
+     
+c ??      
+C   SUBROUTINE UV_plane computes the geocentric baseline 
+C   projection on the UV-plane.
+c       if ( sta(j1)%name/=Earth_cen .and. sta(j2)%name/=Earth_cen )then
+           CALL UV_plane( j3, base_line, xsta_j2000t, 
+     *                    1.d0, uv_coor )
+c	  write(1001,'(i6,f15.9, 3e24.15)') mjd, utc, uv_coor
+c	 endif     
+C
+C -------------------------------------------------------------------
+C  SUBROUTINE TROP_DELAY computes the total troposperic delay and delay rate as
+C  sum of the wet and dry components and a horizontal delay gradient with
+C  components G_N and G_E	
+ 	     CALL TROP_DELAYcorr (i, jd, ct, lat_geod(j1), lat_geod(j2),
+     *	 h_geod(j1), h_geod(j2), E, Az,
+     *     Datmc_d, Datmc_w, Datmp_hmf, Datmp_wmf, Dgrad_N, Dgrad_E,
+     *     Zen_dry, Zen_wet)
+
+c       CALL TROP_BENDING30 (i, xsta_j2000t,
+c     * lat_geod(j1), lat_geod(j2), h_geod(j1), h_geod(j2), E, Az,
+c     * dTdt, dPdt, dHumdt,
+c     * Datmc_d, Datmc_w, Datmp_hmf, Datmp_wmf, Dgrad_N, Dgrad_E,
+c     * Zen_dry, Zen_wet)
+C -------------------------------------------------------------------
+C
+C   SUBROUTINE THEOR_DELAY computes the theoretical values of delay and
+C   delay rate on base of IERS Convencions (1996,2000)
+       if ( 
+     *     (sta(j1)%name == Earth_cen .and. sta(j2)%name == Space_tel) 
+     *     .or.
+     *     (sta(j2)%name == Earth_cen .and. sta(j1)%name == Space_tel)
+     *    )
+     *   then
+c??           CALL THEOR_DELAYcorr(base_line, xsta_j2000t, vsta_j2000t,     
+           CALL THEOR_DELAYcorr_ORB(base_line, xsta_j2000t, vsta_j2000t,
+     *     asta_j2000, K_s, Earth, Sun, Moon,
+     *     Datmc_d, Datmc_w, dtau_off,
+     *     t2_t1, dt2_t1)
+        else
+           CALL THEOR_DELAYcorr (base_line, xsta_j2000t, vsta_j2000t,
+     *     asta_j2000, K_s, Earth, Sun, Moon,
+     *     Datmc_d, Datmc_w, dtau_off,
+     *     t2_t1, dt2_t1)
+        endif
+
+C -------------------------------------------------------------------
+C  Theoretical values of delay and delay rate are calculated
+C
+C  Beginning of calculation of the partial derivatives
+C  of delay and delay rate
+C**********************************************************************
+C
+C  SUBROUTINE DER_STAR computes
+C  the partial derivatives of the delay and delay rate with respect to
+C  1) the source declination and right ascension,
+C  2) the source declination and right ascension rates.
+           CALL DER_STAR ( jd, ct, dyear, K_s, Earth,
+     *                     base_line, dStar, dStar_rate)
+C -------------------------------------------------------------------
+C  SUBROUTINE DER_SITE computes
+C  the partial derivatives of the delay and delay rate with respect to
+C  1) the site coordinates at each site,
+C  2) the site velocities at each site.
+           CALL DER_SITE ( dyear, r2000, K_s, Earth,
+     *                     base_line,  dSite, dSite_v)
+C -------------------------------------------------------------------
+C  SUBROUTINE DER_POLAR computes
+C  the partial derivatives of the delay and delay rate with respect to
+C  the long period wobble X and Y offsets.
+           CALL DER_POLAR ( r2000, K_s, Earth, base_line, B_cfs,
+     *     pr, rn, rs, YdXdx, dYdyX, ddxdYX, ddydYX,
+     *     dx_pol_dx, dx_pol_dy, Arg_oc_tide,
+     *     dWOB, dX_Aj, dX_Bj, dY_Aj, dY_Bj)
+C -------------------------------------------------------------------
+C  SUBROUTINE DER_UT1 computes
+C  the partial derivatives of the delay and delay rate with respect to
+C  to the instantaneous value of UT1 - TAI.
+           CALL DER_UT1 ( r2000, K_s, Earth, base_line, B_cfs, gast,
+     *     pr, rn, rs, ryx, Arg_oc_tide, diurnv,
+     *     dUT1_TAI, dUT1_Aj, dUT1_Bj)
+C -------------------------------------------------------------------
+C  SUBROUTINE DERIVATIVE computes the partial derivatives of
+C  the delay and delay rate with respect to the to the
+C  nutation angles Delta(Psi) and Delta(Epsilon)
+C  at the epoch of the observation.
+          CALL DER_NUT ( r2000, K_s, Earth, base_line, B_cfs, gast,
+     *     pr, rn, rs, ryx, e_mn,  dNdpsi, dNdeps, dnut)
+C -------------------------------------------------------------------
+C  SUBROUTINE DER_PREC computes
+C  the partial derivatives of the delay and delay rate with respect to
+C  the luni-solar and planetary precession constants.
+          CALL DER_PREC ( r2000, K_s, Earth,
+     *    base_line, B_cfs, pr, rn, rs, ryx,
+     *    dPdp_ls, dPdp_pl, dRSdp_ls, dRSdp_pl, dPr_lspl)
+C -------------------------------------------------------------------
+C  SUBROUTINE DER_LOVE_NUMBER computes
+C  the partial derivatives of the delay and delay rate with respect to
+C  the Love numbers for the degree 2 and 3 tides
+          CALL DER_LOVE_NUMBER (j1, j2, r2000, K_s, Earth, base_line,
+     *     dRdrh0_3, dRdh02_3, dRdrl0_3, dRdl02_3, dRdh3_3, dRdl3_3,
+     *     dRdl1_1_2000_3, dRdl1_2_2000_3,
+     *     dRdhi_1_2000_3, dRdhi_2_2000_3,
+     *     dRdli_1_2000_3, dRdli_2_2000_3,
+     *     d_dh0, d_dh02, d_dl0, d_dl02, d_dh3, d_dl3, d_dl1_1, d_dl1_2,
+     *     d_dhi_1, d_dhi_2, d_dli_1, d_dli_2)
+C -------------------------------------------------------------------
+C  SUBROUTINE DER_ATM_LOAD computes
+C  the partial derivatives of the delay and delay rate with respect to
+C  C  the atmospheric loading parameters
+C -------------------------------------------------------------------
+	    CALL DER_ATM_LOAD (j1, j2, r2000, K_s, Earth, base_line,
+     *    dr1_dA2000,dr1_dB2000,dv1_dA2000,dv1_dB2000,
+     *    dr2_dA2000,dr2_dB2000,dv2_dA2000,dv2_dB2000,
+     *    dr_dReg2000,dv_dReg2000,
+     *    dt_dA, dt_dB, df_dA, df_dB, dt_dReg, df_dReg)
+C -------------------------------------------------------------------
+C  SUBROUTINE CREATE_MATR creates the matrix of partial derivatives M_pd
+C  to analyse astrometric VLBI observations.
+          CALL CREATE_MATR27(i, j1,j2, i_good, nobs, isor, ista,
+     *    mjd, utc, t_mean, t2_t1, dt2_t1, dWOB, dUT1_TAI, dnut,
+     *    dSite, dSite_v, Datmp_hmf, Datmp_wmf, Dgrad_N, Dgrad_E,
+     *    dStar, dStar_rate, dPr_lspl,
+     *    d_dh0, d_dh02, d_dl0, d_dl02, d_dh3, d_dl3, d_dl1_1, d_dl1_2,
+     *    d_dhi_1, d_dhi_2, d_dli_1, d_dli_2,
+     *    d_dax,
+     *    dt_dA, dt_dB, df_dA, df_dB, dt_dReg, df_dReg,
+     *    dX_Aj, dX_Bj, dY_Aj, dY_Bj,
+     *    dUT1_Aj, dUT1_Bj,
+     *    Zen_dry, Zen_wet, M_pd, Y, W)
+C -------------------------------------------------------------------
+cc        if ( j1 == 1 .and. j2 == 2) then
+cc        write(15,'(i4, f11.4, 4f11.4)') i, nscan(i)%mjd+nscan(i)%utc,
+c     *Datmp_hmf(1,1)*Zen_dry(1,1)*1.d9,Datmp_hmf(2,1)*Zen_dry(2,1)*1.d9,
+c     *Datmp_wmf(1,1)*Zen_wet(1,1)*1.d9,Datmp_wmf(2,1)*Zen_wet(2,1)*1.d9
+cc     *Zen_dry(1,1)*1.d9, Zen_dry(2,1)*1.d9,
+cc     *Zen_wet(1,1)*1.d9, Zen_wet(2,1)*1.d9
+cc	  endif
+        write(27,153) i,
+     *  nscan(i)%mjd+nscan(i)%utc, t2_t1*1.d9, dt2_t1*1.d9, phase1
+ 153   format (i4,f16.8,f25.7,f22.10, d25.16)
+c        write(*,153) i,
+c     *  nscan(i)%mjd+nscan(i)%utc, t2_t1*1.d9, dt2_t1*1.d9, phase1
+
+C
+         endif
+         i = i + 1
+       enddo  ! i
+C  End of reading of the NGS-file
+
+       L_segm = L_segm + 1
+c          write(*,11) L_segm, N_seg_tot
+c	pause
+
+	 deAllocate (M_pd, Y, W)
+       deAllocate (d_eop_int)
+       deAllocate (Arr_good)
+       deAllocate (sta, sou, def_par, nscan, B_conf)
+       if (Name_site1 == Space_tel .or. Name_site2 == Space_tel)
+     * deAllocate (space_sta)
+C
+c       enddo ! L_segm
+       if ( L_segm > N_seg_tot ) go to 200
+
+       deALLOCATE (r_sat_pr)
+
+       go to 13
+c          write(*,11) L_segm, N_seg_tot
+	pause
+C  END OF REDUCTION
+
+C
+       stop ' End of cycle '
+
+  200  continue
+       close(27)
+C  End of writing of the delay file
+C
+C  Calculation of polynomials
+C
+      open(15,
+     *file=trim(exePath)//'temp\delay3'//trim(task_num)//'.dat',
+     *      status='old')
+C  Polynomial coefficients for delays
+      open(17,
+     *file=trim(exePath)//'result1'//trim(task_num)//'.dat') 
+C  Polynomial coefficients for phases      
+c      open(19,
+c     *file=trim(exePath)//'result2'//trim(task_num)//'.dat')
+C
+
+C  NDATA has to be less then 3000
+        NDATA = N_seg_tot * N_wr_tot
+C
+        d_grav = 0.d0
+
+C  1) Read total file to correct delays for Radioastron
+        do i = 1, NDATA
+          read(15,153) j,dates(i),delay(i),fr_int(i), phase(i)
+c          write(*,153) j,dates(i),delay(i),fr_int(i), phase(i)
+        if ( 
+     *     (Name_site1 == Earth_cen .and. Name_site2 == Space_tel) 
+     *     .or.
+     *     (Name_site2 == Earth_cen .and. Name_site1 == Space_tel)
+     *     )
+     *     then
+ccc	     d_grav = d_grav + phase(i)*Delta_sec
+	     d_grav = phase(i)  ! for phase
+	  endif
+c         write(*,153) j,dates(i),delay(i), phase(i), d_grav
+c	pause
+C 
+        if (Name_site1 == Earth_cen .and. Name_site2 == Space_tel)
+ccc     *     delay(i) = delay(i) - d_grav  ! It is true for on-board clock
+C  True (Only for phase from Coherent mode)
+     *     delay(i) =  delay(i) + d_grav 
+
+C  It is necessary to test!!!
+        if (Name_site2 == Earth_cen .and. Name_site1 == Space_tel)
+     *     delay(i) = delay(i) + d_grav
+C           
+	  enddo
+C
+       close(15)
+C--------------------------------
+C  Record delays as ResultD.dat
+       open(97,
+     * file=trim(exePath)//'resultd'//trim(task_num)//'.dat') 
+     
+        do i = 1, Ndata
+          write(97,357) delay(i)*1d-9
+357       format (e22.15)
+cc          write(97,358) i, delay(i)
+cc358       format (i6, e25.15)
+        enddo
+        close(97)
+C
+C  2) Read segments of file to calculate polynomials
+        NDATA = N_wr_tot
+C
+C  KORDER - Order of the polynomial (read from SKED)     
+       Allocate (XDATA(Ndata))
+       Allocate (FDATA(Ndata))
+       Allocate (B_COEF(KORDER+1), SSPOLY(KORDER+1), STAT_(10))
+c       Allocate (B_COEF_PH(KORDER+1))
+C
+        B_COEF = 0.d0
+C
+        do L_segm = 1, N_seg_tot
+	    XDATA = 0.d0
+	    FDATA = 0.d0
+	    j = (L_segm-1)*N_wr_tot
+C
+          delay0 = delay(j+1)
+	write(*,*) L_segm, j, delay0
+C        
+          do i = 1, Ndata
+            XDATA(i) = DFLOAT(i-1) * Delta_sec
+            FDATA(i) = delay(j+i) - delay0 
+c           write(*,159) i, xdata(i), fdata(i)  
+c	      pause     
+          enddo
+c       pause
+C
+c       CALL DRCURV (NDATA,XDATA,FDATA,KORDER,B_COEF,SSPOLY, STAT_)
+        CALL POLCOEF (NDATA, XDATA, FDATA, KORDER, B_COEF, STAT_)
+
+       B_COEF(1) = B_COEF(1) + delay0
+        
+       write(*,157) B_COEF/1e9
+       write(17,157) B_COEF/1e9
+ 157   format (e22.15)
+       write(*,*) Ndata, xdata(Ndata)
+
+c       write(*,*)	B_COEF(KORDER+1)*Ndata**4/1d9+
+c     +B_COEF(KORDER)*Ndata**3/1d9+
+c     +B_COEF(KORDER-1)*Ndata**2/1d9+
+c     +B_COEF(KORDER-2)*Ndata/1d9+B_COEF(KORDER-3)/1d9
+
+       write(*,*)	B_COEF(KORDER+1)*Ndata**5/1d9+
+     +B_COEF(KORDER)*Ndata**4/1d9+
+     +B_COEF(KORDER-1)*Ndata**3/1d9+B_COEF(KORDER-2)*Ndata**2/1d9+
+     +B_COEF(KORDER-3)*Ndata/1d9+B_COEF(KORDER-4)/1d9
+
+c       pause
+
+C  Second: calculation polynomial coefficients for phases
+c        phase(0) = phase(1) !0.d0
+c        do i = 1, Ndata
+c         XDATA(i) = DFLOAT(i-1) * Delta_sec
+c	phase(i) = phase(i) - phase(0)
+c	write(*,*) i, phase(i)
+c	    do j = 1, i
+c            FDATA(j) = FDATA(j) + phase(j-1)   
+c		enddo 
+c         FDATA(i) = phase(i)  !sum(phase(1:i))  ! sum(phase(0:i-1))
+c         write(*,159) i, dates(i), xdata(i), fdata(i)  
+c	pause
+ 159   format (i6, f16.8, d26.15)	        
+c        enddo
+c        pause
+C
+c       CALL DRCURV (NDATA,XDATA,FDATA,KORDER,B_COEF_PH,SSPOLY, STAT_)
+c       write(*,157) B_COEF_PH/1e9
+c       write(19,157) B_COEF_PH
+C       
+c       if (sta(2)%name == Space_tel) then
+c         do i = 2, KORDER+1
+c	     B_COEF(i) = B_COEF(i) - B_COEF_PH(i-1)
+c	   enddo
+c	 endif
+C       
+c       if (sta(1)%name == Space_tel) then
+c         do i = 2, KORDER+1
+c	     B_COEF(i) = B_COEF(i) + B_COEF_PH(i-1)
+c	   enddo
+c	 endif
+
+c       write(*,157) B_COEF/1e9
+        enddo   !L_segm 
+C
+       deAllocate (XDATA)
+       deAllocate (FDATA)
+       deAllocate (B_COEF, SSPOLY, STAT_)
+
+
+       close(17)  
+       close(19)	      
+C
+
+       stop
+
+
+C -------------------------------------------------------------------
+C!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+       CLOSE(4)
+C
+      enddo  ! n_f - Loop for each selected file
+
+C
+
+      END Program ARIADNA
+
+

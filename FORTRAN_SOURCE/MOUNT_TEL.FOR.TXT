@@ -1,0 +1,612 @@
+      SUBROUTINE MOUNT_TEL(k, r2000, lat_gc1,lat_gc2, lat_gd1,lat_gd2,
+     * h_geod1, h_geod2, sph_r1, sph_r2, K_star, vw,
+     * E, Az, doff_dl, d_dax, dtau_off)
+
+
+C  SUBROUTINE MOUNT_TEL computes instrumental delay that caused by
+C  the axis offset. The offset changes the site position
+C  due to axis offset orientation.
+C  In subroutine the axis offset vector and its time
+C  derivative for different telescope mounting is calculated.
+C
+C  Usially the unit source vector corrected for aberration and
+C  atmospheric refraction is parallel to symmetry axis of antenna.
+C  One of the ends of this axis is point of rotation of telescope;
+C  and axis of rotation is perpendicular to the symmetry axis.
+C  The axis of rotation is offset by some distance from a second
+C  rotation axis, all points of which are fixed relative to the Earth.
+C  Direction of fixed axis depends on the telescope mounting.
+C
+C    Input variables:
+C       1. k               - Number of data card
+C       2. r2000(3,3,3)    - The complete crust fixed to J2000.0 rotation
+C                            matrix and its first two CT time derivatives.
+C                            (unitless, 1/sec, 1/sec**2)
+C       3. lat_gc1         - The geocentric latitude at site 1.   (RAD)
+C       4. lat_gc2         - The geocentric latitude at site 2.   (RAD)
+C       5. lat_gd1         - The geodetic   latitude at site 1.   (RAD)
+C       6. lat_gd2         - The geodetic   latitude at site 2.   (RAD)
+C       7. h_geod1         - Height of site 1 above ellipsoid (M)
+C       8. h_geod2         - Height of site 2 above ellipsoid (M)
+C       9. sph_r1          - The site 1 spherical radius (M)
+C      10. sph_r2          - The site 2 spherical radius (M)
+C      11. K_star(3)       - The J2000.0 source unit vector. (unitless)
+C      12. vw(3,3,n_sta)   - The matrix of transformation of the VEN geodetic
+C                            system to the Earth-fixed coordinate system
+C      13. E(2,2)          - The elevation angle of the aberrated source. 
+C                            The first index runs over the sites and  the
+C                            the second over delay and rate. (Rad, Rad/Sec)
+C      14. Az(2,2)         - The azimuth angle of the aberrated source.
+C                            The first index runs over the sites and  the
+C                            the second over delay and rate. (Rad, Rad/Sec)
+C
+C    Output variables:
+C       1. doff_dl(2,2)    - The partial derivative of the components of 
+C                            the antenna axis offset
+C                            with respect to the antenna axis offset. 
+C                            First index runs over sites, second runs 
+C                            over delay and rate.(Unitless, 1/sec)
+C       2. d_dax(2,2)      - The partial derivatives of the delay and delay
+C                            rate with respect to the antenna axis offsets
+C                            at each site. 
+C                            First index runs over sites, 
+C                            second over delay and rate. (sec/m, sec/sec/m)
+C       3. dtau_off(2,2)   - The contributions to the delay and rate due
+C                            to the antenna axis offset.
+C                            First index runs over sites, 
+C                            second over delay and rate. (sec, sec/sec)
+C
+C----------------------------------------------------------------------
+C   SUBROUTINE MOUNT_TEL was written by V.Zharov 
+C
+C   VERSION 1.0   21 May 2005
+C   
+C---------------------------------------------------------------------- 
+      USE main
+C
+      Implicit None
+C
+      Integer, parameter :: n=3 
+      Integer k, j1, j2, i, j, m
+	Integer kw(2)
+      Integer Kmount1, Kmount2, Kmount3, Kmount0
+C
+      Real(8) r2000(3,3,3), rt2000(3,3,3), K_star(3)
+	Real(8) vw(3,3,n_sta), vw_tr(3,3)
+      Real(8) E(2,2), Az(2,2)
+	Real(8) lat_gc1,lat_gc2, h_geod1, h_geod2, sph_r1, sph_r2, offst
+	Real(8) lat_gd1,lat_gd2
+      Real(8) Unit_I(3)
+      Real(8) Richm(2), w1
+	Real(8) tc(2), pres(2), humid(2) 
+	Real(8) lat_gc(2), lat_gd(2), h_g(2), sph_r(2)
+	Real(8) Z, Z_2, Az_temp, rho, N_air(2), app(3)
+      Real(8) star_unit_app(3), vec_L(3), unit_vec_L(3), abs_vec_L
+      Real(8) unit_cff(3,2), daxis_cff(3,2)
+      Real(8) star_ab2000(3), dstar_ab_cff(3), dstar_ab_ven(3)
+      Real(8) dvec_L(3),  dabs_vec_L
+      Real(8) unit_ax2000(3,2), dunit_ax2000(3,2), daxis_ven(3,2)
+	Real(8) doff_dl(2,2), d_dax(2,2), dtau_off(2,2)
+	Real(8) work1(3), work2(3), work3(3), work4(3), work5(3)
+	Real(8) work(3,3)
+C
+      Real(8) PI, TWOPI, HALFPI
+	Real(8) CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+	Real(8) C, F, AE, AU 
+	Real(8) SCAL_PROD, NORM
+C TEST---------------------------------------------------------
+      Real(8) Temp_K,Humid_F,Press_Hg, X  !, El_rad, Sithit,
+	Real(8) sbend
+
+C
+      CHARACTER(4) axtype
+      CHARACTER(8) name
+C
+      COMMON /MATH1/ PI, TWOPI, HALFPI
+	COMMON /MATH2/ CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+      COMMON /PHYS/ C, F, AE, AU 
+C
+      DATA RICHM /39.06d0, 0.12d0/
+C
+C--------------------------------------------------------------------
+C  Beginning
+	      j1 = nscan(k)%sta1
+	      j2 = nscan(k)%sta2
+C--------------------------------------------------------------------
+C  Copy METEO parameters                        
+          tc(1)    = nscan(k)%t1  
+          pres(1)  = nscan(k)%p1  
+		humid(1) = nscan(k)%e1  
+          tc(2)    = nscan(k)%t2  
+          pres(2)  = nscan(k)%p2  
+          humid(2) = nscan(k)%e2  
+          kw(1)    = nscan(k)%kw1 
+          kw(2)    = nscan(k)%kw2
+C  Copy of SITE parameters
+          lat_gc(1) = lat_gc1
+		lat_gc(2) = lat_gc2
+          lat_gd(1) = lat_gd1
+		lat_gd(2) = lat_gd2
+	    h_g(1) = h_geod1
+	    h_g(2) = h_geod2
+          sph_r(1) = sph_r1
+          sph_r(2) = sph_r2
+C--------------------------------------------------------------------
+C
+C  Compute the rotation matrix which rotates from the J2000.0
+C  reference system to the geocentric crust fixed system.
+           CALL TRANSP ( r2000(:,:,1), rt2000(:,:,1) )
+           CALL TRANSP ( r2000(:,:,2), rt2000(:,:,2) )
+C
+        write(*,*)  lat_gc1,lat_gc2 
+        write(*,*)  lat_gd1,lat_gd2
+        write(*,*)  h_geod1, h_geod2 
+        write(*,*)  sph_r1, sph_r2 
+        write(*,*)    K_star       
+        pause '123'
+        write(*,*) E 
+        write(*,*) Az
+        pause '456'
+C--------------------------------------------------------------------
+C  Kmount0 for debug output (/= 0)
+       Kmount0 = 0
+C--------------------------------------------------------------------
+      IF ( Kmount0 .ne. 0 )  Then
+	WRITE (*,'(1x,a)') 'Debug (0) output for subroutine MOUNT_TEL'
+C
+          
+  40    format(a, 3f10.3)
+  41    format(a, 2d22.15)
+C
+         WRITE(*,40) ' tc(1),pres(1) humid(1) ', tc(1),pres(1),humid(1)
+         WRITE(*,40) ' tc(2),pres(2) humid(2) ', tc(2),pres(2),humid(2)
+         WRITE(*,41) '  lat_gc(1), lat_gd(1) ', lat_gc(1), lat_gd(1)
+         WRITE(*,41) '  lat_gc(2), lat_gd(2) ', lat_gc(2), lat_gd(2)
+C
+	   do i = 1, 3
+	     do j = 1, 3
+	       work(i,j) = rt2000(i,j,1)
+           enddo
+	   enddo
+        call PR_ARR(
+     *       ' The complete transposed J2000.0 rotation matrix', 
+     *              3, 3, work, 3, 0, '(d23.16)', 'Number', 'Number')
+	   do i = 1, 3
+	     do j = 1, 3
+	       work(i,j) = rt2000(i,j,2)
+           enddo
+	   enddo
+        call PR_ARR(
+     *' The first derivative of complete transposed rotation matrix', 
+     *              3, 3, work, 3, 0, '(d23.16)', 'Number', 'Number')
+	  pause
+C
+	Endif
+C--------------------------------------------------------------------
+C  Main Loop 
+C
+      Do j = 1,2
+C	  
+	  if ( j == 1 ) m = j1  ! station identificator
+        if ( j == 2 ) m = j2
+C
+C  FIRST copy the station parameters
+         name   = sta(m)%name
+         axtype = sta(m)%axsty
+         offst  = sta(m)%offs
+
+C
+C  SECOND compute the rotation matrix which rotates from the geocentric 
+C  crust fixed system to the VEN system.
+C
+        CALL TRANSP ( vw(1,1,m), vw_tr )
+C
+C********************************************************************
+C  Determine the unit vector representing the antenna fixed axis in a
+C  topocentric VEN system.
+C
+C----------------------------------------------------------
+C  AZIMUTH-ELEVATION MOUNT - the antenna fixed axis
+C  points at the zenith.
+         If (axtype == 'AZEL')  Then
+           unit_I(1) = 1.D0    ! x (V)
+           unit_I(2) = 0.D0    ! y (E)
+           unit_I(3) = 0.D0    ! z (N)
+C
+C----------------------------------------------------------
+C  EQUATORIAL MOUNT - the antenna fixed axis points
+C  at the North Celestial Pole.
+         Else If (axtype == 'EQUA') Then
+           unit_I(1) = DSIN (lat_gd(j))
+           unit_I(2) = 0.D0
+           unit_I(3) = DCOS (lat_gd(j))
+C
+C----------------------------------------------------------
+C  X-Y (NORTH-SOUTH) MOUNT - the antenna fixed
+C  axis is in the plane of the horizon pointed North.
+         Else If (axtype == 'X-Y1'.OR. axtype == 'X-YN') Then
+           unit_I(1) = 0.D0
+           unit_I(2) = 0.D0
+           unit_I(3) = 1.D0
+C
+C----------------------------------------------------------
+C  X-Y (EAST-WEST) MOUNT - the antenna fixed
+C  axis is in the plane of the horizon pointed East.
+         Else If (axtype == 'X-Y2'.OR. axtype == 'X-YE') Then
+           unit_I(1) = 0.D0
+           unit_I(2) = 1.D0
+           unit_I(3) = 0.D0
+C
+C----------------------------------------------------------
+C  RICHMOND MOUNT  - axes oriented as for an equatorial mount at
+C  latitude +39.06 degrees and rotated 0.12 degrees West of North.
+         Else If (name == 'RICHMOND') Then
+           w1 = RICHM(1)*cdegrad
+           unit_I(1) =  DSIN(w1)
+           unit_I(2) = -DCOS(w1)*DSIN(RICHM(2)*cdegrad)
+           unit_I(3) =  DCOS(w1)*DCOS(RICHM(2)*cdegrad)
+         Else
+C  Warning Message - Antenna axis type invalid
+         WRITE (*, 10) axtype, name
+ 10      FORMAT (' *** WARNING MESSAGE from SUBROUTINE MOUNT_TEL ***'//
+     *   '  AXIS model ',A4,' for station', 1X,A8,' NOT AVAILABLE'//)
+          STOP
+         Endif
+C--------------------------------------------------------------------
+C  Kmount1 for debug output (/= 0)
+       Kmount1 = 0
+C--------------------------------------------------------------------
+      IF ( Kmount1 .ne. 0 )  Then
+	WRITE (*,'(1x,a)') 'Debug (1) output for subroutine MOUNT_TEL'
+C         
+  53    format(a, a8, 2x, a4, f10.5)
+C
+        write(*,'(1x, i5)'),  m
+        WRITE(*,53) ' name, axtype,offst   ',name, axtype,offst
+        call PR_ARR(' The transposed VEN matrix', 
+     *              n, n, vw_tr, n, 0, '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' unit_I ', 1, n, unit_I, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+	pause
+C
+	Endif
+C
+C********************************************************************
+C
+C  Correct the aberrated topocentric source unit vector for 
+C  atmospheric radio refraction.
+C
+C  The zenith angle of the aberrated source.
+        Z =  HALFPI - E(j,1)
+C  The azimuth of the aberrated source.
+        Az_temp = Az(j,1)
+C  
+C  Subroutine RADIO_REFR compute the refraction angle 
+C  rho = Z_true - Z_app for known Apparent angle Z_app
+C  but Z is True zenith angle
+C  For Z < 80 deg one iteration is enough
+C
+c        if ( kw(j) == 0 ) then
+c          call radio_refr(Z, tC(j), Pres(j), humid(j), lat_gc(j), 
+c     *                    h_g(j), sph_r(j), N_air(j), rho )
+c	  else
+c	    stop ' In MOUNT_TEL kw(j) /= 0 '
+c	  endif
+C  For large zenith angles (> 80 deg) the second iteration is necessary
+c        if ( Z >= 80.d0*cdegrad ) then
+c	    Z_2 = Z - rho
+c          call radio_refr(Z_2, tC(j), Pres(j), humid(j), lat_gc(j), 
+c     *                   h_g(j), sph_r(j), N_air(j), rho )
+c	  endif
+C
+C*****************************************************************************
+C    Correct the aberrated topocentric source unit vector for atmospheric
+C    refraction. 
+C
+C   Compute values needed for function sbend.
+cc        El_Rad = E(j,1)
+cc        Sithit = h_g(j)
+
+c        tc(j) = 293.15D0 - (6.5D-3)*h_g(j) - 273.16D0   
+c        X = 1.D0 - (6.5D-3)*h_g(j) / 293.15D0
+c        pres(j) = 1013.25D0 * (X**5.26D0)
+c	  humid(j) = 50.D0
+C
+        Temp_K = tc(j) + 273.16D0
+	  Humid_F = humid(j) / 100.d0
+        Press_Hg = pres(j) * 760.d0/1013.25d0
+
+cc        Temp_K = 293.15 - (6.5D-3)*h_g(j)
+        X = 1.D0 - (6.5D-3)*h_g(j)/293.15D0
+cc        Press_Hg = 760.D0 * (X**5.26D0)
+cc        Humid_F = .5D0
+        N_air(j) = 1.d0
+C    Compute index of refraction in air at each site
+cc        N_air(j)=77.6D-6*pres(j)/Temp_K + 1.D0
+C   Compute atmospheric bending.
+        rho = sbend(E(j,1),Temp_K,Humid_F,Press_Hg)
+C
+C *************************************************************************
+C  The apparent (aberrated+refracted) topocentric star unit
+C  vector: Z_app = Z_true - rho.
+          app(1) = DCOS ( Z - rho )
+          app(2) = DSIN ( Z - rho ) * DSIN ( Az_temp )
+          app(3) = DSIN ( Z - rho ) * DCOS ( Az_temp )
+C  Normalize aberrated+refracted vector
+        CALL UNIT_VECT(app, star_unit_app)
+C---------------------
+C  Delay computation
+C---------------------
+C  Compute topocentric axis offset vector 
+        CALL VECT_PROD(star_unit_app, unit_I, work1)
+        CALL VECT_PROD(unit_I, work1, vec_L)
+	  abs_vec_L = NORM(vec_L)
+C
+C  Normalize topocentric axis offset vector
+        CALL UNIT_VECT(vec_L, unit_vec_L)
+C
+C  Rotate axis offset vector to the crust fixed frame
+        CALL MUL_ARR_VEC(vw(1,1,m), unit_vec_L, unit_cff(1,j))
+C  Then rotate axis offset vector to the J2000 frame
+        CALL MUL_ARR_VEC(r2000(1,1,1), unit_cff(1,j),unit_ax2000(1,j))
+C------------------------
+C  Delay rate computation
+C------------------------
+C  Rotate aberrated+refracted topocentric star unit vector to the
+C  crust fixed frame:
+        CALL MUL_ARR_VEC(vw(1,1,m), star_unit_app, work2)
+C  Then rotate to the J2000 frame:
+        CALL MUL_ARR_VEC(r2000(1,1,1), work2, star_ab2000)
+C
+C  Take time derivative and rotate back to crust fixed frame
+        CALL MUL_ARR_VEC(rt2000(1,1,2), star_ab2000, dstar_ab_cff)
+C
+C  Rotate source vector time derivative back to topocentric frame
+        CALL MUL_ARR_VEC(vw_tr, dstar_ab_cff, dstar_ab_ven )
+
+C  Take derivative of triple vector product
+        CALL VECT_PROD(dstar_ab_ven, unit_I, work3)
+        CALL VECT_PROD(unit_I, work3, dvec_L)
+C
+C  Derivative of magnitude of vec_L
+        dabs_vec_L = SCAL_PROD(vec_L, dvec_L) / abs_vec_L
+C  Derivative of unit axis offset vector in topocentric frame
+        do i=1,3
+          daxis_ven(i,j) = dvec_L(i)/abs_vec_L -
+     -                     vec_L(i)*dabs_vec_L / abs_vec_L**2
+        enddo
+C
+C  Rotate axis offset time derivative to crust fixed frame
+        CALL MUL_ARR_VEC(vw(1,1,m), daxis_ven(1,j), daxis_cff(1,j))
+C
+C  Then rotate to J2000 frame:
+        CALL MUL_ARR_VEC(r2000(1,1,1), daxis_cff(1,j), work4)
+        CALL MUL_ARR_VEC(r2000(1,1,2),  unit_cff(1,j), work5)
+        CALL SUM_2VEC(work4, work5, dunit_ax2000(1,j))
+C
+C  ax2000(3,2) -  Vector axis offset of antenna in the J2000.0
+C                 frame (effect on baseline). First index is
+C                 X,Y,Z (meters), second runs over sites.
+C  dax2000(3,2) - Time derivative of axis2000, rate of change
+C                 of vector axis offset of antenna in the
+C                 J2000.0 frame (effect on baseline). First
+C                index is velocity, second runs over sites.
+C
+C   Convert unit axis offset vector and its derivative to actual axis offset
+C     vector and its derivative.
+c       do i=1,3
+c         ax2000(i,j) =  unit_ax2000(i,j) * offst
+c        dax2000(i,j) = dunit_ax2000(i,j) * offst
+c       enddo
+C
+C  Compute the partial derivative of the components of 
+C  the antenna axis offset
+C  with respect to the antenna axis offset.
+        doff_dl(j,1) = SCAL_PROD(star_ab2000,unit_ax2000(1,j))
+        doff_dl(j,2) = SCAL_PROD(star_ab2000,dunit_ax2000(1,j))
+C
+C  Compute the partial derivatives of the delay and rate with
+C  respect to the antenna axis offsets at each site.
+        if ( j==1 )  then
+	     d_dax(j,1) = + doff_dl(j,1)/C*N_air(j)
+	     d_dax(j,2) = + doff_dl(j,2)/C*N_air(j)
+	  else
+           d_dax(j,1) = - doff_dl(j,1)/C*N_air(j)
+           d_dax(j,2) = - doff_dl(j,2)/C*N_air(j)
+	  endif
+C  The contributions to the delay and rate due
+C  to the antenna axis offset
+        do i = 1,2
+          dtau_off(j,i) = d_dax(j,i) * offst
+	  enddo
+
+C--------------------------------------------------------------------
+C  Kmount2 for debug output (/= 0)
+       Kmount2 = 0
+C--------------------------------------------------------------------
+        IF ( Kmount2 .ne. 0 )  Then
+        WRITE (*,'(1x,a)') 'Debug (2) output for subroutine MOUNT_TEL'
+C         
+  57    format(a, 3d23.16)
+C
+        write(*,'(1x, i5)'), m
+        write(*, 57) ' Z, Az_temp, rho   ', Z, Az_temp, rho
+C
+        call PR_ARR(' app ', 1, n, app, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' star_unit_app ', 1, n, star_unit_app, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' work1 ', 1, n, work1, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' vec_L ', 1, n, vec_L, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' unit_vec_L ', 1, n, unit_vec_L, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' work2 ', 1, n, work2, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' star_ab2000 ', 1, n, star_ab2000, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dstar_ab_cff ', 1, n, dstar_ab_cff, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dstar_ab_ven ', 1, n, dstar_ab_ven, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+C
+        call PR_ARR(' work3 ', 1, n, work3, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dvec_L ', 1, n, dvec_L, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' work4 ', 1, n, work4, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' work5 ', 1, n, work5, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+	 pause
+C
+	  Endif
+C
+       enddo  ! Loop on sites (j)
+C
+C--------------------------------------------------------------------
+C  Kmount3 for debug output (/= 0)
+       Kmount3 = 1
+C--------------------------------------------------------------------
+        IF ( Kmount3 .ne. 0 )  Then
+        WRITE (*,'(1x,a)') 'Debug (3) output for subroutine MOUNT_TEL'
+C
+        write(*,'(1x, i5)'), m
+        write(*, 57) '  Z, Az_temp, rho ', Z, Az_temp, rho
+        call PR_ARR(' unit_cff ', n, 2, unit_cff, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' unit_ax2000 ', n, 2, unit_ax2000, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' daxis_ven ', n, 2, daxis_ven, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' daxis_cff ', n, 2, daxis_cff, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dunit_ax2000 ', n, 2, dunit_ax2000, n, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' doff_dl ', 2, 2, doff_dl, 2, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' d_dax ', 2, 2, d_dax, 2, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' dtau_off ', 2, 2, dtau_off, 2, 0, 
+     *              '(d23.16)', 'Number', 'Number')
+        call PR_ARR(' N_air ', 1, 2, N_air, 1, 0, 
+     *              '(d23.16)', 'Number', 'Number')     	
+	 pause
+        endif
+C .............................................................................
+
+
+C******************************************************************************
+C
+C          Now do feedbox rotation computations
+C
+C
+C
+C    To correct the phases, either ADD the quantity [PANGL(2) - PANGL(1)]
+C     to the total or residual observed phases, or SUBTRACT it from the
+C     theoretical (model) phases.
+C    Note that the group delay corrections are always zero.
+C    To correct the phase delay rates, either ADD the quantity
+C     [FEED_COR(2,2) - FEEDCOR(1,2)] to the observed rates, or SUBTRACT
+C     it from the theoretical (model) rates.
+C
+
+C-----------------------------------------------------------------------------
+      RETURN
+      END 
+C
+C******************************************************************************
+      double precision function sbend(El_rad,Temp_K,Humid_F,Press_Hg)
+      IMPLICIT None
+C
+C input:
+C   El_rad   -- elevation angle in radians 
+C   Press_Hg -- Pressure in mm of Mercury (Hg)
+C   Temp_K   -- Temperature in Kelvins
+C   Humid_F  -- relative humidity (percent)
+C
+C output   --
+C   Sbend  -- bending angle in radians.
+C
+      Real*8 El_rad, Temp_K, Humid_F, Press_Hg  
+      Real*8 e(12),wp1(4),d3
+      Real*8 fp,ft,fw,u,x,ad1,ad2,bd1,bd2,zd2,r,delta
+      Real*8 a1,a2,b1,b2,c1,c2,e1,e2,e3,e4,e5,e6,e7,e8,e9
+      Real*8 e10,e11,e12,p1,p2,t1,t2,z1,z2,w0,w1,w2,w3
+      Real*8 conv
+      Integer*4 I
+C
+      equivalence (e( 1), e1),(e( 2), e2),(e( 3), e3),(e( 4), e4),
+     &            (e( 5), e5),(e( 6), e6),(e( 7), e7),(e( 8), e8),
+     &            (e( 9), e9),(e(10),e10),(e(11),e11),(e(12),e12)
+      equivalence (wp1(1),w0),(wp1(2),w1),(wp1(3),w2),(wp1(4),w3)
+C 
+      data a1, a2 /     0.40816d0, 112.30d0  / 
+      data b1, b2 /     0.12820d0, 142.88d0  / 
+      data c1, c2 /     0.80000d0,  99.344d0 / 
+      data e   /    46.625d0  ,  45.375d0 ,     4.1572d0,  1.4468d0  ,
+     &               0.25391d0,   2.2716d0,    -1.3465d0, -4.3877d0  ,
+     &               3.1484d0 ,   4.5201d0,    -1.8982d0,  0.89000d0 /
+      data p1 /   760.0d0 / 
+      data t1 /   273.0d0 / 
+      data wp1 / 22000.0d0    ,  17.149d0 ,  4684.1d0,    38.450d0   /
+      data z1 /  91.870d0 / 
+      data conv/57.295779512d0/ 
+C 
+c      Real*8         PI,TWOPI,HALFPI,CONVD,CONVDS,CONVHS,SECDAY 
+c      COMMON /CMATH/ PI,TWOPI,HALFPI,CONVD,CONVDS,CONVHS,SECDAY 
+      Real(8) PI, TWOPI, HALFPI
+	Real(8) CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+      COMMON /MATH1/ PI, TWOPI, HALFPI
+	COMMON /MATH2/ CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+C           VARIABLES 'FROM':
+C              1. HALFPI - THE VALUE OF PI/2
+C              2. CONVD  - THE CONVERSION FACTOR FROM DEGREES TO RADIANS
+C                          (RAD/DEG)
+C 
+C STATEMENT FUCNTION
+      delta(ad1,ad2,bd1,bd2,zd2)=(ad2-ad1)*dexp(bd1*(zd2-bd2))
+C 
+C CONVERT UNITS 
+C  Zenith angle in degrees
+      z2 = 90.0d0 - El_Rad/CDEGRAD
+C  Temperature in Kelvins
+      t2 = Temp_K
+C  Fractional humidity (0.0 -> 1.0)
+      r = Humid_F 
+C  Pressure in mm of Hg
+      p2 = Press_Hg
+C
+C      WRITE(6,9956) R,T2,P2,Z2                                          DEBUG
+C9956  FORMAT(" R,T2,P2,Z2",4F10.4)                                      DEBUG
+C 
+C CALCULATE CORRECTIONS FOR PRES, TEMP, AND WETNESS 
+C      WRITE(6,9980) Z1,Z2,C1,C2                                         DEBUG
+C9980  FORMAT(" Z1,Z2,C1,C2",4D15.6)                                     DEBUG
+      d3=1.0d0+delta(z1,z2,c1,c2,z2)
+      fp=(p2/p1)*(1.0d0-delta(p1,p2,a1,a2,z2)/d3) 
+      ft=(t1/t2)*(1.0d0-delta(t1,t2,b1,b2,z2)/d3) 
+      fw=1.0d0+(w0*r*dexp((w1*t2-w2)/(t2-w3))/(t2*p2))
+C      WRITE(6,9957) D3,FP,FT,FW                                         DEBUG
+C9957  FORMAT(" D3,FP,FT,FW ",4D12.6)                                    DEBUG
+C 
+C  CALCULATE OPTICAL REFRACTION 
+      u=(z2-e1)/e2
+      x=e11 
+      do 10 i=1,8 
+        x=e(11-i)+u*x 
+10    continue
+C 
+C  COMBINE FACTORS AND FINISH OPTICAL FACTOR
+      sbend=ft*fp*fw*(dexp(x/d3)-e12) 
+C      WRITE(6,9958) SBEND,X,U                                           DEBUG
+C9958  FORMAT(" SBEND,X,U ",3D20.10)                                     DEBUG
+C 
+C BACK TO RADIANS FROM ARC SECONDS
+      sbend=sbend*CARCRAD
+C      WRITE(6,9959) SBEND                                               DEBUG
+ 9959  FORMAT(" SBEND (RADIANS) ",D20.10)                                DEBUG
+      return
+      end 
+C

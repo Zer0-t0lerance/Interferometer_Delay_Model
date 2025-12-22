@@ -1,0 +1,319 @@
+
+Теперь надо сформировать структуры:
+-------------------------------------------------------------------
+C   type (station) determines record:
+C   name of station,
+C   rectangular coordinates x,y,z (in m),
+C   velocities vx,vy,vz (in m/year),
+C   type of mount and axis offset
+C   number of row determines number of station
+        type station
+	    integer Id
+          character(8) name
+          character(4) plate
+          real(8) x,y,z, vx,vy,vz
+          character(4) axsty
+          real(8) offs
+          character(9) domes
+          character(54) descr          
+        end type station
+C   ---------------------------------------------------------------
+C   type (source) determines record:
+C   name of source, coordinates: alpha, delta (in radians)
+C   number of row determines number of source
+        type source
+          character(8) name
+          character(8) name1950
+          character(16) ICRFname
+          character(10) IAUname 
+          real(8) al, del
+          real(8) dot_al, dot_del
+        end type source
+------------------------------------------------------------
+После чтения каталогов они должны быть заполнены:
+
+            sta(1)%x     = XYZ1(1)
+            sta(1)%y     = XYZ1(2)
+            sta(1)%z     = XYZ1(3)
+            sta(1)%axsty = OFF_T1
+            sta(1)%offs  = OFF_V1
+            sta(1)%vx    = VXVYVZ1(1)
+            sta(1)%vy    = VXVYVZ1(2)
+            sta(1)%vz    = VXVYVZ1(3)
+и т.д. Пока используем данные из каталога (потом можно будут свои координаты вводить, как в фортюпрограмме).
+
+C   Convert coordinates to radians        
+            RA = (RAH+RAM/60.D0+RAS/3600.D0)*twopi/24.D0
+            DEC = (DECD+DECM/60.D0+DECS/3600.D0)*twopi/360.D0
+            IF (SIGN.EQ.'-') DEC=-DEC
+            sou(1)%al   = RA
+            sou(1)%del  = DEC
+C  Velocities of sources
+            sou(1)%dot_al   = 0.d0
+            sou(1)%dot_del  = 0.d0
+
+Теперь начинаем работать с координатами пунктов.
+
+C  SUBROUTINE SITE calculates the site position in geodetic coordinate
+C  systems for the stations participating in the current observation and
+C  transformation matrix VW from VEN to the Earth-fixed coordinate system
+C
+       CALL SITE_corr (ista, dyear,
+     *            site_xyz, site_vel, lat_geod, h_geod,
+     *        	lat_gcen, lon_gcen, sph_rad, u_site, v_site,
+     *            vw, site_meteo)     
+
+------------------------------------------------
+
+       SUBROUTINE SITE_corr ( ista, dyear, 
+     * site_xyz, site_vel, lat_geod, h_geod, 
+     * lat_gcen, lon_gcen, sph_rad, u_site, v_site, vw, site_meteo )
+C    
+C
+C  SUBROUTINE SITE calculates the site position in geodetic coordinate
+C  systems for the stations participating in the current observation.
+C  Transformation VW from local geodetic coordinate system (Vertical,East,North)
+C  to the Earth-fixed coordinate system is calculated for each cite.
+C
+C  For transformation to geodetic coordinate system the 
+C  IAG1999 Reference Ellipsoid (Table 1.1, IERS 2000 Conventions) is used
+C  The geophysical values are those for the "zero-frequency" tide system.
+C  NOTE !!! The ITRF2000 is "conventional tide free crust" system.
+C
+C
+C    Input variables  - 
+C      1. ista              - number of stations
+C      2. dyear             - difference of epoch of observation 
+C                             and epoch of the station catalog (YEAR)
+C
+C    Output variables - 
+C      1. site_xyz(3,ista)  - The crust fixed site vectors at each site (M)
+C                             at epoch of observation
+C      2. site_vel(3,ista)  - The crust fixed velocity vectors at each site (M/Sec)
+C                             at epoch of observation
+C      3. lat_geod(ista)    - The geodetic latitude at each site (RAD)
+C      4. h_geod(ista)      - The geodetic height of each site. (M)
+C      5. lat_gcen(ista)    - The geocentric latitude at each site. (RAD)
+C      6. lon_gcen(ista)    - The geocentric east longitude at each site. (RAD)
+C                             (0 <= lon_gcen <= 2*pi)
+C      7. sph_rad(ista)     - The site spherical radius (M)
+C      8. u_site(ista)      - The stations distance from the Earth spin axis (KM)
+C      9. V_site(ista)      - The stations distance from the equatorial plane(KM)
+C     10. vw(3,3,ista)      - The matrix of transformation of the VEN geodetic
+C                             system to the Earth-fixed coordinate system
+C     11. site_meteo(3,ista)- Reference density of air (kg/m^3), pressure (mbar)  
+C                             and temperature (K) (first index) for all sites 
+C
+C   SUBROUTINE SITE was written by V.Zharov 30 April 2002 
+C
+C   VERSION 1.0   
+C   Corrections:
+C                 24 Feb 2003 
+C   Add output variable: site_meteo(J,ista)
+C   Calculation of meteo parameters is done in SUBROUTINE ST_Atmosphere   
+C   VERSION 3.0   
+C                 20 Jan 2009
+C   Version SITE_corr was written to work with RadioAstron
+C   and telescope in the Earth center
+C               
+C
+      USE main
+C
+      IMPLICIT None
+C      
+      INTEGER ista, i, j, k, KSITE
+      REAL(8) pi, twopi, halfpi
+      REAL(8) dyear, req
+      REAL(8) site_xyz(3,n_sta), site_vel(3,n_sta)
+      REAL(8) sph_rad(n_sta), lat_gcen(n_sta), lon_gcen(n_sta)
+      REAL(8) lat_geod(n_sta), h_geod(n_sta)   
+      REAL(8) u_site(n_sta), v_site(n_sta)    	  
+	REAL(8) vw(3,3,n_sta), v(3,3), w(3,3), work(3,3)
+	REAL(8) so_xyz(3), so_vel(3)
+	REAL(8) site_meteo(3,n_sta)
+	REAL(8) lat, alt, rho, pres, temp
+C
+	CHARACTER clabel(ista+1)*8, rlabel(3)*2, blank*8, rl(3)*12
+C     
+      COMMON /MATH1/ PI, TWOPI, HALFPI      
+      DATA RLABEL/' X', ' Y', ' Z'/
+      DATA RL/'     Density', '    Pressure', ' Temperature'/
+	DATA blank /'        '/
+C
+       clabel(1) = blank
+       i = 1
+       do while ( i <= ista )
+         site_xyz(1,i) = sta(i)%x
+         site_xyz(2,i) = sta(i)%y 
+         site_xyz(3,i) = sta(i)%z 
+ 
+         site_vel(1,i) = sta(i)%vx
+         site_vel(2,i) = sta(i)%vy 
+         site_vel(3,i) = sta(i)%vz
+	     clabel(i+1) = sta(i)%name
+	   i = i + 1
+       enddo
+C
+C   Main loop
+C
+       do  i = 1, ista 
+C
+         if ( sta(i)%name == Earth_cen ) cycle
+C   Coordinates of sites at epoch of observation      
+         do j = 1, 3 
+           site_xyz(j,i) = site_xyz(j,i) + site_vel(j,i) * dyear
+         enddo
+C----------------------------------------------------------------------
+C   Space telescope position and velocity for the first date
+C   This block is necessary only to keep the procedure of calculation
+         if ( sta(i)%name == Space_tel ) then
+C
+
+C  Position in m and velocity in m/s
+         site_xyz(1,i) = space_sta(1)%x *1.d3
+         site_xyz(2,i) = space_sta(1)%y *1.d3
+         site_xyz(3,i) = space_sta(1)%z *1.d3
+C 
+         site_vel(1,i) = space_sta(1)%vx *1.d3
+         site_vel(2,i) = space_sta(1)%vy *1.d3
+         site_vel(3,i) = space_sta(1)%vz *1.d3
+C
+      endif
+C----------------------------------------------------------------------
+C
+C   Compute the site spherical radius.
+         sph_rad(i) = DSQRT ( site_xyz(1,i)**2 + site_xyz(2,i)**2 +
+     +                        site_xyz(3,i)**2 )
+C
+C   Compute geocentric latitudes
+         lat_gcen(i) = DASIN( site_xyz(3,i) / sph_rad(i) )
+C         
+C   Compute geocentric longitudes         
+         lon_gcen(i) = DATAN2 ( site_xyz(2,i), site_xyz(1,i) )
+         if ( lon_gcen(i) < 0.d0 ) lon_gcen(i) = lon_gcen(i) + twopi
+C
+C   Compute the stations distance from the Earth spin axis and
+C   from the equatorial plane (in KM)
+         u_site(i) = DSQRT(site_xyz(1,i)**2 + site_xyz(2,i)**2 ) *1.d-3
+         v_site(i) = site_xyz(3,i) *1.d-3
+C
+C   Call subroutine GEOD to compute geodetic latitude and height.
+C   Geodetic longitude is equal to geocentric longitude
+
+         req = DSQRT( site_xyz(1,i)**2  + site_xyz(2,i)**2 )
+C      
+         call GEOD ( req, site_xyz(3,i), lat_geod(i), h_geod(i) )   
+C
+C   Compute the local VEN-to-crust-fixed rotation matrices by rotating
+C   about the geodetic latitude and the longitude. 	   
+C   First, W, rotates by an angle lat_geod(i) (site geodetic latitude) about the y axis
+	   call R_123 (2, lat_geod(i), w)
+C   Second, V, rotates by an angle -lon_gcen(i)(site longitude) about the z axis
+	   call R_123 (3, -lon_gcen(i), v)	   
+C   Product of two matrices	   
+	   call ARRAY_2( v, w, work)
+C
+         do k = 1, 3
+	     do j = 1, 3
+	       vw(j,k,i) = work(j,k)
+	     enddo
+	   enddo
+C
+         if ( sta(i)%name == Space_tel ) cycle
+C
+C   Calculate standard meteo parameters 
+         alt = h_geod(i)/ 1000.d0     ! in km
+	   lat = lat_gcen(i)
+C
+         call ST_Atmosphere27(lat, alt, rho, pres, temp)
+         site_meteo(1, i) = rho
+         site_meteo(2, i) = pres
+         site_meteo(3, i) = temp
+C
+       enddo
+C
+C  KSITE for debug output (/= 0)
+       KSITE = 0
+C-------------------------------------------------------------------------------
+C     Check for debug output.
+      if (KSITE /= 0) then
+         WRITE(*,10)
+  10     FORMAT(1X,'Debug output for subroutine SITE')
+         call DWRRRL(' Station rectangular coordinates', 
+     *   3, ista, site_xyz, 3, 0, '(f17.5)', rlabel, clabel)
+         call DWRRRL(' Station spherical radii (m)', 
+     *   1, ista, sph_rad,  1, 0, '(f17.5)', 'Number', clabel)  
+         call DWRRRL(' Station distance from spin axis (U) (km)', 
+     *   1, ista, u_site,  1, 0, '(f17.8)', 'Number', clabel)    
+         call DWRRRL(' Station distance from equatorial plane (V) (km)', 
+     *   1, ista, V_site,  1, 0, '(f17.8)', 'Number', clabel) 
+      pause                 
+         call DWRRRL(' Station geocentric latitudes (rad)', 
+     *   1, ista, lat_gcen, 1, 0, '(f22.16)', 'Number', clabel)   
+         call DWRRRL(' Station geocentric longitudes (rad)', 
+     *   1, ista, lon_gcen, 1, 0, '(f22.16)', 'Number', clabel)  
+         call DWRRRL(' Station geodetic latitudes (rad)', 
+     *   1, ista, lat_geod, 1, 0, '(f22.16)', 'Number', clabel)   
+         call DWRRRL(' Station geodetic height (m)', 
+     *   1, ista, h_geod,   1, 0, '(f17.6)', 'Number', clabel)
+         call DWRRRL(' Station meteo parameters', 
+     *   3, ista, site_meteo, 3, 0, '(f17.6)', rl, clabel)         
+	  pause
+         write(*,*) ' Transformation matrix VW'  
+         do i = 1, ista
+	     do k = 1, 3
+	       do j = 1, 3
+	       work(j,k) = vw(j,k,i)
+	       enddo
+	     enddo      
+		 call DWRRRL(clabel(i+1), 
+     *     3, 3, work, 3, 0, '(d23.16)', 'Number', 'Number')   
+	   enddo
+         pause
+      endif
+C
+      return
+C
+      END Subroutine SITE_corr
+C
+C************************************************************************
+C 
+      subroutine GEOD (r, z, fi, h)
+
+c Program to transform Cartesian to geodetic coordinates
+c based on the exact solution (Borkowski,1989)
+
+c       Input variables :  
+c             r, z = equatorial [m] and polar [m] components
+c       Output variables: 
+c             fi, h = geodetic coord's (latitude [rad], height [m])
+
+      implicit real*8(a-h,o-z)
+
+c IERS ellipsoid: semimajor axis (a) and inverse flattening (fr)
+      COMMON /PHYS/ C, FR, A, AU 
+c   
+      b = dsign(a - a/fr,z)
+      E = ((z + b)*b/a - a)/r
+      F = ((z - b)*b/a + a)/r
+c Find solution to: t**4 + 2*E*t**3 + 2*F*t - 1 = 0
+      P = (E*F + 1.d0)*4.d0/3.d0
+      Q = (E*E - F*F)*2.d0
+      D = P*P*P + Q*Q
+        if( D .ge. 0.d0) then
+          s = dsqrt(D) + Q
+          s = dsign(dexp(dlog(dabs(s))/3.d0),s)
+          v = P/s - s
+c Improve the accuracy of numeric values of v
+          v = -(Q + Q + v*v*v)/(3.d0*P)
+        else
+          v = 2.d0*dsqrt(-P)*dcos(dacos(Q/P/dsqrt(-P))/3.d0)
+        endif
+      G = 0.5d0*(E + dsqrt(E*E + v))
+      t = dsqrt(G*G + (F - v*G)/(G + G - E)) - G
+      fi = datan((1.d0 - t*t)*a/(2.d0*b*t))
+      h = (r - a*t)*dcos(fi) + (z - b)*dsin(fi)
+C
+      return
+      end subroutine GEOD
+C -------------------------------------------------------------------------
