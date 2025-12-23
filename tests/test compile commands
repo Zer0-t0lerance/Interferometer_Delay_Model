@@ -1,0 +1,2 @@
+g++ -std=c++17 -I .\external\eigen -I .\src .\tests\test_aber_source.cpp .\src\aber_source.cpp -o .\tests\test_aber_source.exe
+g++ -std=c++17 -I .\external\eigen -I .\src .\tests\test_baseline.cpp .\src\baseline.cpp -o .\tests\test_baseline.exe
