@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <cmath>
+#include <cstdio>
 #include "constants.h"
 #include "..\\external\\eigen\\Eigen\\Dense"
 #include "..\\external\\spline.h"
