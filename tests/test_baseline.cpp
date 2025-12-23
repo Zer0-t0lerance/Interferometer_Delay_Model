@@ -1,8 +1,8 @@
 // test_baseline.cpp
 #include <iostream>
 #include <iomanip>
-#include <Eigen/Dense>
-#include "../src/functions.h"
+#include "..\\external\\eigen\\Eigen\\Dense"
+#include "..\\src\\functions.h"
 
 int main() {
     // Настройка формата вывода

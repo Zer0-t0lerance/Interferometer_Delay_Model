@@ -17,7 +17,7 @@ void tai_time(double mjd, double UTC, double &TAI, double &TT);
 void fund_arg(double jd, double ct, double& cent, Eigen::VectorXd& f, Eigen::VectorXd& fd);
 void terms_71(double cent, const Eigen::VectorXd& f, const Eigen::VectorXd& fd, Eigen::MatrixXd& dEOP_diu, Eigen::VectorXd& arg_oc_tide);
 void terms_lib(double cent, const Eigen::VectorXd& f, const Eigen::VectorXd& fd, Eigen::MatrixXd& dEOP_lib);
-void nsec(double mjd, int& idelt);
+void nsec(double mjd, double& idelt);
 void interp_iers(const Observation& obs, Eigen::VectorXd& eop_int);
 
 // Coordinate and transformation calculations
@@ -185,7 +185,35 @@ void therm_def(const Station& station, const Observation& obs, double dtdt, cons
 // Delay and derivative calculations
 void dmeteo1_dt(const std::vector<Observation>& observations, const std::vector<Station>& stations, double t_mean, std::vector<Eigen::Vector3d>& site_meteo, int& ndeg, std::vector<Eigen::VectorXd>& t_coef, std::vector<Eigen::VectorXd>& p_coef, std::vector<Eigen::VectorXd>& hum_coef);
 void dmeteo2_dt(const Station& station, int n_stations, int ndeg, const Observation& obs, double t_mean, const std::vector<Eigen::VectorXd>& t_coef, const std::vector<Eigen::VectorXd>& p_coef, const std::vector<Eigen::VectorXd>& hum_coef, double& dtdt, double& dpdt, double& dhumdt);
-void aber_source(const Observation& obs, const Eigen::Matrix3d& r2000, double lat_geod1, double lat_geod2, double h_geod1, double h_geod2, const Eigen::Vector3d& k_s, const Eigen::Matrix3d& earth, const std::vector<Eigen::Vector3d>& vsta_j2000t, const std::vector<Eigen::Matrix3d>& vw, double jd, double ct, Eigen::MatrixXd& e, Eigen::MatrixXd& az);
+//void aber_source(const Observation& obs, const Eigen::Matrix3d& r2000, double lat_geod1, double lat_geod2, double h_geod1, double h_geod2, const Eigen::Vector3d& k_s, const Eigen::Matrix3d& earth, const std::vector<Eigen::Vector3d>& vsta_j2000t, const std::vector<Eigen::Matrix3d>& vw, double jd, double ct, Eigen::MatrixXd& e, Eigen::MatrixXd& az);
+
+/**
+ * @brief Вычисляет положение источника, скорректированное за годовую и суточную аберрацию.
+ * Соответствует SUBROUTINE ABER_SOURCE (ABER_SOURCE.FOR.TXT).
+ * Рассчитывает видимые углы возвышения (Elevation) и азимута (Azimuth), а также их производные 
+ * для двух станций наблюдения в топоцентрической системе координат (VEN).
+ * * @param obs Структура с данными наблюдения (индексы станций и временные метки).
+ * @param r2000 Вектор матриц вращения (3x3): 
+ * [0] - Матрица перехода ITRF -> GCRS (J2000).
+ * [1] - Первая производная матрицы (1/sec).
+ * @param k_s Единичный вектор на источник в системе J2000.0.
+ * @param earth Матрица характеристик Земли, где столбец index=1 (второй) — барицентрическая скорость Земли [m/s].
+ * @param vsta_j2000t Вектор скоростей станций в системе J2000.0 (геоцентрические) [m/s].
+ * @param vw Вектор матриц перехода (3x3) для каждой станции: VEN (локальная) -> ITRF (краст-фиксированная).
+ * @param e Выход: Матрица 2x2 углов возвышения: e(i,0) - угол [rad], e(i,1) - производная [rad/s].
+ * @param az Выход: Матрица 2x2 азимутов: az(i,0) - угол [rad], az(i,1) - производная [rad/s].
+ */
+void aber_source(
+    const Observation& obs,
+    const std::vector<Eigen::Matrix3d>& r2000, 
+    const Eigen::Vector3d& k_s,
+    const Eigen::Matrix<double, 3, 3>& earth,
+    const std::vector<Eigen::Vector3d>& vsta_j2000t,
+    const std::vector<Eigen::Matrix3d>& vw,
+    Eigen::Matrix2d& e,
+    Eigen::Matrix2d& az
+);
+
 void mount_tel(const Observation& obs, const Eigen::Matrix3d& r2000, const std::vector<Station>& stations, const std::vector<Eigen::Vector3d>& k_star, const std::vector<Eigen::Matrix3d>& vw, const Eigen::MatrixXd& e, const Eigen::MatrixXd& az, Eigen::MatrixXd& doff_dl, Eigen::MatrixXd& d_dax, Eigen::MatrixXd& dtau_off);
 double sbend(double el_rad, double temp_k, double humid_f, double press_hg);
 
@@ -198,8 +226,8 @@ void nwmf2(double latitude, double elev, Eigen::Vector2d& wmf);
 void sast_dry(double pres, double dot_pres, double lat_geod, double height, double dpdh, double& z_d, double& dot_z_d, double& dz_ddh);
 void sast_wet(double rel_hum, double tc, double dot_rel_hum, double dot_tc, double& z_w, double& dot_z_w);
 
-void theor_delay(const std::vector<Eigen::Vector3d>& base_line, const std::vector<Eigen::Vector3d>& xsta_j2000t, const std::vector<Eigen::Vector3d>& vsta_j2000t, const std::vector<Eigen::Vector3d>& asta_j2000, const Eigen::Vector3d& k_s, const Eigen::Matrix3d& earth, const Eigen::MatrixXd& sun, const Eigen::MatrixXd& moon, const Eigen::MatrixXd& datmc_d, const Eigen::MatrixXd& datmc_w, const Eigen::MatrixXd& dtau_off, double& t2_t1, double& dt2_t1);
-void theor_delay_orb(const std::vector<Eigen::Vector3d>& base_line, const std::vector<Eigen::Vector3d>& xsta_j2000t, const std::vector<Eigen::Vector3d>& vsta_j2000t, const std::vector<Eigen::Vector3d>& asta_j2000, const Eigen::Vector3d& k_s, const Eigen::Matrix3d& earth, const Eigen::MatrixXd& sun, const Eigen::MatrixXd& moon, const Eigen::MatrixXd& datmc_d, const Eigen::MatrixXd& datmc_w, const Eigen::MatrixXd& dtau_off, double& t2_t1, double& dt2_t1);
+void theor_delay(const std::vector<Eigen::Vector3d>& base_line, const std::vector<Eigen::Vector3d>& xsta_j2000t, const std::vector<Eigen::Vector3d>& vsta_j2000t, const std::vector<Eigen::Vector3d>& asta_j2000, const Eigen::Vector3d& k_s, const Eigen::Vector3d& earth, const Eigen::MatrixXd& sun, const Eigen::MatrixXd& moon, const Eigen::MatrixXd& datmc_d, const Eigen::MatrixXd& datmc_w, const Eigen::MatrixXd& dtau_off, double& t2_t1, double& dt2_t1);
+void theor_delay_orb(const std::vector<Eigen::Vector3d>& base_line, const std::vector<Eigen::Vector3d>& xsta_j2000t, const std::vector<Eigen::Vector3d>& vsta_j2000t, const std::vector<Eigen::Vector3d>& asta_j2000, const Eigen::Vector3d& k_s, const Eigen::Vector3d& earth, const Eigen::MatrixXd& sun, const Eigen::MatrixXd& moon, const Eigen::MatrixXd& datmc_d, const Eigen::MatrixXd& datmc_w, const Eigen::MatrixXd& dtau_off, double& t2_t1, double& dt2_t1);
 void der_star(double jd, double ct, double dyear, const Eigen::Vector3d& k_s, const Eigen::Matrix3d& earth, const std::vector<Eigen::Vector3d>& base_line, Eigen::MatrixXd& dstar, Eigen::MatrixXd& dstar_rate);
 void der_site(double dyear, const Eigen::MatrixXd& r2000, const Eigen::Vector3d& k_s, const Eigen::Matrix3d& earth, const std::vector<Eigen::Vector3d>& base_line, std::vector<Eigen::MatrixXd>& dsite, std::vector<Eigen::MatrixXd>& dsite_v);
 void der_polar(const Eigen::MatrixXd& r2000, const Eigen::Vector3d& k_s, const Eigen::Matrix3d& earth, const std::vector<Eigen::Vector3d>& base_line, const Eigen::Vector3d& b_cfs, std::vector<Eigen::MatrixXd>& pr, std::vector<Eigen::MatrixXd>& rn, std::vector<Eigen::MatrixXd>& rs, std::vector<Eigen::MatrixXd>& ryx, std::vector<Eigen::MatrixXd>& ydxdx, std::vector<Eigen::MatrixXd>& dydyx, std::vector<Eigen::MatrixXd>& ddxdyx, std::vector<Eigen::MatrixXd>& ddydyx, std::vector<Eigen::VectorXd>& dx_pol_dx, std::vector<Eigen::VectorXd>& dx_pol_dy, const Eigen::VectorXd& arg_oc_tide, Eigen::MatrixXd& dwob, std::vector<Eigen::MatrixXd>& dx_aj, std::vector<Eigen::MatrixXd>& dx_bj, std::vector<Eigen::MatrixXd>& dy_aj, std::vector<Eigen::MatrixXd>& dy_bj);

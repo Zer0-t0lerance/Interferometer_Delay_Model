@@ -1,96 +1,71 @@
-// test_aber_source.cpp
-#include "../src/functions.h"
 #include <iostream>
+#include <iomanip>
+#include <string>
+#include <vector>
+#include <Eigen/Dense>
+#include "..\\src\\functions.h" 
+
+using namespace std;
+
+void print_result(string name, double act, double exp, string unit = "") {
+    double diff = abs(act - exp);
+    if (name.find("Azimuth") != string::npos) {
+        double d = abs(act - exp);
+        double d2pi = abs(d - 6.283185307179586);
+        diff = min(d, d2pi);
+    }
+    cout << left << setw(30) << name 
+         << " | Act: " << fixed << setprecision(10) << act 
+         << " | Ref: " << exp 
+         << " | Diff: " << scientific << setprecision(2) << diff;
+    if (diff < 1e-10) cout << " | [ SUCCESS ]" << unit << endl;
+    else cout << " | [ FAIL ]" << unit << endl;
+}
 
 int main() {
-    // Initialize observation
     ariadna::Observation obs;
-    obs.sta1 = 0;
-    obs.sta2 = 1;
-    obs.mjd = 2451545; // J2000 epoch for simplicity
-    obs.utc = 0.5;     // Half day
-    obs.sou = 0;
+    obs.sta1 = 0; obs.sta2 = 1;
+    Eigen::Matrix2d e, az;
 
-    // Initialize r2000 as 9x3 matrix
-    Eigen::MatrixXd r2000(9, 3);
-    double r2000_init[3][3][3] = {
-        {{0.856407603342079, 0.516298660270934, -1.307799799452249E-003},
-         {-0.516297971645348, 0.856408600544260, 8.446234191276613E-004},
-         {1.556088935770033E-003, -4.812753432626145E-005, 0.999998788134748}},
-        {{-3.764904133986157E-005, 6.245029944245220E-005, 6.168655101856225E-008},
-         {-6.245022671509238E-005, -3.764909170451489E-005, 9.537579702956507E-008},
-         {-7.698574166572183E-011, -5.754292251350311E-011, 1.170274036610182E-013}},
-        {{-4.553942307973770E-009, -2.745415038296109E-009, 6.954889614806429E-012},
-         {2.745411365867157E-009, -4.553947611300586E-009, -4.498109878696921E-012},
-         {4.290405149448649E-015, -5.725553756373111E-015, -6.961050533090952E-018}}
-    };
-    for (int k = 0; k < 3; ++k) {
-        Eigen::Matrix3d temp;
-        for (int i = 0; i < 3; ++i)
-            for (int j = 0; j < 3; ++j)
-                temp(i, j) = r2000_init[k][i][j];
-        r2000.block<3, 3>(k * 3, 0) = temp.transpose();
-    }
+    // 1. Вектор на звезду (K_s)
+    Eigen::Vector3d k_s_log(0.2488843299651737, 0.8832588823692126, -0.3973793364200963);
+    
+    // 2. Матрица R2000 (J2000 -> Crust). 
+    // В тесте передаем ТРАНСПОНИРОВАННУЮ, чтобы внутри функции получить оригинал.
+    Eigen::Matrix3d r2000_log;
+    r2000_log <<  0.856407603342079,  0.516298660270934, -0.001307799799452,
+                -0.516297971645348,  0.856408600544260,  0.000844623419127,
+                 0.001556088935770, -0.000048127534326,  0.999998788134748;
 
-    // Initialize station parameters
-    double lat_gd1 = -0.250899124329325;
-    double lat_gd2 = -0.506968279695139;
-    double h_geod1 = 189.973700276110;
-    double h_geod2 = 248.925031604711;
+    Eigen::Matrix3d r2000_der_log;
+    r2000_der_log << -3.764904133986157E-05,  6.245029944245220E-05,  6.168655101856225E-08,
+                    -6.245022671509238E-05, -3.764909170451489E-05,  9.537579702956507E-08,
+                    -7.698574166572183E-11, -5.754292251350311E-11,  1.170274036610182E-13;
 
-    // Initialize vw
-    std::vector<Eigen::Matrix3d> vw(2);
-    double vw_init[2][3][3] = {
-        {{-0.650092018774007, 0.718150315518193, -0.248275031864777},
-         {-0.741362690371940, -0.671104583000652, 0.000000000000000E+000},
-         {-0.166618511729085, 0.184061845575450, 0.968689583175407}},
-        {{-0.374234314756092, 0.790069731247788, -0.485529090194486},
-         {-0.903741928876677, -0.428077710223580, 0.000000000000000E+000},
-         {-0.207844181177394, 0.438792996498103, 0.874220511412833}}
-    };
-    for (int i = 0; i < 2; ++i) {
-        Eigen::Matrix3d temp;
-        for (int j = 0; j < 3; ++j)
-            for (int k = 0; k < 3; ++k)
-                temp(j, k) = vw_init[i][j][k];
-        vw[i] = temp.transpose();
-    }
+    // 3. Матрица VW (для KATH12M)
+    Eigen::Matrix3d vw_kath;
+    vw_kath << -0.6500920187740070, -0.7413626903719400, -0.1666185117290845,
+                0.7181503155181931, -0.6711045830006520,  0.1840618455754499,
+               -0.2482750318647766,  0.0000000000000000,  0.9686895831754072;
 
-    // Initialize Earth (corrected to use only velocity column)
-    Eigen::Matrix3d earth;
-    double earth_t[3][3] = {
-        {-58823615826.18116, -27740.31190, 0.00251},  // Position, velocity, acceleration
-        {123736441534.45139, -11133.38704, -0.00515},
-        {53614977263.53795, -4825.09396, -0.00223}
-    };
-    earth.transposeInPlace();
-    // Use only velocity column (col 1) and set others to zero
-    earth.setZero();
-    earth.col(1) << earth_t[0][1], earth_t[1][1], earth_t[2][1];
+    // 4. Скорости
+    Eigen::Matrix3d earth_vel; earth_vel.setZero();
+    earth_vel.col(1) << -27740.31190, -11133.38704, -4825.09396;
 
-    // Initialize vsta_j2000t
-    std::vector<Eigen::Vector3d> vsta_j2000t(2);
-    double vsta_init[2][3] = {
-        {-129.97431, -431.49437, 0.18113},
-        {-225.01847, -339.06466, 0.33365}
-    };
-    for (int i = 0; i < 2; ++i)
-        vsta_j2000t[i] << vsta_init[i][0], vsta_init[i][1], vsta_init[i][2];
+    vector<Eigen::Vector3d> vsta_log(2);
+    vsta_log[0] << -129.97431, -431.49437, 0.18113;
+    vsta_log[1] << -225.01847, -339.06466, 0.33365;
 
-    // Initialize k_s
-    Eigen::Vector3d k_s;
-    k_s << 0.2488843299651737, 0.8832588823692126, -0.3973793364200963;
+    vector<Eigen::Matrix3d> r2000_v = { r2000_log.transpose(), r2000_der_log.transpose() };
+    vector<Eigen::Matrix3d> vw_v = { vw_kath, vw_kath }; 
 
-    // Initialize output matrices
-    Eigen::MatrixXd e(2, 2);
-    Eigen::MatrixXd az(2, 2);
+    ariadna::aber_source(obs, r2000_v, k_s_log, earth_vel, vsta_log, vw_v, e, az);
 
-    // Call aber_source
-    ariadna::aber_source(obs, r2000, lat_gd1, lat_gd2, h_geod1, h_geod2, k_s, earth, vsta_j2000t, vw, 2451545.5, 0.5, e, az);
-
-    // Print results
-    std::cout << "Elevation (rad, rad/s):\n" << e << "\n\n";
-    std::cout << "Azimuth (rad, rad/s):\n" << az << std::endl;
+    cout << "\n================= FINAL VALIDATION (STATION 1) =================" << endl;
+    print_result("Elevation (E11)", e(0,0), 0.1142547638, " rad");
+    print_result("Azimuth (Az11)",   az(0,0), 4.3191487714, " rad");
+    print_result("dE/dt (E12)",      e(0,1), -0.0000652463, " rad/s");
+    print_result("dAz/dt (Az12)",    az(0,1), -0.0000149985, " rad/s");
 
     return 0;
 }

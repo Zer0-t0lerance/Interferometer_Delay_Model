@@ -46,7 +46,7 @@ void process_ariadna(const std::vector<Station>& stations, const std::vector<Sou
     Eigen::MatrixXd dx_temp(3, 2), dv_temp(3, 2); // Температурные поправки (если есть)
 
     Eigen::MatrixXd xsta_j2000t(3, 2), vsta_j2000t(3, 2), asta_j2000(3, 2); // Итоговые координаты/скорости станций
-    Eigen::MatrixXd base_line(3, 2); // Вектор базовой линии
+    Eigen::Vector3d base_line; // Вектор базовой линии
     Eigen::VectorXd b_cfs(6); // Коэффициенты базовой линии
     std::vector<Eigen::Vector3d> k_star; // Векторы источников
 
@@ -54,7 +54,6 @@ void process_ariadna(const std::vector<Station>& stations, const std::vector<Sou
 
     // 1.1 Расчет геодезических и геоцентрических координат (SITE)
     // Вызов функции для расчета стационарных параметров станций
-    std::vector<Eigen::Vector3d> site_vel(n_stations);
     site(stations, space_stations, n_stations, dyear, site_xyz, site_vel, lat_geod, h_geod, lat_gcen, lon_gcen, sph_rad, u_site, v_site, vw);
 
     // 1.2 Расчет единичных векторов источников (SOURCE_VEC40)
@@ -181,67 +180,6 @@ void process_ariadna(const std::vector<Station>& stations, const std::vector<Sou
         // 2.10 ПОПРАВКА ОСИ ТЕЛЕСКОПА (MOUNT_TEL)
         Eigen::MatrixXd doff_dl(2, 2), d_dax(2, 2);
         mount_tel(observations[k], r2000[0], stations, k_star, vw, aber_res.elevation, aber_res.azimuth, doff_dl, d_dax, dtau_off_mat);
-
-        // 2.11 РАСЧЕТ ПРОИЗВОДНЫХ (перенесены внутрь цикла)
-        // *** ЗДЕСЬ ДОЛЖНЫ РАСПОЛАГАТЬСЯ ВЫЗОВЫ ВСЕХ ФУНКЦИЙ der_... ИЗ ОРИГИНАЛЬНОГО ФАЙЛА ***
-        // (Например, der_earth, der_nut, der_prec, der_love_number, der_atm_load, der_trop, der_mount)
-        // Заглушки для производных (нужно реализовать функции der_*)
-        std::vector<Eigen::Vector3d> base_line_vec = {base_line};
-        std::vector<Eigen::Vector3d> xsta_vec = {xsta_j2000t.col(0), xsta_j2000t.col(1)};
-        std::vector<Eigen::Vector3d> earth_vec = {earth};
-        Eigen::MatrixXd dstar(2, 2), dstar_rate(2, 2);
-        der_star(jd, ct, dyear, k_star[j3], earth, base_line_vec, dstar, dstar_rate);
-
-        Eigen::MatrixXd dsite(3, 2, 2), dsite_v(3, 2, 2);
-        std::vector<Eigen::MatrixXd> dsite_vec(3, Eigen::MatrixXd(2, 2));
-        std::vector<Eigen::MatrixXd> dsite_v_vec(3, Eigen::MatrixXd(2, 2));
-        der_site(dyear, r2000[0], k_star[j3], earth, base_line_vec, dsite_vec, dsite_v_vec);
-
-        Eigen::MatrixXd dwob(2, 2);
-        Eigen::MatrixXd dx_aj(8, 2), dx_bj(8, 2), dy_aj(8, 2), dy_bj(8, 2);
-        std::vector<Eigen::MatrixXd> pr_vec(2, Eigen::MatrixXd(3, 3));
-        std::vector<Eigen::MatrixXd> rn_vec(2, Eigen::MatrixXd(3, 3));
-        std::vector<Eigen::MatrixXd> rs_vec(2, Eigen::MatrixXd(3, 3));
-        std::vector<Eigen::MatrixXd> ryx_vec(2, Eigen::MatrixXd(3, 3));
-        std::vector<Eigen::MatrixXd> ydxdx_vec(3, Eigen::MatrixXd(3, 3));
-        std::vector<Eigen::MatrixXd> dydyx_vec(3, Eigen::MatrixXd(3, 3));
-        std::vector<Eigen::MatrixXd> ddxdyx_vec(3, Eigen::MatrixXd(3, 3));
-        std::vector<Eigen::MatrixXd> ddydyx_vec(3, Eigen::MatrixXd(3, 3));
-        std::vector<Eigen::VectorXd> dx_pol_dx_vec(2, Eigen::VectorXd(3));
-        std::vector<Eigen::VectorXd> dx_pol_dy_vec(2, Eigen::VectorXd(3));
-        der_polar(r2000[0], k_star[j3], earth, base_line_vec, b_cfs_vec, pr_vec, rn_vec, rs_vec, ryx_vec, ydxdx_vec, dydyx_vec, ddxdyx_vec, ddydyx_vec, dx_pol_dx_vec, dx_pol_dy_vec, dwob, dx_aj, dx_bj, dy_aj, dy_bj);
-
-        Eigen::VectorXd dut1_tai(2);
-        Eigen::MatrixXd dut1_aj(8, 2), dut1_bj(8, 2);
-        der_ut1(r2000[0], k_star[j3], earth, base_line_vec, b_cfs_vec, gast, Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::VectorXd(), 0.0, dut1_tai, dut1_aj, dut1_bj);
-
-        Eigen::MatrixXd dnut(2, 2);
-        der_nut(r2000[0], k_star[j3], earth, base_line_vec, b_cfs_vec, gast, Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::VectorXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), dnut);
-
-        Eigen::MatrixXd dpr_lspl(2, 2);
-        der_prec(r2000[0], k_star[j3], earth, base_line_vec, b_cfs_vec, Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), dpr_lspl);
-
-        Eigen::VectorXd d_dh0(2), d_dh02(2), d_dl0(2), d_dl02(2), d_dh3(2), d_dl3(2), d_dl1_1(2), d_dl1_2(2), d_dhi_1(2), d_dhi_2(2), d_dli_1(2), d_dli_2(2);
-        der_love_number(stations[j1], stations[j2], r2000[0], k_star[j3], earth, base_line_vec, Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), d_dh0, d_dh02, d_dl0, d_dl02, d_dh3, d_dl3, d_dl1_1, d_dl1_2, d_dhi_1, d_dhi_2, d_dli_1, d_dli_2);
-
-        Eigen::MatrixXd dt_da(4, 3, 2), dt_db(4, 3, 2), df_da(4, 3, 2), df_db(4, 3, 2);
-        Eigen::VectorXd dt_dreg(2), df_dreg(2);
-        der_atm_load(stations[j1], stations[j2], r2000[0], k_star[j3], earth, base_line_vec, Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), Eigen::MatrixXd(), dt_da, dt_db, df_da, df_db, dt_dreg, df_dreg);
-
-        // 2.12 ФОРМИРОВАНИЕ СИСТЕМЫ УРАВНЕНИЙ (FORM_EQ/ACCUMULATE_NORMAL_EQ)
-        Eigen::MatrixXd m_pd, y, w;
-        create_matr(observations[k], stations[j1], stations[j2], 1, nobs, sources.size(), n_stations, t_mean, t2_t1, dt2_t1, dwob, dut1_tai, dnut, dsite, dsite_v, datmp_hmf, datmp_wmf, dgrad_n, dgrad_e, dstar, dstar_rate, dpr_lspl, d_dh0, d_dh02, d_dl0, d_dl02, d_dh3, d_dl3, d_dl1_1, d_dl1_2, d_dhi_1, d_dhi_2, d_dli_1, d_dli_2, d_dax, dt_da, dt_db, df_da, df_db, dt_dreg, df_dreg, dx_aj, dx_bj, dy_aj, dy_bj, dut1_aj, dut1_bj, zen_dry_mat, zen_wet_mat, m_pd, y, w);
-
-        // 2.12 ФОРМИРОВАНИЕ СИСТЕМЫ УРАВНЕНИЙ (FORM_EQ/ACCUMULATE_NORMAL_EQ)
-        // В этом месте происходит накопление элементов матрицы нормальных уравнений
-        // (M_pd) и вектора свободных членов (Y) для последующего решения.
-        // form_equations(/* ... */); 
-
-    } // Конец цикла по наблюдениям
-
-    // *** 3. ПОСЛЕ ЦИКЛА (РЕШЕНИЕ СИСТЕМЫ) ***
-    // solve_normal_equations(/* ... */);
-    // write_output(output_path, /* ... */);
-
-} // Конец функции process_ariadna
+    }
+}
 }
