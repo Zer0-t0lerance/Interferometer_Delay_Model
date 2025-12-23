@@ -217,7 +217,28 @@ void aber_source(
 void mount_tel(const Observation& obs, const Eigen::Matrix3d& r2000, const std::vector<Station>& stations, const std::vector<Eigen::Vector3d>& k_star, const std::vector<Eigen::Matrix3d>& vw, const Eigen::MatrixXd& e, const Eigen::MatrixXd& az, Eigen::MatrixXd& doff_dl, Eigen::MatrixXd& d_dax, Eigen::MatrixXd& dtau_off);
 double sbend(double el_rad, double temp_k, double humid_f, double press_hg);
 
-void baseline(const Eigen::Matrix3d& r2000, const Eigen::MatrixXd& xsta_j2000t, const Eigen::MatrixXd& vsta_j2000t, const Eigen::MatrixXd& asta_j2000, Eigen::MatrixXd& base_line, Eigen::Vector3d& b_cfs);
+//void baseline(const Eigen::Matrix3d& r2000, const Eigen::MatrixXd& xsta_j2000t, const Eigen::MatrixXd& vsta_j2000t, const Eigen::MatrixXd& asta_j2000, Eigen::MatrixXd& base_line, Eigen::Vector3d& b_cfs);
+
+/**
+ * @brief Вычисляет вектор базы в инерциальной (J2000) и земной (Crust-fixed) системах координат.
+ * * Функция рассчитывает разность векторов между второй и первой станциями (Site 2 - Site 1).
+ * Вектор базы в J2000 включает в себя положение и скорость.
+ * Вектор b_cfs представляет собой проекцию положения базы на вращающуюся Землю.
+ *
+ * @param[in]  r2000         Матрица вращения из J2000 в земную систему (Crust-fixed).
+ * @param[in]  xsta_j2000t   Матрица 3x2 координат станций в J2000 (м). Col 0: Sta 1, Col 1: Sta 2.
+ * @param[in]  vsta_j2000t   Матрица 3x2 скоростей станций в J2000 (м/с). Col 0: Sta 1, Col 1: Sta 2.
+ * @param[in]  asta_j2000    Матрица 3x2 ускорений станций в J2000 (м/с²). Col 0: Sta 1, Col 1: Sta 2.
+ * @param[out] base_line     Матрица 3x2 вектора базы в J2000. Col 0: Положение (м), Col 1: Скорость (м/с).
+ * @param[out] b_cfs         Вектор положения базы в земной системе координат (м).
+ */
+void baseline(const Eigen::Matrix3d& r2000, 
+              const Eigen::MatrixXd& xsta_j2000t, 
+              const Eigen::MatrixXd& vsta_j2000t, 
+              const Eigen::MatrixXd& asta_j2000, 
+              Eigen::MatrixXd& base_line, 
+              Eigen::Vector3d& b_cfs);
+
 void uv_plane(const Source& source, const std::vector<Eigen::Vector3d>& base_line, const std::vector<Eigen::Vector3d>& xsta_j2000t, double scale, Eigen::Vector3d& uv_coor);
 
 void trop_delay(const Observation& obs, double jd, double ct, const Station& sta1, const Station& sta2, const Eigen::MatrixXd& e, const Eigen::MatrixXd& az, Eigen::MatrixXd& datmc_d, Eigen::MatrixXd& datmc_w, Eigen::MatrixXd& datmp_hmf, Eigen::MatrixXd& datmp_wmf, Eigen::MatrixXd& dgrad_n, Eigen::MatrixXd& dgrad_e, Eigen::MatrixXd& zen_dry, Eigen::MatrixXd& zen_wet);
