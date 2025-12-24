@@ -1,2 +1,9 @@
+aber_source
 g++ -std=c++17 -I .\external\eigen -I .\src .\tests\test_aber_source.cpp .\src\aber_source.cpp -o .\tests\test_aber_source.exe
+
+baseline
 g++ -std=c++17 -I .\external\eigen -I .\src .\tests\test_baseline.cpp .\src\baseline.cpp -o .\tests\test_baseline.exe
+
+fund_arg
+g++ -std=c++17 -I .\external\eigen -I .\src .\tests\test_fund_arg.cpp .\src\fund_arg.cpp -o .\tests\test_fund_arg.exe
+
