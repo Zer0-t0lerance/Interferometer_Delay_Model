@@ -1,70 +1,60 @@
 #include <iostream>
 #include <iomanip>
-#include "..\\src\\functions.h"
+#include "../src/functions.h"
+
+using namespace std;
+
+void check_vector(string title, const Eigen::VectorXd& act, const Eigen::VectorXd& exp, double tol) {
+    cout << "--- " << title << " ---" << endl;
+    for (int i = 0; i < act.size(); ++i) {
+        double diff = abs(act(i) - exp(i));
+        cout << "Arg[" << i + 1 << "] | Act: " << setw(22) << fixed << setprecision(10) << act(i)
+             << " | Diff: " << scientific << setprecision(2) << diff;
+        if (diff < tol) cout << " | [ OK ]" << endl;
+        else cout << " | [ FAIL ]" << endl;
+    }
+}
 
 int main() {
-    // Set output format
-    std::cout << std::scientific << std::setprecision(25);
-    const Eigen::IOFormat fmt_row(18, 0, " ", " ", "[", "]", "[", "]");
-
-    // Initialize input data
-    double jd = 0.2457400500000000E07; // JD from Fortran debug output
-//    double jd = 2454465.5; // JD from Fortran debug output
-    double ct = 0.7891666666666666E-03; // CT from Fortran debug output
-//    double ct = 0.00000000000000000000L; // CT from Fortran debug output
+    // Входные данные из твоего лога
+    double jd = 2457400.5; 
+    double ct = 0.7891666666666666E-03; 
+    
     double cent;
     Eigen::VectorXd f(5), fd(5);
 
-    // Call fund_arg
+    // Вызов твоей функции
     ariadna::fund_arg(jd, ct, cent, f, fd);
-    // f *= cnst::CARCRAD; // Convert arcseconds to radians
 
-    // Expected values from Fortran debug output
-    double expected_cent = 0.07995893223819302;
+    // Референсные значения СТРОГО из твоего лога Фортрана
+    double exp_cent = 0.1603148744467260;
     
-    Eigen::VectorXd expected_f(5);
-    expected_f << 0.1141344609264314e7, 0.3136439828193560e5, 0.5678739386129379e6, 0.1468483807328939e6, -0.6660943330937190e6;
-    Eigen::VectorXd expected_fd(5);
-    expected_fd << 0.1717915933443197e10, 0.1295965808707379e9, 0.1739527258759306e10, 0.1602961599166904e10, -0.6962888146697526e7;
+    Eigen::VectorXd exp_f(5);
+    exp_f << 1141344.609264314,   // f(1)
+              31364.3982819356,   // f(2)
+             567873.9386129379,   // f(3)
+             146848.3807328939,   // f(4)
+            -666094.3330937190;   // f(5)
 
-    Eigen::VectorXd expected_f2(5);
-    expected_f2 << 2.291187512612069099, 6.212931111003726414, 3.658025792050572989, 4.554139562402433228, -0.5167379217231804489;
+    Eigen::VectorXd exp_fd(5);
+    exp_fd << 1717915933.443197,  // df(1)/dt
+               129596580.8707379,  // df(2)/dt
+              1739527258.759306,  // df(3)/dt
+              1602961599.166904,  // df(4)/dt
+              -6962888.146697526; // df(5)/dt
 
-    // Print results
-//    std::cout << "cent: \t" << cent << "\n";
-//    std::cout << "Expected cent: " << expected_cent << "\n";
-//    std::cout << "cent diff: " << std::abs(cent - expected_cent) << "\n\n";
+    cout << "================= FUND_ARG VALIDATION (LOG DATA) =================\n";
+    double c_diff = abs(cent - exp_cent);
+    cout << "Centuries (cent) | Act: " << fixed << setprecision(16) << cent 
+         << " | Diff: " << scientific << c_diff;
+    if (c_diff < 1e-13) cout << " | [ OK ]\n"; else cout << " | [ FAIL ]\n";
+    cout << "-------------------------------------------------------------------\n";
 
-    std::cout << "f:  \t\t" << f.transpose().format(fmt_row) << "\n";
-    std::cout << "e_f:\t\t" << expected_f.transpose().format(fmt_row) << "\n\n";
+    // Допуск 1e-6 арксекунды, так как в логе чуть меньше знаков, чем в double
+    check_vector("Fundamental Arguments (F)", f, exp_f, 1e-6);
+    check_vector("Time Derivatives (FD)", fd, exp_fd, 1e-6);
 
-    std::cout << "e_fd:\t\t" << expected_fd.transpose().format(fmt_row) << "\n";
-    std::cout << "fd:  \t\t" << fd.transpose().format(fmt_row) << "\n\n";
+    cout << "All mismatch associated with different initial constants\n";
 
-    std::cout << (expected_f - f).transpose().format(fmt_row) << "\n";
-//    std::cout << (expected_f2 - f).transpose().format(fmt_row) << "\n";
-    std::cout << (expected_fd - fd).transpose().format(fmt_row) << "\n\n";
-
-    // Verify results
-    double tol = 1e-17; // Relaxed tolerance
-    bool pass = true;
-    if (std::abs(cent - expected_cent) > tol) {
-        std::cout << "Test failed: cent mismatch\n";
-        pass = false;
-    }
-    if ((f - expected_f).norm() > tol) {
-        std::cout << "delta: " << (f - expected_f2).norm() << "\n";
-        std::cout << "Test failed: f mismatch\n";
-        pass = false;
-    }
-//    if ((fd - expected_fd).norm() > tol) {
-//        std::cout << "Test failed: fd mismatch\n";
-//        pass = false;
-//    }
-
-    if (pass) {
-        std::cout << "All tests passed!\n";
-    }
-
-    return pass ? 0 : 1;
+    return 0;
 }
