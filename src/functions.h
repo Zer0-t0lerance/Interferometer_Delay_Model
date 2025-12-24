@@ -55,7 +55,18 @@ void site(const std::vector<Station>& stations, const std::vector<SpaceStation>&
 void source_vec(const std::vector<Source>& sources, double t_mean, std::vector<Eigen::Vector3d>& k_star);
 void jpl_eph(double jd, double ct, Eigen::Matrix3d& earth, Eigen::MatrixXd& sun, Eigen::MatrixXd& moon);
 void jpleph(double jd, double ct, Eigen::Vector3d& earth, Eigen::Vector3d& sun, Eigen::Vector3d& moon);
+//void fund_arg(double jd, double ct, double& cent, Eigen::VectorXd& f, Eigen::VectorXd& fd);
+
+/**
+ * @brief Вычисляет фундаментальные аргументы Луны и Солнца (IERS 2003).
+ * * @param[in]  jd    Юлианская дата (дни).
+ * @param[in]  ct    Координатное время (доля дня).
+ * @param[out] cent  Юлианские столетия с J2000.0 (T).
+ * @param[out] f     5 аргументов (l, l', F, D, Omega) [арксекунды].
+ * @param[out] fd    Производные аргументов [арксекунды/столетие].
+ */
 void fund_arg(double jd, double ct, double& cent, Eigen::VectorXd& f, Eigen::VectorXd& fd);
+
 void eps_a06(double jd, double ct, double& eps2000, double& eps_p03_2000, Eigen::VectorXd& e_mn);
 void prec_matrix(double jd, double ct, double eps_p03_2000, Eigen::MatrixXd& pr, Eigen::MatrixXd& dpdp_ls, Eigen::MatrixXd& dpdp_pl, Eigen::MatrixXd& dpdp_om);
 void bias(double eps2000, Eigen::Matrix3d& bias_matr);
@@ -64,8 +75,8 @@ void gas_time(double jd, double ut1, double ct, const Eigen::VectorXd& f, const 
 void wobble(double cent, double eop_x, double eop_y, double deop_x, double deop_y, Eigen::MatrixXd& ryx, Eigen::Matrix3d& ydxdx, Eigen::Matrix3d& dydyx, Eigen::Matrix3d& ddxdyx, Eigen::Matrix3d& ddydyx);
 void r2000_matrix(double mjd, double ut1, const Eigen::VectorXd& eop_int, const Eigen::VectorXd& deop_int, int i_choice, Eigen::Matrix3d r2000[3], double& gast);
 
-// Tidal and atmospheric effects
-void therm_def(const Station& station, const Observation& obs, double dtdt, const Eigen::Matrix3d& vw, const Eigen::MatrixXd& r2000, Eigen::Vector3d& dx_temp, Eigen::Vector3d& dv_temp);
+    // Tidal and atmospheric effects
+    void therm_def(const Station& station, const Observation& obs, double dtdt, const Eigen::Matrix3d& vw, const Eigen::MatrixXd& r2000, Eigen::Vector3d& dx_temp, Eigen::Vector3d& dv_temp);
      /**
      * @brief Преобразование декартовых (экваториальная и полярная компоненты) 
      * координат в геодезические (широта и высота) по методу Борковского (1989).
