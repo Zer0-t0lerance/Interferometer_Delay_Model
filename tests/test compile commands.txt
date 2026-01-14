@@ -9,3 +9,6 @@ g++ -std=c++17 -I .\external\eigen -I .\src .\tests\test_fund_arg.cpp .\src\fund
 
 ut1r
 g++ -std=c++17 -I .\external\eigen -I .\src .\tests\test_ut1r_2010.cpp .\src\UT1R_2010.cpp .\src\fund_arg.cpp -o .\tests\test_ut1r.exe
+
+interp_eop
+g++ -std=c++17 -I./external/eigen -I./external tests/test_interp_eop.cpp src/interp_eop.cpp src/fund_arg.cpp src/UT1R_2010.cpp src/terms_71.cpp src/terms_lib.cpp -o .\tests\test_interp_eop

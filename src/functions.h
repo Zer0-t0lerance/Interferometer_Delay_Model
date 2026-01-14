@@ -15,12 +15,31 @@ namespace ariadna {
  */
 void ut1r_2010(const Eigen::VectorXd& f, double& dut, double& dlod, double& domega);
 
-void t_eph(const Observation& obs, double tai, double ut1, double tt, double lon_gcen, double u_site, double v_site, double& ct, double& dtaidct);
+//void t_eph(const Observation& obs, double tai, double ut1, double tt, double lon_gcen, double u_site, double v_site, double& ct, double& dtaidct);
+
+/**
+ * @brief Интерполяция параметров ориентации Земли (EOP) на момент наблюдения.
+ * * Вычисляет UT1-UTC, координаты полюса (x, y) и углы нутации (dpsi, deps), 
+ * а также их производные. Включает поправки за зональные приливы, суточные 
+ * приливы и либрацию.
+ *
+ * @param[in]  k_int       Метод: 0 - кубический сплайн, 1 - полином Лагранжа.
+ * @param[in]  obs         Структура наблюдения (содержит MJD и UTC).
+ * @param[in]  tt          Земное время (TT) в долях суток.
+ * @param[out] ut1         Вычисленное время UT1 (сутки).
+ * @param[out] eop_int     Вектор интерполированных EOP: [UT1-UTC, x, y, dpsi, deps].
+ * @param[out] deop_int    Производные EOP по времени.
+ * @param[out] arg_oc_tide Аргументы океанических приливов (8 значений).
+ * @param[out] deop_diu    Суточные приливные поправки (матрица 3x2).
+ * @param[out] deop_lib    Поправки за либрацию (матрица 3x2).
+ * @param[in]  eop_data    Вектор опорных данных EOP (7 точек вокруг момента).
+ */
 void interp_eop(int k_int, const Observation& obs, double tt, double& ut1,
                 Eigen::VectorXd& eop_int, Eigen::VectorXd& deop_int,
                 Eigen::VectorXd& arg_oc_tide, Eigen::MatrixXd& deop_diu,
                 Eigen::MatrixXd& deop_lib, const std::vector<EOPData>& eop_data);
-void interp_eop40(int k_int, double mjd, double utc, double tt, double& ut1,
+
+                void interp_eop40(int k_int, double mjd, double utc, double tt, double& ut1,
                   Eigen::VectorXd& eop_int, Eigen::VectorXd& deop_int,
                   Eigen::VectorXd& arg_oc_tide, Eigen::MatrixXd& deop_diu,
                   Eigen::MatrixXd& deop_lib, const std::vector<EOPData>& eop_data);
