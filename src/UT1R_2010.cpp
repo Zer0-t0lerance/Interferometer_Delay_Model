@@ -3,35 +3,28 @@
 namespace ariadna {
 
 void ut1r_2010(const Eigen::VectorXd& f, double& dut, double& dlod, double& domega) {
-    // Проверка входного массива
-    if (f.size() != 5) {
-        throw std::invalid_argument("Input vector f must have 5 elements (l, l', F, D, Omega)");
-    }
+    double ut = 0.0;
+    double lod = 0.0;
+    double omg = 0.0;
 
-    // Инициализация выходных параметров
-    dut = 0.0;
-    dlod = 0.0;
-    domega = 0.0;
-
-    // Цикл по приливным членам
     for (int j = 0; j < cnst::N_TIDAL_TERMS; ++j) {
-        // Вычисление аргумента (в радианах)
-        double arg = 0.0;
+        double arg_arcsec = 0.0;
         for (int i = 0; i < 5; ++i) {
-            arg += cnst::TIDAL_COEFFS[j][i] * f(i);
+            arg_arcsec += cnst::TIDAL_COEFFS[j][i] * f(i);
         }
-        arg = std::fmod(arg, cnst::SEC360) * cnst::CARCRAD;
 
-        // Суммирование поправок
-        dut += cnst::TIDAL_COEFFS[j][5] * std::sin(arg) + cnst::TIDAL_COEFFS[j][6] * std::cos(arg);
-        dlod += cnst::TIDAL_COEFFS[j][7] * std::cos(arg) + cnst::TIDAL_COEFFS[j][8] * std::sin(arg);
-        domega += cnst::TIDAL_COEFFS[j][9] * std::cos(arg) + cnst::TIDAL_COEFFS[j][10] * std::sin(arg);
+        // Стандарт IERS: аргумент в радианах
+        double arg_rad = std::fmod(arg_arcsec, 1296000.0) * cnst::CARCRAD;
+
+        ut  += cnst::TIDAL_COEFFS[j][5] * std::sin(arg_rad) + cnst::TIDAL_COEFFS[j][6] * std::cos(arg_rad);
+        lod += cnst::TIDAL_COEFFS[j][7] * std::cos(arg_rad) + cnst::TIDAL_COEFFS[j][8] * std::sin(arg_rad);
+        omg += cnst::TIDAL_COEFFS[j][9] * std::cos(arg_rad) + cnst::TIDAL_COEFFS[j][10] * std::sin(arg_rad);
     }
 
-    // Масштабирование результатов
-    dut *= cnst::UT1_SCALE;
-    dlod *= cnst::LOD_SCALE;
-    domega *= cnst::OMEGA_SCALE;
+    // МАСШТАБИРОВАНИЕ (из UT1R_2010.F90.TXT)
+    dut    = ut  * 1.0e-4;   // Перевод в секунды
+    dlod   = lod * 1.0e-5;   // Перевод в секунды
+    domega = omg * 1.0e-14;  // Перевод в рад/сек
 }
 
 } // namespace ariadna

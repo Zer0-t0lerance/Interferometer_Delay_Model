@@ -3,7 +3,18 @@
 
 namespace ariadna {
 // Time conversions
+/**
+ * @brief Вычисляет поправки за зональные приливы в ротации Земли (IERS 2010).
+ * * Рассчитывает вариации UT1-UT1R, изменения длительности суток (LOD) и 
+ * угловой скорости (Omega) для 62 гармоник с периодами от 5 дней до 18.6 лет.
+ *
+ * @param[in]  f       Вектор 5 фундаментальных аргументов (l, l', F, D, Omega) [арксекунды].
+ * @param[out] dut     Поправка UT1-UT1R [секунды].
+ * @param[out] dlod    Поправка длительности суток (LOD) [секунды].
+ * @param[out] domega  Поправка угловой скорости [рад/сек].
+ */
 void ut1r_2010(const Eigen::VectorXd& f, double& dut, double& dlod, double& domega);
+
 void t_eph(const Observation& obs, double tai, double ut1, double tt, double lon_gcen, double u_site, double v_site, double& ct, double& dtaidct);
 void interp_eop(int k_int, const Observation& obs, double tt, double& ut1,
                 Eigen::VectorXd& eop_int, Eigen::VectorXd& deop_int,
