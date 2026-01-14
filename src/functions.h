@@ -39,11 +39,7 @@ void interp_eop(int k_int, const Observation& obs, double tt, double& ut1,
                 Eigen::VectorXd& arg_oc_tide, Eigen::MatrixXd& deop_diu,
                 Eigen::MatrixXd& deop_lib, const std::vector<EOPData>& eop_data);
 
-                void interp_eop40(int k_int, double mjd, double utc, double tt, double& ut1,
-                  Eigen::VectorXd& eop_int, Eigen::VectorXd& deop_int,
-                  Eigen::VectorXd& arg_oc_tide, Eigen::MatrixXd& deop_diu,
-                  Eigen::MatrixXd& deop_lib, const std::vector<EOPData>& eop_data);
-void tai_time(double mjd, double UTC, double &TAI, double &TT);
+                void tai_time(double mjd, double UTC, double &TAI, double &TT);
 void fund_arg(double jd, double ct, double& cent, Eigen::VectorXd& f, Eigen::VectorXd& fd);
 void terms_71(double cent, const Eigen::VectorXd& f, const Eigen::VectorXd& fd, Eigen::MatrixXd& dEOP_diu, Eigen::VectorXd& arg_oc_tide);
 void terms_lib(double cent, const Eigen::VectorXd& f, const Eigen::VectorXd& fd, Eigen::MatrixXd& dEOP_lib);
