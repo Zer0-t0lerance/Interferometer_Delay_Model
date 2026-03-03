@@ -94,6 +94,50 @@ void mount_tel(const Observation& obs, const Eigen::MatrixXd& r2000, const std::
 double sbend(double el_rad, double temp_k, double humid_f, double press_hg);
 
 /**
+ * @brief Вычисление гидростатической (сухой) картирующей функции Нилла (NMF).
+ * * @param[in]  epoch    Юлианская дата наблюдения (JD).
+ * @param[in]  latitude Геодезическая широта станции [радианы].
+ * @param[in]  height   Геодезическая высота станции над эллипсоидом [метры].
+ * @param[in]  elev     Угол возвышения (элевация) источника [радианы].
+ * @param[out] hmf      Вектор (размер 2): [0] - значение картирующей функции, 
+ * [1] - её производная по углу возвышения.
+ */
+void nhmf2(double epoch, double latitude, double height, double elev, Eigen::Vector2d& hmf);
+
+/**
+ * @brief Вычисление влажной картирующей функции Нилла (NMF).
+ * * @param[in]  latitude Геодезическая широта станции [радианы].
+ * @param[in]  elev     Угол возвышения (элевация) источника [радианы].
+ * @param[out] wmf      Вектор (размер 2): [0] - значение влажной картирующей функции, 
+ * [1] - её производная по углу возвышения.
+ */
+void nwmf2(double latitude, double elev, Eigen::Vector2d& wmf);
+
+/**
+ * @brief Расчет сухой компоненты зенитной тропосферной задержки по модели Саастамойнена.
+ * * @param[in]  pres     Атмосферное давление на станции [мбар].
+ * @param[in]  dot_pres Скорость изменения давления [мбар/с].
+ * @param[in]  lat_geod Геодезическая широта станции [радианы].
+ * @param[in]  height   Высота станции [метры].
+ * @param[in]  dpdh     Производная давления по высоте.
+ * @param[out] z_d      Сухая зенитная задержка [метры].
+ * @param[out] dot_z_d  Производная сухой задержки по времени [м/с].
+ * @param[out] dz_ddh   Производная сухой задержки по высоте.
+ */
+void sast_dry(double pres, double dot_pres, double lat_geod, double height, double dpdh, double& z_d, double& dot_z_d, double& dz_ddh);
+
+/**
+ * @brief Расчет влажной компоненты зенитной тропосферной задержки по модели Саастамойнена.
+ * * @param[in]  rel_hum     Относительная влажность воздуха [%].
+ * @param[in]  tc          Температура окружающего воздуха [градусы Цельсия].
+ * @param[in]  dot_rel_hum Скорость изменения влажности [%/с].
+ * @param[in]  dot_tc      Скорость изменения температуры [Цельсий/с].
+ * @param[out] z_w         Влажная зенитная задержка [метры].
+ * @param[out] dot_z_w     Производная влажной задержки по времени [м/с].
+ */
+void sast_wet(double rel_hum, double tc, double dot_rel_hum, double dot_tc, double& z_w, double& dot_z_w);
+
+/**
  * @brief Вычисление суточных и полусуточных приливных поправок (71 гармоника) к EOP.
  */
 void terms_71(double cent, const Eigen::VectorXd& f, const Eigen::VectorXd& fd, Eigen::MatrixXd& dEOP_diu, Eigen::VectorXd& arg_oc_tide);
@@ -298,26 +342,6 @@ void uv_plane(const Source& source, const std::vector<Eigen::Vector3d>& base_lin
  * @brief Комплексный расчет тропосферной задержки для двух станций (сухая и влажная компоненты, градиенты).
  */
 void trop_delay(const Observation& obs, double jd, double ct, const Station& sta1, const Station& sta2, const Eigen::MatrixXd& e, const Eigen::MatrixXd& az, Eigen::MatrixXd& datmc_d, Eigen::MatrixXd& datmc_w, Eigen::MatrixXd& datmp_hmf, Eigen::MatrixXd& datmp_wmf, Eigen::MatrixXd& dgrad_n, Eigen::MatrixXd& dgrad_e, Eigen::MatrixXd& zen_dry, Eigen::MatrixXd& zen_wet);
-
-/**
- * @brief Вычисление гидростатической (сухой) картирующей функции Нилла (NMF).
- */
-void nhmf2(double epoch, double latitude, double height, double elev, Eigen::Vector2d& hmf);
-
-/**
- * @brief Вычисление влажной картирующей функции Нилла (NMF).
- */
-void nwmf2(double latitude, double elev, Eigen::Vector2d& wmf);
-
-/**
- * @brief Расчет сухой компоненты зенитной тропосферной задержки по модели Саастамойнена.
- */
-void sast_dry(double pres, double dot_pres, double lat_geod, double height, double dpdh, double& z_d, double& dot_z_d, double& dz_ddh);
-
-/**
- * @brief Расчет влажной компоненты зенитной тропосферной задержки по модели Саастамойнена.
- */
-void sast_wet(double rel_hum, double tc, double dot_rel_hum, double dot_tc, double& z_w, double& dot_z_w);
 
 /**
  * @brief Расчет теоретической геометрической задержки (Consensus model) и ее производной для наземных баз (VLBI).
