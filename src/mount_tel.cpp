@@ -106,8 +106,11 @@ void mount_tel(const Observation& obs, const Eigen::MatrixXd& r2000, const std::
         double n_air = cnst::N_AIR_DEFAULT;
         doff_dl(j, 0) = star_ab2000.dot(unit_ax2000);
         doff_dl(j, 1) = star_ab2000.dot(dunit_ax2000);
-        d_dax(j, 0) = (j == 0 ? 1.0 : -1.0) * doff_dl(j, 0) / (cnst::C * n_air);
-        d_dax(j, 1) = (j == 0 ? 1.0 : -1.0) * doff_dl(j, 1) / (cnst::C * n_air);
+        
+        // ИСПРАВЛЕНИЕ: приоритет математики из Фортрана
+        d_dax(j, 0) = (j == 0 ? 1.0 : -1.0) * (doff_dl(j, 0) / cnst::C) * n_air;
+        d_dax(j, 1) = (j == 0 ? 1.0 : -1.0) * (doff_dl(j, 1) / cnst::C) * n_air;
+        
         dtau_off(j, 0) = d_dax(j, 0) * offset;
         dtau_off(j, 1) = d_dax(j, 1) * offset;
     }

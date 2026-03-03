@@ -261,7 +261,7 @@ void aber_source(const Observation& obs, const std::vector<Eigen::Matrix3d>& r20
 /**
  * @brief Расчет поправок на тип монтировки телескопа и смещение осей (axis offset).
  */
-void mount_tel(const Observation& obs, const Eigen::Matrix3d& r2000, const std::vector<Station>& stations, const std::vector<Eigen::Vector3d>& k_star, const std::vector<Eigen::Matrix3d>& vw, const Eigen::MatrixXd& e, const Eigen::MatrixXd& az, Eigen::MatrixXd& doff_dl, Eigen::MatrixXd& d_dax, Eigen::MatrixXd& dtau_off);
+void mount_tel(const Observation& obs, const Eigen::MatrixXd& r2000, const std::vector<Station>& stations, const std::vector<Eigen::Vector3d>& k_star, const std::vector<Eigen::Matrix3d>& vw, const Eigen::MatrixXd& e, const Eigen::MatrixXd& az, Eigen::MatrixXd& doff_dl, Eigen::MatrixXd& d_dax, Eigen::MatrixXd& dtau_off);
 
 /**
  * @brief Вычисление угла изгиба луча (bending angle) в атмосфере.
