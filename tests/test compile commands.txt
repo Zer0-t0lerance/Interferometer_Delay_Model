@@ -25,3 +25,9 @@ g++ -std=c++17 -I.\external\eigen -I.\external src\sbend.cpp src\mount_tel.cpp t
 sbend
 g++ -std=c++17 -I.\external\eigen -I.\external src\sbend.cpp tests\test_sbend.cpp -o .\tests\test_sbend.exe
 
+trop_delay_components (sast_dry, sast_wet, nhmf2, nwmf2)
+g++ -std=c++17 -I.\external\eigen -I.\external src\nhmf2.cpp src\nwmf2.cpp src\sast_dry.cpp src\sast_wet.cpp tests\test_trop_components.cpp -o .\tests\test_trop_components.exe
+
+trop_delay
+g++ -std=c++17 -I.\external\eigen -I.\external src\nhmf2.cpp src\nwmf2.cpp src\sast_dry.cpp src\sast_wet.cpp src\trop_delay.cpp tests\test_trop_delay.cpp -o .\tests\test_trop_delay.exe
+

@@ -138,6 +138,30 @@ void sast_dry(double pres, double dot_pres, double lat_geod, double height, doub
 void sast_wet(double rel_hum, double tc, double dot_rel_hum, double dot_tc, double& z_w, double& dot_z_w);
 
 /**
+ * @brief Комплексный расчет тропосферной задержки для двух станций интерферометра.
+ * Вычисляет зенитные задержки (сухую и влажную), картирующие функции Нилла (NMF),
+ * а также горизонтальные градиенты задержки (Север и Восток). Значения для первой 
+ * станции идут со знаком минус (для формирования разности задержек на базе).
+ *
+ * @param[in]  obs       Структура наблюдения (содержит давление, температуру, влажность).
+ * @param[in]  jd        Юлианская дата наблюдения.
+ * @param[in]  ct        Координатное время (доля дня).
+ * @param[in]  sta1      Данные первой станции (широта, высота).
+ * @param[in]  sta2      Данные второй станции (широта, высота).
+ * @param[in]  e         Матрица 2x2: элевации [рад] и их производные [рад/с].
+ * @param[in]  az        Матрица 2x2: азимуты [рад] и их производные [рад/с].
+ * @param[out] datmc_d   Матрица 2x2: сухая тропосферная задержка и её производная [с, с/с].
+ * @param[out] datmc_w   Матрица 2x2: влажная тропосферная задержка и её производная [с, с/с].
+ * @param[out] datmp_hmf Матрица 2x2: сухая (гидростатическая) картирующая функция и её производная.
+ * @param[out] datmp_wmf Матрица 2x2: влажная картирующая функция и её производная.
+ * @param[out] dgrad_n   Матрица 2x2: северный градиент картирующей функции и его производная.
+ * @param[out] dgrad_e   Матрица 2x2: восточный градиент картирующей функции и его производная.
+ * @param[out] zen_dry   Матрица 2x2: сухая зенитная задержка [с] и её производная [с/с].
+ * @param[out] zen_wet   Матрица 2x2: влажная зенитная задержка [с] и её производная [с/с].
+ */
+void trop_delay(const Observation& obs, double jd, double ct, const Station& sta1, const Station& sta2, const Eigen::MatrixXd& e, const Eigen::MatrixXd& az, Eigen::MatrixXd& datmc_d, Eigen::MatrixXd& datmc_w, Eigen::MatrixXd& datmp_hmf, Eigen::MatrixXd& datmp_wmf, Eigen::MatrixXd& dgrad_n, Eigen::MatrixXd& dgrad_e, Eigen::MatrixXd& zen_dry, Eigen::MatrixXd& zen_wet);
+
+/**
  * @brief Вычисление суточных и полусуточных приливных поправок (71 гармоника) к EOP.
  */
 void terms_71(double cent, const Eigen::VectorXd& f, const Eigen::VectorXd& fd, Eigen::MatrixXd& dEOP_diu, Eigen::VectorXd& arg_oc_tide);
@@ -337,11 +361,6 @@ void baseline(const Eigen::Matrix3d& r2000, const Eigen::MatrixXd& xsta_j2000t, 
  * @brief Проекция вектора базы интерферометра на UV-плоскость.
  */
 void uv_plane(const Source& source, const std::vector<Eigen::Vector3d>& base_line, const std::vector<Eigen::Vector3d>& xsta_j2000t, double scale, Eigen::Vector3d& uv_coor);
-
-/**
- * @brief Комплексный расчет тропосферной задержки для двух станций (сухая и влажная компоненты, градиенты).
- */
-void trop_delay(const Observation& obs, double jd, double ct, const Station& sta1, const Station& sta2, const Eigen::MatrixXd& e, const Eigen::MatrixXd& az, Eigen::MatrixXd& datmc_d, Eigen::MatrixXd& datmc_w, Eigen::MatrixXd& datmp_hmf, Eigen::MatrixXd& datmp_wmf, Eigen::MatrixXd& dgrad_n, Eigen::MatrixXd& dgrad_e, Eigen::MatrixXd& zen_dry, Eigen::MatrixXd& zen_wet);
 
 /**
  * @brief Расчет теоретической геометрической задержки (Consensus model) и ее производной для наземных баз (VLBI).
