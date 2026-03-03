@@ -68,6 +68,32 @@ void interp_eop(int k_int, const Observation& obs, double tt, double& ut1,
 void ut1r_2010(const Eigen::VectorXd& f, double& dut, double& dlod, double& domega);
 
 /**
+ * @brief Расчет инструментальной задержки, вызванной смещением осей монтировки телескопа.
+ * Учитывает влияние атмосферной рефракции на видимое положение источника.
+ * * @param[in]  obs       Структура наблюдения (содержит метеоданные и индексы станций).
+ * @param[in]  r2000     Матрица перехода от земной системы (Crust-fixed) к J2000.0 и ее производные (9x3).
+ * @param[in]  stations  Вектор данных станций (тип монтировки, смещение, координаты).
+ * @param[in]  k_star    Единичный вектор направления на источник в J2000.0.
+ * @param[in]  vw        Матрицы перехода от топоцентрической системы (VEN) к геоцентрической (Crust-fixed).
+ * @param[in]  e         Матрица углов возвышения (элевации) источника и их производных [рад, рад/с].
+ * @param[in]  az        Матрица азимутов источника и их производных [рад, рад/с].
+ * @param[out] doff_dl   Частные производные вектора смещения монтировки по величине самого смещения (блок 2x2).
+ * @param[out] d_dax     Частные производные задержки и ее скорости по смещению оси [с/м, с/с/м] (блок 2x2).
+ * @param[out] dtau_off  Вклад смещения оси монтировки в общую задержку и скорость изменения задержки [с, с/с] (блок 2x2).
+ */
+void mount_tel(const Observation& obs, const Eigen::MatrixXd& r2000, const std::vector<Station>& stations, const std::vector<Eigen::Vector3d>& k_star, const std::vector<Eigen::Matrix3d>& vw, const Eigen::MatrixXd& e, const Eigen::MatrixXd& az, Eigen::MatrixXd& doff_dl, Eigen::MatrixXd& d_dax, Eigen::MatrixXd& dtau_off);
+
+/**
+ * @brief Вычисление угла изгиба луча (атмосферной рефракции).
+ * * @param[in] el_rad    Угол возвышения (элевация) наблюдаемого объекта [радианы].
+ * @param[in] temp_k    Температура окружающего воздуха [Кельвины].
+ * @param[in] humid_f   Относительная влажность воздуха [доли единицы, 0.0 - 1.0].
+ * @param[in] press_hg  Атмосферное давление [мм ртутного столба].
+ * @return              Угол изгиба луча (рефракции) [радианы].
+ */
+double sbend(double el_rad, double temp_k, double humid_f, double press_hg);
+
+/**
  * @brief Вычисление суточных и полусуточных приливных поправок (71 гармоника) к EOP.
  */
 void terms_71(double cent, const Eigen::VectorXd& f, const Eigen::VectorXd& fd, Eigen::MatrixXd& dEOP_diu, Eigen::VectorXd& arg_oc_tide);
@@ -257,16 +283,6 @@ void dmeteo2_dt(const Station& station, int n_stations, int ndeg, const Observat
  * @brief Вычисляет положение источника, скорректированное за годовую и суточную аберрацию.
  */
 void aber_source(const Observation& obs, const std::vector<Eigen::Matrix3d>& r2000, const Eigen::Vector3d& k_s, const Eigen::Matrix<double, 3, 3>& earth, const std::vector<Eigen::Vector3d>& vsta_j2000t, const std::vector<Eigen::Matrix3d>& vw, Eigen::Matrix2d& e, Eigen::Matrix2d& az);
-
-/**
- * @brief Расчет поправок на тип монтировки телескопа и смещение осей (axis offset).
- */
-void mount_tel(const Observation& obs, const Eigen::MatrixXd& r2000, const std::vector<Station>& stations, const std::vector<Eigen::Vector3d>& k_star, const std::vector<Eigen::Matrix3d>& vw, const Eigen::MatrixXd& e, const Eigen::MatrixXd& az, Eigen::MatrixXd& doff_dl, Eigen::MatrixXd& d_dax, Eigen::MatrixXd& dtau_off);
-
-/**
- * @brief Вычисление угла изгиба луча (bending angle) в атмосфере.
- */
-double sbend(double el_rad, double temp_k, double humid_f, double press_hg);
 
 /**
  * @brief Вычисляет вектор базы в инерциальной (J2000) и земной (Crust-fixed) системах координат.
