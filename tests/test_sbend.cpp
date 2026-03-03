@@ -14,35 +14,29 @@ void check_val(const std::string& name, double calc, double ref, double tol = 1e
 }
 
 int main() {
-    // --- Данные для первой станции ---
-    double el_rad = 0.674516446350307;
-    double temp_k = 30.427 + cnst::KELVIN_OFFSET;
-    double humid_f = 60.973 / cnst::PERCENT_TO_FRACTION;
-    double press_hg = 755.087095978288;
-
-    double result1 = ariadna::sbend(el_rad, temp_k, humid_f, press_hg);
-
-    // --- Данные для второй станции ---
-    double el_rad2 = 0.693637398629522;
-    double temp_k2 = 25.884 + cnst::KELVIN_OFFSET;
-    double humid_f2 = 43.395 / cnst::PERCENT_TO_FRACTION;
-    double press_hg2 = 645.977873180360;
-
-    double result2 = ariadna::sbend(el_rad2, temp_k2, humid_f2, press_hg2);
-
-    // =========================================================================
-    // ЭТАЛОНЫ ИЗ ФОРТРАНА (ЗАМЕНИ НА СВОИ ЧИСЛА ИЗ ДАМПА)
-    // Если точных чисел из Фортрана нет, пока я положил сюда результаты C++
-    // =========================================================================
-    double ref1 = 4.53037418731383e-04; // Замени на Фортран Референс
-    double ref2 = 3.39706346296711e-04; // Замени на Фортран Референс
-
     std::cout << std::string(90, '=') << "\n";
     std::cout << "VERIFICATION: SBEND (Atmospheric Refraction)\n";
     std::cout << std::string(90, '-') << "\n";
 
-    check_val("sbend_1 (rad)", result1, ref1);
-    check_val("sbend_2 (rad)", result2, ref2);
+    // --- Данные для первой станции (строго из дампа Фортрана) ---
+    double el_rad1   = 0.674516446350307;
+    double temp_k1   = 303.587000000000;
+    double humid_f1  = 0.609730000000000;
+    double press_hg1 = 755.087095978288;
+    double ref_rho1  = 4.534566209457922e-04;
+
+    double calc_rho1 = ariadna::sbend(el_rad1, temp_k1, humid_f1, press_hg1);
+    check_val("sbend_1 (rad)", calc_rho1, ref_rho1);
+
+    // --- Данные для второй станции (строго из дампа Фортрана) ---
+    double el_rad2   = 0.693637398629522;
+    double temp_k2   = 299.044000000000;
+    double humid_f2  = 0.433950000000000;
+    double press_hg2 = 645.977873180360;
+    double ref_rho2  = 3.398313283113267e-04;
+
+    double calc_rho2 = ariadna::sbend(el_rad2, temp_k2, humid_f2, press_hg2);
+    check_val("sbend_2 (rad)", calc_rho2, ref_rho2);
 
     std::cout << std::string(90, '=') << "\n";
 

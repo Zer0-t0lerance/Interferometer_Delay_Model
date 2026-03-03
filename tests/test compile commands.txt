@@ -19,3 +19,6 @@ g++ -std=c++17 -I".\external" -I".\external\eigen" -I".\src" .\tests\test_terms_
 mount_tel
 g++ -std=c++17 -I.\external\eigen -I.\external src\sbend.cpp src\mount_tel.cpp tests\test_mount_tel.cpp -o .\tests\test_mount_tel.exe
 
+sbend
+g++ -std=c++17 -I.\external\eigen -I.\external src\sbend.cpp tests\test_sbend.cpp -o .\tests\test_sbend.exe
+
