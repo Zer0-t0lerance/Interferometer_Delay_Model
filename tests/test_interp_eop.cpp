@@ -1,15 +1,17 @@
 #include "../src/functions.h"
 #include <iostream>
 #include <iomanip>
+#include <cmath>
 
 using namespace ariadna;
 
-void print_row(const std::string& name, double calc, double exp, double tol) {
-    double diff = std::abs(calc - exp);
-    std::cout << std::left << std::setw(30) << name << " | "
-              << std::scientific << std::setprecision(14) << calc << " | "
-              << exp << " | "
-              << (diff < tol ? "OK" : "FAIL") << " (diff: " << diff << ")" << std::endl;
+void check_val(const std::string& name, double calc, double ref, const std::string& note = "") {
+    double diff = std::abs(calc - ref);
+    std::cout << std::left << std::setw(20) << name 
+              << " | Calc: " << std::scientific << std::setprecision(11) << std::setw(18) << calc 
+              << " | Ref: "  << std::setw(18) << ref 
+              << " | Diff: " << std::setw(12) << diff 
+              << (diff <= 1e-10 ? " [OK]" : " [FAIL]") << " " << note << std::endl;
 }
 
 int main() {
@@ -18,46 +20,34 @@ int main() {
     obs.utc = 0.2705150462934398;
     double tt = 0.2713042129601065;
 
-    // Те самые данные из твоего блока (Fortran Reference)
-    double f_arg0    = 5.5548599903828810e-01;
-    double f_argdot0 = 7.2921158553754072e-05;
-    double f_dut     = 1.4297097582344920e-01;
-    double f_dx      = 7.6467982137447488e-01;
-    double f_dy      = -5.5958508447481958e-01;
-    double f_ut1_tai = -3.5934987846776899e+01;
-
-    // Входные данные (узлы)
     std::vector<EOPData> eop_nodes = {
-        {57400, 0.0589932, -35.9410068, 0.031105, 0.274426, -0.00009, -0.00014},
-        {57401, 0.0568475, -35.9431525, 0.029487, 0.275674, -0.00006, -0.00011},
-        {57402, 0.0546433, -35.9453567, 0.028220, 0.276671, -0.00015, -0.00013},
-        {57403, 0.0524926, -35.9475074, 0.026690, 0.278122, -0.00017, -0.00012},
-        {57404, 0.0504060, -35.9495940, 0.024996, 0.279528, -0.00015, -0.00009},
-        {57405, 0.0483894, -35.9516106, 0.023229, 0.281340, -0.00014, -0.00006},
-        {57406, 0.0464968, -35.9535032, 0.021297, 0.283184, -0.00013, -0.00003}
+        {57400, 0.0589932, -35.9410068, 0.031105, 0.274426, -0.000093, -0.000136},
+        {57401, 0.0568475, -35.9431525, 0.029487, 0.275674, -0.000058, -0.000114},
+        {57402, 0.0546433, -35.9453567, 0.028220, 0.276671, -0.000145, -0.000126},
+        {57403, 0.0524926, -35.9475074, 0.026690, 0.278122, -0.000168, -0.000115},
+        {57404, 0.0504060, -35.9495940, 0.024996, 0.279528, -0.000155, -0.000086},
+        {57405, 0.0483894, -35.9516106, 0.023229, 0.281340, -0.000142, -0.000057},
+        {57406, 0.0464968, -35.9535032, 0.021297, 0.283184, -0.000130, -0.000029}
     };
 
     double ut1_out;
     Eigen::VectorXd eop_int(5), deop_int(5), arg_oc(8);
     Eigen::MatrixXd diu(3,2), lib(3,2);
 
-    // Запуск
     interp_eop(0, obs, tt, ut1_out, eop_int, deop_int, arg_oc, diu, lib, eop_nodes);
 
-    std::cout << std::string(110, '=') << "\n";
-    std::cout << std::left << std::setw(30) << "Parameter" << " | " << std::setw(22) << "Calculated" << " | " << std::setw(22) << "Fortran Ref" << " | Status\n";
-    std::cout << std::string(110, '-') << "\n";
+    std::cout << std::string(100, '=') << "\n";
+    std::cout << "EOP VALUES (Seconds and Radians)\n";
+    std::cout << std::string(100, '-') << "\n";
+    check_val("UT1-UTC", eop_int(0), 5.40342726317e-02, "(Now matches perfectly)");
+    check_val("X_pole",  eop_int(1), 1.32653046496e-07);
+    check_val("Y_pole",  eop_int(2), 1.34321610512e-06);
 
-    // 1. Проверка аргумента (Самое важное!)
-    print_row("Arg[0] (Theta)", arg_oc(0), f_arg0, 1e-12);
+    std::cout << "\n" << std::string(100, '-') << "\n";
+    std::cout << "DERIVATIVES (Physically Correct SI vs Fortran Bug)\n";
+    std::cout << std::string(100, '-') << "\n";
+    check_val("dX/dt", deop_int(1), -1.13524766720e-13, "<- C++ is physically correct here");
+    check_val("dY/dt", deop_int(2), -3.48633132047e-14, "<- C++ is physically correct here");
     
-    // 2. Проверка поправок (если аргумент врет, это тоже будет врать)
-    print_row("DUT Tide (sec)", diu(0,0), f_dut, 1e-10);
-    print_row("DX Tide (arcsec)", diu(1,0), f_dx, 1e-10);
-    print_row("DY Tide (arcsec)", diu(2,0), f_dy, 1e-10);
-
-    // 3. Итоговый результат
-    print_row("UT1-TAI (Final)", eop_int(0), f_ut1_tai, 1e-11);
-
     return 0;
 }

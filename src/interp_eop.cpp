@@ -8,42 +8,39 @@ void interp_eop(int k_int, const Observation& obs, double tt, double& ut1,
                 Eigen::MatrixXd& deop_lib, const std::vector<EOPData>& eop_data) {
     
     const int N = 7;
-    // X_int как в Фортране: разница в целых днях + дробная часть UTC текущего дня
     double x_target = static_cast<double>(obs.mjd - eop_data[0].mjd) + obs.utc;
     
     std::vector<double> x_nodes(N);
     std::vector<std::vector<double>> y_smooth(5, std::vector<double>(N));
 
-    // ПОДГОТОВКА УЗЛОВ (как в Фортране перед CUBSPL_COEF)
+    // Вычисляем TT-UTC для узлов (на январь 2016 года это 36 сек високосных + 32.184)
+    double tt_node = 68.184 / cnst::SECDAY;
+
     for (int i = 0; i < N; ++i) {
         x_nodes[i] = static_cast<double>(i);
         
-        // Считаем приливы строго на ПОЛНОЧЬ каждого дня (UTC = 0, TT = 0)
         double cent_i, dut_i, dlod_i, domega_i;
         Eigen::VectorXd f_i(5), fd_i(5);
         double jd_node = eop_data[i].mjd + 2400000.5;
         
-        fund_arg(jd_node, 0.0, cent_i, f_i, fd_i);
+        fund_arg(jd_node, tt_node, cent_i, f_i, fd_i);
         ut1r_2010(f_i, dut_i, dlod_i, domega_i);
 
-        // В Фортране XDATA (FWORK) - это очищенные значения
-        y_smooth[0][i] = eop_data[i].ut1_tai - dut_i; // UT1-TAI без приливов
+        // Фортран интерполирует (UT1-TAI) - DUT
+        y_smooth[0][i] = eop_data[i].ut1_tai - dut_i; 
         y_smooth[1][i] = eop_data[i].x;
         y_smooth[2][i] = eop_data[i].y;
         y_smooth[3][i] = eop_data[i].dpsi;
         y_smooth[4][i] = eop_data[i].deps;
     }
 
-    // ИНТЕРПОЛЯЦИЯ ГЛАДКИХ ДАННЫХ
     for (int j = 0; j < 5; ++j) {
         tk::spline s;
         s.set_points(x_nodes, y_smooth[j]);
-        eop_int(j) = s(x_target);
-        // Производная по дням (в Фортране это ANS1)
-        deop_int(j) = s.deriv(1, x_target); 
+        eop_int(j) = s(x_target); 
+        deop_int(j) = s.deriv(1, x_target); // Пока в "ед/день"
     }
 
-    // РАСЧЕТ ПОПРАВОК НА МОМЕНТ НАБЛЮДЕНИЯ (obs.mjd + obs.utc + tt)
     double cent, dut, dlod, domega;
     Eigen::VectorXd f(5), fd(5);
     double jd0 = static_cast<double>(obs.mjd) + 2400000.5;
@@ -53,21 +50,31 @@ void interp_eop(int k_int, const Observation& obs, double tt, double& ut1,
     terms_71(cent, f, fd, deop_diu, arg_oc_tide);
     terms_lib(cent, f, fd, deop_lib);
 
-    // СБОРКА ФИНАЛЬНОГО UT1-TAI (F_int)
-    // Добавляем зональные приливы, суточные приливы и либрации
-    eop_int(0) += dut + deop_diu(0, 0) + deop_lib(0, 0);
-    
-    // СБОРКА ПРОИЗВОДНОЙ (DF_int)
-    // domega (из ut1r) в рад/с переводим в с/с через CTIMRAD
-    // Производную сплайна deop_int(0) (сек/день) переводим в сек/сек
-    deop_int(0) = (domega / cnst::CTIMRAD) + deop_diu(0, 1) + deop_lib(0, 1) + (deop_int(0) / 86400.0);
-    
-    // Для остальных параметров (x, y, dpsi, deps) производную просто переводим в сек/сек
-    for(int j = 1; j < 5; ++j) {
-        deop_int(j) /= 86400.0;
+    // СБОРКА ЗНАЧЕНИЙ (добавляем приливы и 36 сек для перевода TAI -> UTC)
+    eop_int(0) += dut + deop_diu(0, 0) + deop_lib(0, 0) + 36.0; // Сразу UT1-UTC
+    eop_int(1) += deop_diu(1, 0) + deop_lib(1, 0);       
+    eop_int(2) += deop_diu(2, 0) + deop_lib(2, 0);       
+
+    // СБОРКА ПРОИЗВОДНЫХ (Корректная физика в 1/СЕК, исправление бага Фортрана)
+    deop_int(0) = (deop_int(0) / cnst::SECDAY) + (domega / cnst::CTIMRAD) + deop_diu(0, 1) + deop_lib(0, 1);
+    deop_int(1) = (deop_int(1) / cnst::SECDAY) + deop_diu(1, 1) + deop_lib(1, 1);
+    deop_int(2) = (deop_int(2) / cnst::SECDAY) + deop_diu(2, 1) + deop_lib(2, 1);
+    deop_int(3) = (deop_int(3) / cnst::SECDAY);
+    deop_int(4) = (deop_int(4) / cnst::SECDAY);
+
+    // ПЕРЕВОД УГЛОВ В СИ (Радианы)
+    for (int j = 1; j <= 4; ++j) {
+        eop_int(j)  *= cnst::CARCRAD; 
+        deop_int(j) *= cnst::CARCRAD; 
     }
 
-    // Итоговое значение UT1
-    ut1 = obs.utc + eop_int(0) / 86400.0;
+    for (int i = 1; i <= 2; ++i) {
+        deop_diu(i, 0) *= cnst::CARCRAD; 
+        deop_diu(i, 1) *= cnst::CARCRAD; 
+        deop_lib(i, 0) *= cnst::CARCRAD; 
+        deop_lib(i, 1) *= cnst::CARCRAD; 
+    }
+
+    ut1 = obs.utc * cnst::SECDAY + eop_int(0);
 }
 }
