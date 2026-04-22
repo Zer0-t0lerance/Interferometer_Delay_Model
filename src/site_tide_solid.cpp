@@ -1,218 +1,273 @@
-// SITE_TIDE_SOLID.cpp
-
 #include "functions.h"
+#include "constants.h"
+#include <cmath>
 
 namespace ariadna {
 
-void SITE_TIDE_SOLID(const Eigen::Vector3d& xsta, double lat_gcen, double lon_gcen,
-                     const Eigen::Vector3d& sun, const Eigen::Vector3d& moon,
+void SITE_TIDE_SOLID(const Eigen::Vector3d& xsta_itrf, double lat_gcen, double lon_gcen,
+                     const Eigen::Matrix<double, 3, 2>& sun, const Eigen::Matrix<double, 3, 2>& moon,
                      const Eigen::VectorXd& f, const Eigen::VectorXd& fd,
-                     const Eigen::Matrix3d& vw_i, double gast,
+                     const Eigen::Matrix3d& vw_i, const Eigen::Vector2d& gast,
                      const Eigen::MatrixXd& r2000,
                      Eigen::Vector3d& dxtide, Eigen::Vector3d& dvtide) {
     
-    using namespace cnst;
-    using Eigen::Vector3d;
-    using Eigen::Matrix3d;
-    using std::sin;
-    using std::cos;
-    using std::pow;
-    using std::sqrt;
-    using std::fabs;
-    
-    // --- 1. Инициализация констант и переменных ---
-    
-    const double R = xsta.norm(); // Геоцентрический радиус станции [m]
-    
-    // Love Numbers
-    const double h2 = H2_LOVE_NUMBER;
-    const double l2 = L2_LOVE_NUMBER;
-    const double r_p = 0.0003086; // R_P (ratio of density) - не найдена в коде, но используется для g
-    const double G = 6.6743e-11; // Gravitational constant (условно, для GM)
+    const double DAS2R = 4.84813681109535993589e-06; 
 
-    // GM_sun, GM_moon: значения должны быть в cnst, но для упрощения используем их как константы
-    // Примечание: В оригинальном Fortran-коде GM не используется, вместо этого используется U_m/U_s
-    // Мы будем использовать стандартные значения GM_sun и GM_moon (IERS)
-    const double GM_SUN = 1.32712440042e20; // [m^3/s^2]
-    const double GM_MOON = 4.90293100e12;  // [m^3/s^2]
-    
-    // --- 2. Расчет потенциалов (U) и их производных (dU) для Солнца и Луны ---
-    
-    // U_sun = GM_sun / r_sun^3
-    double r_sun = sun.norm();
-    double r_moon = moon.norm();
-    
-    double u_sun = GM_SUN / (r_sun * r_sun * r_sun);
-    double u_moon = GM_MOON / (r_moon * r_moon * r_moon);
-    
-    // Вектор положения Солнца/Луны, нормированный на r^2
-    Vector3d sun_r2 = sun / (r_sun * r_sun);
-    Vector3d moon_r2 = moon / (r_moon * r_moon);
+    Eigen::Matrix3d R0 = r2000.block<3, 3>(0, 0);
+    Eigen::Matrix3d R1 = r2000.block<3, 3>(3, 0);
 
-    // Производная потенциала: dU/dt = -3 * U * (r_dot / r)
-    // r_dot = (r . v) / r. Скорости тел не даны, поэтому Fortran-код использовал производные аргументов приливов.
-    // Воспроизводим логику Fortran-кода, используя векторы положения/скорости:
-    
-    // Примечание: Fortran-код использует упрощенную формулу, в которой dU/dt вычисляется через
-    // d(GM/r^3)/dt = -3*GM*r^-4 * dr/dt. Поскольку dr/dt не задан, Fortran-код вычисляет
-    // U*cos(phi) для радиального потенциала, и использует d(phi)/dt для скорости.
+    Eigen::Vector3d xsta_j2000 = R0 * xsta_itrf;
+    Eigen::Vector3d vsta_j2000 = R1 * xsta_itrf;
 
-    // Вектор, указывающий от центра Земли на станцию
-    Vector3d r_itrf = xsta; 
-    
-    // --- 3. Расчет топоцентрических смещений dr_itrf и скоростей dv_itrf (ITRF) ---
-    
-    // Суммарное смещение и скорость (Up, North, East) в ITRF (краст-фиксированная)
-    Vector3d dr_itrf = Vector3d::Zero();
-    Vector3d dv_itrf = Vector3d::Zero();
+    double rsta = xsta_j2000.norm();
+    Eigen::Vector3d xsta_n = xsta_j2000 / rsta;
+    Eigen::Vector3d dxsta_hat = vsta_j2000 / rsta;
 
-    // 3.1. Квадратичный потенциал (Основная поправка, h2, l2)
-    
-    // P3(cos(z)) = 1/2 * (3*cos^2(z) - 1)
-    
-    // Скалярные произведения (r . r_body)
-    double cos_z_sun = r_itrf.dot(sun) / (R * r_sun);
-    double cos_z_moon = r_itrf.dot(moon) / (R * r_moon);
-    
-    // Коэффициенты для квадратичного потенциала (IERS Eq 6.4a)
-    // S_r = (h2/g) * U_2 * cos(z) * ...
-    // U_2_body = (GM_body / r_body^3) * 0.5 * R^2 * (3*cos^2(z) - 1) - не используется явно
+    Eigen::Vector3d xsun = sun.col(0), vsun = sun.col(1);
+    Eigen::Vector3d xmon = moon.col(0), vmon = moon.col(1);
 
-    // Формула IERS (6.4): dr = (h2 * U_r + l2 * U_t) / g
-    // Где U_r - радиальная составляющая, U_t - тангенциальная.
-    // В Fortran-коде используется упрощенная форма, основанная на P2.
-    
-    // C_sun = (GM_sun/r_sun^3) * R^2 / 2 * (3*cos^2(z_sun)-1)
-    double C_sun = 0.5 * u_sun * R * R * (3.0 * pow(cos_z_sun, 2.0) - 1.0);
-    double C_moon = 0.5 * u_moon * R * R * (3.0 * pow(cos_z_moon, 2.0) - 1.0);
+    double rsun = xsun.norm(), rmon = xmon.norm();
+    Eigen::Vector3d xsun_n = xsun / rsun, xmon_n = xmon / rmon;
 
-    // Суммарное смещение для P2 потенциала в радиальном направлении (Up)
-    double dr_rad_p2 = (h2 * (C_sun + C_moon)) / (R * (1.0 + r_p)); // Деление на R*(1+r_p) заменяет g
-    dr_itrf += dr_rad_p2 * (r_itrf / R); // Радиальное смещение в ITRF
+    double pl[4] = {std::cos(lat_gcen), std::sin(lat_gcen), std::cos(lon_gcen), std::sin(lon_gcen)};
+    
+    double sc_sun = xsta_n.dot(xsun_n);
+    double sc_mon = xsta_n.dot(xmon_n);
 
-    // Тангенциальное смещение (h2-l2)/g * dU/d(phi) (пропорционально R)
-    // Направление tang = r_body - (r_body . r_itrf) * r_itrf / R^2
-    // Fortran-код использует компоненты sin(2*phi) и cos(2*phi) для перехода в X, Y, Z
-    // Однако Fortran-код далее использует P2 и его производные для получения dX, dY, dZ
-    
-    // Воспроизводим формулу Fortran, которая основана на P2
-    // xsta_dot_sun = xsta.sun / (R * r_sun) (cos_z_sun)
-    // dx_itrf = (h2/g) * (U_2/R) * r_itrf + (l2/g) * dU_2/dx_i * (r_itrf / R)
-    
-    // Формула (6.13) IERS 2000:
-    // dR_h = (h2/g) * dU/dR
-    // dR_l = (l2/g) * dU/d(lat) * d(lat)/dx
-    
-    // dr_rad = h2 * U_rad + l2 * U_tan (в Fortran-коде это dxtide[1:3])
-    
-    // --- 3.2. Долгопериодические приливы (LP) ---
-    // Формула IERS (6.4b): Cor_LP = -(h2_LP * U_LP / g)
-    // U_LP = GM/r^3 * R^2 * [0.5*(3*sin^2(lat)-1) - 0.5*sin^2(2*lat)*cos(2*H)]
-    // Здесь H - звездный час
-    
-    // Приливные аргументы f(1) - f(6)
-    // L, L', F, D, Omega (для приливов)
-    
-    // Долгопериодическая поправка h2, l2 (Eq. 6.4b, c)
-    // Используется 5 приливных аргументов, но в Fortran-коде только фаза $\psi$ (f(5)).
-    
-    // Вектор смещения в ITRF (краст-фиксированный)
-    Vector3d dx_itrf_total = Vector3d::Zero();
-    Vector3d dv_itrf_total = Vector3d::Zero();
-    
-    // --- Упрощение: Используем Fortran-подобный расчет без явного GAST/L, F, D, Omega ---
-    // Fortran-код использует dxtide(1:3) как dR, а dxtide(4:6) как dL, но только для 1 станции.
-    // SITE_TIDE_SOLID (Fortran) рассчитывает dX, dY, dZ в ITRF, которые потом вращаются в J2000
-    
-    // Принимаем, что Fortran-код вычисляет dR_itrf как:
-    // DR_itrf(X) = (H2*X/R + L2 * (3*X*cos^2(Z) - R*cos(Z)) / R^2) * U_body + ...
-    
-    // Упрощенный расчет: Смещение в ITRF (dr_itrf)
-    // Fortran-код использует локальные координаты (u, v) для тангенциального смещения, 
-    // но в итоге возвращает декартовы dX, dY, dZ.
-    
-    // Вычисляем компоненты: dR (радиальное), dL (долгота), dH (широта) в ITRF
-    
-    // 3.2. Коэффициенты Love numbers с поправками (IERS 6.4b, 6.4c)
-    // Здесь мы должны использовать h2 и l2, исправленные на резонанс океанических приливов.
-    
-    // Часть 1: Без резонанса (P2)
-    // h2_corr = h2 + d_h2, l2_corr = l2 + d_l2
-    // Эти поправки зависят от аргументов f.
-    
-    // Поскольку мы не знаем, какие именно аргументы f используются в Fortran-коде,
-    // воспроизводим только общую структуру.
-    
-    // Смещение dr_itrf
-    
-    // Используем упрощенную формулу, часто применяемую на практике (аналог Fortran-кода)
-    // dR_i = (h2/g) * dU_i + (l2/g) * dU_i_tan
-    
-    // 1. Векторы тяготения от тел на станции (сила, деленная на массу станции)
-    Vector3d g_sun = GM_SUN * sun / (r_sun * r_sun * r_sun);
-    Vector3d g_moon = GM_MOON * moon / (r_moon * r_moon * r_moon);
-    
-    // Общий потенциал U_2
-    double u2_total = 0.5 * R * R * (u_sun * (3.0 * pow(cos_z_sun, 2.0) - 1.0) +
-                                    u_moon * (3.0 * pow(cos_z_moon, 2.0) - 1.0));
-    
-    // Радиальное смещение (Up)
-    // U_R = d(U2)/dR = R * (g_sun/R^2 + g_moon/R^2)
-    double U_R = 0.0; // В Fortran-коде используется h2 * U_rad / (g)
-    // U_rad = dU/dR
-    
-    // Радиальное смещение: dr_r
-    double dr_r = h2 * u2_total / R * (R * (1.0 + r_p)); // r_p - не указан в Fortran
+    // ========================================================================
+    // STEP 1: Базовые приливы (Degree 2, 3)
+    // ========================================================================
+    double w1 = 1.5 * pl[1] * pl[1] - 0.5;
+    double h2 = cnst::H02 + cnst::H22 * w1;
+    double l2 = cnst::L02 + cnst::L22 * w1;
+    double h2_2 = h2 / 2.0;
 
-    // Тангенциальное смещение: dr_t
-    double dr_t = l2 * 0.0; // Та же проблема с потенциалом
+    double p2_sun = 3.0 * (h2_2 - l2) * sc_sun * sc_sun - h2_2;
+    double p2_mon = 3.0 * (h2_2 - l2) * sc_mon * sc_mon - h2_2;
 
-    // --- Переходим к прямому воспроизведению логики Fortran, где возможно ---
-    
-    // dR - смещение в ITRF (краст-фиксированный)
-    // R - геоцентрическое положение станции
-    // R_dot - скорость станции (0)
-    
-    // Расчет смещения в ITRF (dr_itrf)
-    // Fortran-код возвращает dxtide (3,2) и dvtide (3,2).
-    // Мы возвращаем dxtide (3) и dvtide (3) для одной станции.
-    
-    // Для dxtide:
-    dxtide = Vector3d::Zero();
-    // Для dvtide:
-    dvtide = Vector3d::Zero();
-    
-    // 3.3. Вращение в J2000.0
-    const Matrix3d R_matrix = r2000.block<3, 3>(0, 0); // R2000(3,3,0)
-    dxtide = R_matrix * dr_itrf;
+    double p3_sun = 2.5 * (cnst::H3 - 3.0 * cnst::L3) * sc_sun * sc_sun * sc_sun + 1.5 * (cnst::L3 - cnst::H3) * sc_sun;
+    double p3_mon = 2.5 * (cnst::H3 - 3.0 * cnst::L3) * sc_mon * sc_mon * sc_mon + 1.5 * (cnst::L3 - cnst::H3) * sc_mon;
 
-    // dv_j2000 = R_dot * dr_itrf + R * dv_itrf
-    const Matrix3d R_dot = r2000.block<3, 3>(0, 3); // R2000(3,3,1)
-    dvtide = R_dot * dr_itrf + R_matrix * dv_itrf;
-    
-    // --- Критическое замечание: ---
-    // Исходный Fortran-код для SITE_TIDE_SOLID слишком сложен для точного воспроизведения без
-    // знания всех зависимых функций (эфемериды, аргументы приливов) и скрытых констант.
-    // Его структура крайне неоптимальна:
-    // 1. Использует 9 массивов производных (dRdrh0, dRdh02, ...) как выходные параметры.
-    // 2. Явно не вычисляет dU/dt, а полагается на производные приливных аргументов, 
-    //    что требует наличия этих аргументов.
-    // 3. Использует неизвестные константы (например, r_p).
-    
-    // Поскольку прямая портируемость Fortran-кода в C++ без полного набора констант и функций
-    // невозможна, мы ограничимся наиболее простой (P2) формулой, использующей h2 и l2.
-    // Однако, следуя инструкции "Всегда ориентироваться только на исходный код из вложений",
-    // и поскольку я не могу полностью воспроизвести все математические шаги из-за их сложности 
-    // и зависимости от внешних функций, я предоставляю скелет, который должен быть дополнен.
-    
-    // Ввиду требования "Быть лаконичным и профессиональным" и "Критиковать аргументированно",
-    // **РЕКОМЕНДУЕТСЯ** полностью переписать этот модуль, используя готовые библиотеки IERS
-    // (например, SOFA или CALCEPH), которые содержат точные формулы и константы для твердых приливов.
+    double x2_sun = 3.0 * l2 * sc_sun, x2_mon = 3.0 * l2 * sc_mon;
+    double x3_sun = 1.5 * cnst::L3 * (5.0 * sc_sun * sc_sun - 1.0);
+    double x3_mon = 1.5 * cnst::L3 * (5.0 * sc_mon * sc_mon - 1.0);
 
-    // Временная заглушка (для компиляции)
-    dxtide = Vector3d::Zero();
-    dvtide = Vector3d::Zero();
+    double mass_ratio_sun = cnst::GSUN / cnst::GEARTH;
 
+    double fgm[2][2]; 
+    fgm[0][0] = cnst::AE * std::pow(cnst::AE / rsun, 3) * mass_ratio_sun;
+    fgm[1][0] = (cnst::AE / rsun) * fgm[0][0];
+    fgm[0][1] = cnst::AE * std::pow(cnst::AE / rmon, 3) * cnst::MU; 
+    fgm[1][1] = (cnst::AE / rmon) * fgm[0][1];
+
+    Eigen::Vector3d dx1 = fgm[0][0] * (x2_sun * xsun_n + p2_sun * xsta_n) +
+                          fgm[0][1] * (x2_mon * xmon_n + p2_mon * xsta_n) +
+                          fgm[1][0] * (x3_sun * xsun_n + p3_sun * xsta_n) +
+                          fgm[1][1] * (x3_mon * xmon_n + p3_mon * xsta_n);
+
+    double a1 = 6.0 * (h2_2 - l2) * sc_sun, b1 = 6.0 * (h2_2 - l2) * sc_mon, c1 = 3.0 * l2;
+    double a2 = 7.5 * (cnst::H3 - 3.0 * cnst::L3) * sc_sun * sc_sun + 1.5 * (cnst::L3 - cnst::H3);
+    double b2 = 7.5 * (cnst::H3 - 3.0 * cnst::L3) * sc_mon * sc_mon + 1.5 * (cnst::L3 - cnst::H3);
+    double c2 = 15.0 * cnst::L3;
+
+    double dr_sun = xsun.dot(vsun) / rsun;
+    double dr_mon = xmon.dot(vmon) / rmon;
+
+    Eigen::Vector3d drsun_hat = vsun / rsun - xsun * dr_sun / (rsun * rsun);
+    Eigen::Vector3d drmon_hat = vmon / rmon - xmon * dr_mon / (rmon * rmon);
+
+    double drsun_r_hat = drsun_hat.dot(xsta_n) + xsun_n.dot(dxsta_hat);
+    double drmon_r_hat = drmon_hat.dot(xsta_n) + xmon_n.dot(dxsta_hat);
+
+    Eigen::Vector3d dv1 = fgm[0][0] * (-3.0 * dr_sun / rsun) * (x2_sun * xsun_n + p2_sun * xsta_n) +
+                          fgm[0][1] * (-3.0 * dr_mon / rmon) * (x2_mon * xmon_n + p2_mon * xsta_n) +
+                          fgm[0][0] * (x2_sun * drsun_hat + p2_sun * dxsta_hat + (a1 * xsta_n + c1 * xsun_n) * drsun_r_hat) +
+                          fgm[0][1] * (x2_mon * drmon_hat + p2_mon * dxsta_hat + (b1 * xsta_n + c1 * xmon_n) * drmon_r_hat) +
+                          fgm[1][0] * (-4.0 * dr_sun / rsun) * (x3_sun * xsun_n + p3_sun * xsta_n) +
+                          fgm[1][1] * (-4.0 * dr_mon / rmon) * (x3_mon * xmon_n + p3_mon * xsta_n) +
+                          fgm[1][0] * (x3_sun * drsun_hat + p3_sun * dxsta_hat + (a2 * xsta_n + c2 * xsun_n) * drsun_r_hat) +
+                          fgm[1][1] * (x3_mon * drmon_hat + p3_mon * dxsta_hat + (b2 * xsta_n + c2 * xmon_n) * drmon_r_hat);
+
+    // ========================================================================
+    // Crust-Fixed Векторы для дальнейших коррекций
+    // ========================================================================
+    Eigen::Vector3d xsun_cf = R0.transpose() * xsun;
+    Eigen::Vector3d xmon_cf = R0.transpose() * xmon;
+    Eigen::Vector3d vsun_cf = R0.transpose() * vsun + R1.transpose() * xsun;
+    Eigen::Vector3d vmon_cf = R0.transpose() * vmon + R1.transpose() * xmon;
+
+    double rsun_cf = xsun_cf.norm(), rmon_cf = xmon_cf.norm();
+    Eigen::Vector3d xsun_ncf = xsun_cf / rsun_cf, xmon_ncf = xmon_cf / rmon_cf;
+    double drsun_cf = xsun_cf.dot(vsun_cf) / rsun_cf;
+    double drmon_cf = xmon_cf.dot(vmon_cf) / rmon_cf;
+
+    Eigen::Vector3d vsun_ncf = vsun_cf / rsun_cf - xsun_ncf / (rsun_cf * rsun_cf * drsun_cf);
+    Eigen::Vector3d vmon_ncf = vmon_cf / rmon_cf - xmon_ncf / (rmon_cf * rmon_cf * drmon_cf);
+
+    double p2[5][2], dp2_m[5][2]; 
+    
+    // Sun
+    p2[0][0] = 1.5 * xsun_ncf(2) * xsun_ncf(2) - 0.5;
+    p2[1][0] = 3.0 * xsun_ncf(0) * xsun_ncf(2);
+    p2[2][0] = 3.0 * xsun_ncf(1) * xsun_ncf(2);
+    p2[3][0] = 3.0 * (xsun_ncf(0) * xsun_ncf(0) - xsun_ncf(1) * xsun_ncf(1));
+    p2[4][0] = 6.0 * xsun_ncf(0) * xsun_ncf(1);
+    
+    dp2_m[0][0] = 3.0 * xsun_ncf(2) * vsun_ncf(2);
+    dp2_m[1][0] = 3.0 * (vsun_ncf(0) * xsun_ncf(2) + xsun_ncf(0) * vsun_ncf(2));
+    dp2_m[2][0] = 3.0 * (vsun_ncf(1) * xsun_ncf(2) + xsun_ncf(1) * vsun_ncf(2));
+    dp2_m[3][0] = 6.0 * (vsun_ncf(0) * xsun_ncf(0) - xsun_ncf(1) * vsun_ncf(1));
+    dp2_m[4][0] = 6.0 * (vsun_ncf(0) * xsun_ncf(1) + xsun_ncf(0) * vsun_ncf(1));
+
+    // Moon
+    p2[0][1] = 1.5 * xmon_ncf(2) * xmon_ncf(2) - 0.5;
+    p2[1][1] = 3.0 * xmon_ncf(0) * xmon_ncf(2);
+    p2[2][1] = 3.0 * xmon_ncf(1) * xmon_ncf(2);
+    p2[3][1] = 3.0 * (xmon_ncf(0) * xmon_ncf(0) - xmon_ncf(1) * xmon_ncf(1));
+    p2[4][1] = 6.0 * xmon_ncf(0) * xmon_ncf(1);
+
+    dp2_m[0][1] = 3.0 * xmon_ncf(2) * vmon_ncf(2);
+    dp2_m[1][1] = 3.0 * (vmon_ncf(0) * xmon_ncf(2) + xmon_ncf(0) * vmon_ncf(2));
+    dp2_m[2][1] = 3.0 * (vmon_ncf(1) * xmon_ncf(2) + xmon_ncf(1) * vmon_ncf(2));
+    dp2_m[3][1] = 6.0 * (vmon_ncf(0) * xmon_ncf(0) - xmon_ncf(1) * vmon_ncf(1));
+    dp2_m[4][1] = 6.0 * (vmon_ncf(0) * xmon_ncf(1) + xmon_ncf(0) * vmon_ncf(1));
+
+    double s2phi = 2.0 * pl[0] * pl[1];
+    double c2phi = pl[0] * pl[0] - pl[1] * pl[1];
+    double s2lam = 2.0 * pl[2] * pl[3];
+    double c2lam = pl[2] * pl[2] - pl[3] * pl[3];
+    double coef[2] = {-3.0 * drsun_cf / rsun_cf, -3.0 * drmon_cf / rmon_cf};
+
+    double dr_s = 0, dn_s = 0, de_s = 0, dvr = 0, dvn = 0, dve = 0;
+
+    auto rotate_to_j2000 = [&](double dr, double de, double dn, double dvr_in, double dve_in, double dvn_in, Eigen::Vector3d& dx_out, Eigen::Vector3d& dv_out) {
+        Eigen::Vector3d dr_ven(dr, de, dn);
+        Eigen::Vector3d dv_ven(dvr_in, dve_in, dvn_in);
+        Eigen::Vector3d work = vw_i * dr_ven;
+        dx_out = R0 * work;
+        Eigen::Vector3d dwork = vw_i * dv_ven;
+        dv_out = R0 * dwork + R1 * work;
+    };
+
+    // ========================================================================
+    // CORR_H2L2
+    // ========================================================================
+    for (int j = 0; j < 2; j++) {
+        double dr1_0 = -0.5 * cnst::HI_1 * fgm[0][j] * s2phi * (p2[1][j] * pl[3] - p2[2][j] * pl[2]);
+        double dn1_0 = -cnst::LI_1 * fgm[0][j] * c2phi * (p2[1][j] * pl[3] - p2[2][j] * pl[2]);
+        double de1_0 = -cnst::LI_1 * fgm[0][j] * pl[1] * (p2[1][j] * pl[2] + p2[2][j] * pl[3]);
+
+        double dr1_1 = -0.5 * cnst::HI_1 * fgm[0][j] * s2phi * (coef[j] * (p2[1][j] * pl[3] - p2[2][j] * pl[2]) + dp2_m[1][j] * pl[3] - dp2_m[2][j] * pl[2]);
+        double dn1_1 = -cnst::LI_1 * fgm[0][j] * c2phi * (coef[j] * (p2[1][j] * pl[3] - p2[2][j] * pl[2]) + dp2_m[1][j] * pl[3] - dp2_m[2][j] * pl[2]);
+        double de1_1 = -cnst::LI_1 * fgm[0][j] * pl[1] * (coef[j] * (p2[1][j] * pl[2] + p2[2][j] * pl[3]) + dp2_m[1][j] * pl[2] + dp2_m[2][j] * pl[3]);
+
+        double dr2_0 = -0.25 * cnst::HI_2 * fgm[0][j] * pl[0] * pl[0] * (p2[3][j] * s2lam - p2[4][j] * c2lam);
+        double dn2_0 =  0.25 * cnst::LI_2 * fgm[0][j] * s2phi * (p2[3][j] * s2lam - p2[4][j] * c2lam);
+        double de2_0 = -0.50 * cnst::LI_2 * fgm[0][j] * pl[0] * (p2[3][j] * c2lam + p2[4][j] * s2lam);
+
+        double dr2_1 = -0.25 * cnst::HI_2 * fgm[0][j] * pl[1] * pl[1] * (coef[j] * (p2[4][j] * s2lam - p2[4][j] * c2lam) + dp2_m[4][j] * s2lam - dp2_m[4][j] * c2lam);
+        double dn2_1 =  0.25 * cnst::LI_2 * fgm[0][j] * s2phi * (coef[j] * (p2[4][j] * s2lam - p2[4][j] * c2lam) + dp2_m[4][j] * s2lam - dp2_m[4][j] * c2lam);
+        double de2_1 = -0.50 * cnst::LI_2 * fgm[0][j] * pl[1] * (coef[j] * (p2[4][j] * c2lam + p2[4][j] * s2lam) + dp2_m[4][j] * c2lam + dp2_m[4][j] * s2lam);
+
+        dr_s += dr1_0 + dr2_0; dn_s += dn1_0 + dn2_0; de_s += de1_0 + de2_0;
+        dvr  += dr1_1 + dr2_1; dvn  += dn1_1 + dn2_1; dve  += de1_1 + de2_1;
+    }
+    Eigen::Vector3d dxyz_h2l2, dvxyz_h2l2;
+    rotate_to_j2000(dr_s, de_s, dn_s, dvr, dve, dvn, dxyz_h2l2, dvxyz_h2l2);
+    Eigen::Vector3d dx2 = dx1 + dxyz_h2l2;
+    Eigen::Vector3d dv2 = dv1 + dvxyz_h2l2;
+
+    // ========================================================================
+    // CORR_L1
+    // ========================================================================
+    dr_s = 0; dn_s = 0; de_s = 0; dvr = 0; dvn = 0; dve = 0;
+    for (int j = 0; j < 2; j++) {
+        double dn1_0 = -cnst::L1_1 * fgm[0][j] * pl[1] * pl[1] * (p2[1][j] * pl[2] + p2[2][j] * pl[3]);
+        double de1_0 =  cnst::L1_1 * fgm[0][j] * pl[1] * c2phi * (p2[1][j] * pl[3] - p2[2][j] * pl[2]);
+        double dn1_1 = -cnst::L1_1 * fgm[0][j] * pl[1] * pl[1] * (coef[j] * (p2[1][j] * pl[2] + p2[2][j] * pl[3]) + (dp2_m[1][j] * pl[2] + dp2_m[2][j] * pl[3]));
+        double de1_1 =  cnst::L1_1 * fgm[0][j] * pl[1] * c2phi * (coef[j] * (p2[1][j] * pl[3] - p2[2][j] * pl[2]) + (dp2_m[1][j] * pl[3] - dp2_m[2][j] * pl[2]));
+
+        double dn2_0 = -0.25 * cnst::L1_2 * fgm[0][j] * s2phi * (p2[3][j] * c2lam + p2[4][j] * s2lam);
+        double de2_0 = -0.25 * cnst::L1_2 * fgm[0][j] * s2phi * pl[1] * (p2[3][j] * s2lam - p2[4][j] * c2lam);
+        double dn2_1 = -0.25 * cnst::L1_2 * fgm[0][j] * s2phi * (coef[j] * (p2[3][j] * c2lam + p2[4][j] * s2lam) + (dp2_m[3][j] * c2lam + dp2_m[4][j] * s2lam));
+        double de2_1 = -0.25 * cnst::L1_2 * fgm[0][j] * s2phi * pl[2] * (coef[j] * (p2[3][j] * s2lam - p2[4][j] * c2lam) + (dp2_m[3][j] * s2lam - dp2_m[4][j] * c2lam));
+
+        dn_s += dn1_0 + dn2_0; de_s += de1_0 + de2_0;
+        dvn  += dn1_1 + dn2_1; dve  += de1_1 + de2_1;
+    }
+    Eigen::Vector3d dxyz_l1, dvxyz_l1;
+    rotate_to_j2000(dr_s, de_s, dn_s, dvr, dve, dvn, dxyz_l1, dvxyz_l1);
+    Eigen::Vector3d dx3 = dx2 + dxyz_l1;
+    Eigen::Vector3d dv3 = dv2 + dvxyz_l1;
+
+    // ========================================================================
+    // CORR_DIU
+    // ========================================================================
+    dr_s = 0; dn_s = 0; de_s = 0; dvr = 0; dvn = 0; dve = 0;
+    double lam = std::atan2(pl[3], pl[2]);
+    double cos2phi = pl[0]*pl[0] - pl[1]*pl[1];
+
+    // АВТОМАТИЧЕСКОЕ ОПРЕДЕЛЕНИЕ РАЗМЕРА МАССИВА
+    constexpr int num_diu = sizeof(cnst::AMP_DIU) / sizeof(cnst::AMP_DIU[0]);
+
+    for (int i = 0; i < num_diu; i++) {
+        double theta_f = 0.0, dtheta_f = 0.0;
+        for (int j = 0; j < 5; j++) {
+            theta_f += cnst::AMP_DIU[i][j] * f(j);
+            dtheta_f += cnst::AMP_DIU[i][j] * fd(j);
+        }
+        theta_f = std::fmod(-theta_f * DAS2R + (gast(0) + cnst::PI), cnst::TWOPI);
+        dtheta_f = -dtheta_f * DAS2R / 3.15576e9 + gast(1);
+
+        double ctheta = std::cos(theta_f + lam), stheta = std::sin(theta_f + lam);
+        double dctheta = -stheta * dtheta_f, dstheta = ctheta * dtheta_f;
+
+        dr_s += (cnst::AMP_DIU[i][5] * stheta + cnst::AMP_DIU[i][6] * ctheta) * s2phi;
+        dn_s += (cnst::AMP_DIU[i][7] * stheta + cnst::AMP_DIU[i][8] * ctheta) * cos2phi;
+        de_s += (cnst::AMP_DIU[i][7] * ctheta - cnst::AMP_DIU[i][8] * stheta) * pl[1];
+
+        dvr += (cnst::AMP_DIU[i][5] * dstheta + cnst::AMP_DIU[i][6] * dctheta) * s2phi;
+        dvn += (cnst::AMP_DIU[i][7] * dstheta + cnst::AMP_DIU[i][8] * dctheta) * cos2phi;
+        dve += (cnst::AMP_DIU[i][7] * dctheta - cnst::AMP_DIU[i][8] * dstheta) * pl[1];
+    }
+    Eigen::Vector3d dxyz_diu, dvxyz_diu;
+    rotate_to_j2000(dr_s, de_s, dn_s, dvr, dve, dvn, dxyz_diu, dvxyz_diu);
+    Eigen::Vector3d dx4 = dx3 + dxyz_diu * 1e-3; 
+    Eigen::Vector3d dv4 = dv3 + dvxyz_diu * 1e-3;
+
+    // ========================================================================
+    // CORR_LON
+    // ========================================================================
+    dr_s = 0; dn_s = 0; de_s = 0; dvr = 0; dvn = 0; dve = 0;
+    double coef_lon = (3.0 * pl[1] * pl[1] - 1.0) / 2.0;
+
+    // АВТОМАТИЧЕСКОЕ ОПРЕДЕЛЕНИЕ РАЗМЕРА МАССИВА
+    constexpr int num_lon = sizeof(cnst::AMP_LON) / sizeof(cnst::AMP_LON[0]);
+
+    for (int i = 0; i < num_lon; i++) {
+        double theta_f = 0.0, dtheta_f = 0.0;
+        for (int j = 0; j < 5; j++) {
+            theta_f += cnst::AMP_LON[i][j] * f(j);
+            dtheta_f += cnst::AMP_LON[i][j] * fd(j);
+        }
+        theta_f = -theta_f * DAS2R;
+        dtheta_f = -dtheta_f * DAS2R / 3.15576e9;
+
+        double ctheta = std::cos(theta_f), stheta = std::sin(theta_f);
+        double dctheta = -stheta * dtheta_f, dstheta = ctheta * dtheta_f;
+
+        dr_s += (cnst::AMP_LON[i][5] * ctheta + cnst::AMP_LON[i][7] * stheta) * coef_lon;
+        dn_s += (cnst::AMP_LON[i][7] * ctheta + cnst::AMP_LON[i][8] * stheta) * s2phi;
+
+        dvr += (cnst::AMP_LON[i][5] * dctheta + cnst::AMP_LON[i][6] * dstheta) * coef_lon;
+        dvn += (cnst::AMP_LON[i][7] * dctheta + cnst::AMP_LON[i][8] * dstheta) * s2phi;
+    }
+    Eigen::Vector3d dxyz_lon, dvxyz_lon;
+    rotate_to_j2000(dr_s, de_s, dn_s, dvr, dve, dvn, dxyz_lon, dvxyz_lon);
+    
+    // Итоговый вектор
+    dxtide = dx4 + dxyz_lon * 1e-3;
+    dvtide = dv4 + dvxyz_lon * 1e-3;
 }
 
 } // namespace ariadna
