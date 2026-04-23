@@ -82,7 +82,7 @@ void process_ariadna(const std::vector<Station>& stations, const std::vector<Sou
         // 2.3 EOP ИНТЕРПОЛЯЦИЯ И ТИДАЛЬНЫЕ ПОПРАВКИ (INTERP_EOP40, UT1R_2010)
         // В Фортране INTERP_EOP40 часто вызывает TERMS_71/TERMS_Lib.
         int k_int = 0;
-        interp_eop40(k_int, mjd, utc, tt, ut1, eop_int, deop_int, arg_oc_tide, deop_diu, deop_lib, eop_data);
+        interp_eop(k_int, mjd, utc, tt, ut1, eop_int, deop_int, arg_oc_tide, deop_diu, deop_lib, eop_data);
         
         // UT1R_2010 для расчета поправки UT1 от приливных вариаций
         double dut, dlod, domega;

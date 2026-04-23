@@ -90,4 +90,15 @@ struct OceanTideData {
     // PHA_OCEAN[3, 11] - Фазы [rad] в (Up, North, East) для 11 волн
     Eigen::Matrix<double, 3, cnst::NUM_TIDES> phases;
 };
+
+struct SiteCorrData {
+    Eigen::Vector3d xyz;     // Координаты на эпоху наблюдения ITRF [м]
+    Eigen::Vector3d vel;     // Скорости станции ITRF [м/год]
+    double lat_geod;         // Геодезическая широта [рад]
+    double lon_geod;         // Геодезическая долгота [рад]
+    double h_geod;           // Геодезическая высота над эллипсоидом [м]
+    double u_site;           // Сферический радиус экваториальный (U) [м]
+    double v_site;           // Сферический радиус полярный (V) [м]
+    Eigen::Matrix3d vw_i;    // Матрица перехода VEN (Vertical, East, North) -> ITRF
+};
 } // namespace ariadna

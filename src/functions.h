@@ -203,12 +203,6 @@ void site(const std::vector<Station>& stations, int j1, int j2, const Observatio
 void therm_def(const Station& station, const Observation& obs, double dtdt, const Eigen::Matrix3d& vw, const Eigen::MatrixXd& r2000, Eigen::Vector3d& dx_temp, Eigen::Vector3d& dv_temp);
 
 /**
- * @brief Преобразование декартовых (экваториальная и полярная компоненты) 
- * координат в геодезические (широта и высота) по методу Борковского (1989).
- */
-void GEOD(double equatorial_radius_r, double z_polar, double& geodetic_latitude_fi, double& geodetic_height_h);
-
-/**
  * @brief Вычисляет смещение и скорость станции, вызванные приливом полюса (Pole Tide) в ITRF->J2000.0.
  */
 void POLE_TIDE(double cent, double lat_geod, double lon_geod,
@@ -217,12 +211,28 @@ void POLE_TIDE(double cent, double lat_geod, double lon_geod,
                Eigen::Vector3d& dx_poltide, Eigen::Vector3d& dv_poltide);
 
 /**
- * @brief Вычисляет смещение и скорость станции, вызванные твердыми земными приливами (Solid Earth Tide).
+ * @brief Расчет смещения коры и скорости из-за твердых земных приливов (Solid Earth Tides).
+ * Вычисляет гравитационное влияние Луны и Солнца по модели IERS 2000.
+ * Включает базовый прилив 2 и 3 степени, поправки на неупругость мантии,
+ * широтную зависимость, а также частотно-зависимые поправки (суточные и долгопериодические).
+ *
+ * @param[in]  xsta_itrf Геоцентрические координаты станции в земной системе ITRF [метры].
+ * @param[in]  lat_gcen  Геоцентрическая широта станции [радианы].
+ * @param[in]  lon_gcen  Геоцентрическая долгота станции [радианы].
+ * @param[in]  sun       Матрица 3x2: вектор положения и скорости Солнца в J2000 [м, м/с].
+ * @param[in]  moon      Матрица 3x2: вектор положения и скорости Луны в J2000 [м, м/с].
+ * @param[in]  f         Вектор (5) фундаментальных аргументов (IERS) [арксекунды].
+ * @param[in]  fd        Вектор (5) производных фундаментальных аргументов [арксек/столетие].
+ * @param[in]  vw_i      Матрица перехода 3x3 из топоцентрической системы (VEN) в ITRF.
+ * @param[in]  gast      Вектор (2): Истинное звездное время по Гринвичу (GAST) и его производная [рад, рад/с].
+ * @param[in]  r2000     Матрица 9x3 (или блок матриц): переходы r0, r1, r2 из ITRF в J2000.
+ * @param[out] dxtide    Вектор смещения станции в небесной системе J2000 [метры].
+ * @param[out] dvtide    Вектор скорости смещения станции в небесной системе J2000 [м/с].
  */
-void SITE_TIDE_SOLID(const Eigen::Vector3d& xsta, double lat_gcen, double lon_gcen,
-                     const Eigen::Vector3d& sun, const Eigen::Vector3d& moon,
+void SITE_TIDE_SOLID(const Eigen::Vector3d& xsta_itrf, double lat_gcen, double lon_gcen,
+                     const Eigen::Matrix<double, 3, 2>& sun, const Eigen::Matrix<double, 3, 2>& moon,
                      const Eigen::VectorXd& f, const Eigen::VectorXd& fd,
-                     const Eigen::Matrix3d& vw_i, double gast,
+                     const Eigen::Matrix3d& vw_i, const Eigen::Vector2d& gast,
                      const Eigen::MatrixXd& r2000,
                      Eigen::Vector3d& dxtide, Eigen::Vector3d& dvtide);
 
@@ -232,6 +242,29 @@ void SITE_TIDE_SOLID(const Eigen::Vector3d& xsta, double lat_gcen, double lon_gc
 void SITE_TIDE_OC(int mjd_start, double ut1_sec, const ariadna::OceanTideData& tide_data,
                   const Eigen::Matrix3d& vw_i, const Eigen::MatrixXd& r2000,
                   Eigen::Vector3d& dx_octide, Eigen::Vector3d& dv_octide);
+
+/**
+ * @brief Расчет координат станции на эпоху наблюдения с учетом движения тектонических плит.
+ * Вычисляет геодезические координаты (GEOD) и формирует матрицу перехода 
+ * из топоцентрической системы (VEN) в геоцентрическую (ITRF).
+ * Для космических телескопов тектоника и геодезия обнуляются.
+ *
+ * @param[in]  station  Объект станции (содержит базовые xyz и скорости).
+ * @param[in]  dYear    Разница в годах между базовой эпохой каталога и эпохой наблюдения.
+ * @param[out] out      Структура SiteCorrData с обновленными параметрами и матрицей vw_i.
+ */
+void SITE_CORR(const Station& station, double dYear, SiteCorrData& out);
+
+/**
+ * @brief Преобразование декартовых геоцентрических координат в геодезические (Borkowski, 1989).
+ * Функция реализует точное (не итерационное) решение для пересчета координат точки 
+ * относительно земного эллипсоида.
+ * * @param[in]  equatorial_radius_r  Расстояние от оси вращения Земли (sqrt(X^2 + Y^2)) [метры].
+ * @param[in]  z_polar              Координата по оси Z (расстояние от экваториальной плоскости) [метры].
+ * @param[out] geodetic_latitude_fi Рассчитанная геодезическая широта точки [радианы].
+ * @param[out] geodetic_height_h    Рассчитанная геодезическая высота над поверхностью эллипсоида [метры].
+ */
+void GEOD(double equatorial_radius_r, double z_polar, double& geodetic_latitude_fi, double& geodetic_height_h);
 
 /**
  * @brief Вспомогательная функция для расчета аргументов океанических приливов.

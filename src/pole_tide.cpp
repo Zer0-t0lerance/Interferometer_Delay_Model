@@ -1,6 +1,5 @@
-// POLE_TIDE.cpp
-
 #include "functions.h"
+#include <cmath>
 
 namespace ariadna {
 
@@ -9,91 +8,49 @@ void POLE_TIDE(double cent, double lat_geod, double lon_geod,
                const Eigen::Matrix3d& vw_i, const Eigen::MatrixXd& r2000,
                Eigen::Vector3d& dx_poltide, Eigen::Vector3d& dv_poltide) {
     
-    using namespace cnst;
-    using Eigen::Vector3d;
-    using Eigen::Matrix3d;
-    using std::sin;
-    using std::cos;
-    using std::pow;
+    // IERS 2010 Constants for Pole Tide
+    const double factor_r = -0.033; // Radial factor [m/arcsec]
+    const double factor_t = 0.009;  // Transverse factor [m/arcsec]
 
-    // Константы
-    const double G3 = G3_LOVE_NUMBER;
-    const double C_rad = CARCRAD; // arcsec to rad
-
-    // 1. Расчет разницы полюсов: (фактический - средний)
+    // Mean pole path (IERS 2010 linear trend approximation)
+    double t_year = 2000.0 + cent * cnst::JUL_CENT / 365.25; 
+    double dt = t_year - 2000.0;
     
-    // Эпоха в годах с 2000.0
-    double t_year = 2000.0 + cent * JUL_CENT / 365.25; 
-    double dt = t_year - T0_YEAR_2000; // t - t0 [years]
+    double xm = 0.054 + 0.00083 * dt; // arcsec
+    double ym = 0.357 + 0.00395 * dt; // arcsec
 
-    // Среднее положение полюса по линейному тренду [arcsec]
-    double xm_2 = X_MEAN_T0_ARCSEC + dt * X_DOT_MEAN_T0_ARCSEC_PER_YEAR;
-    double ym_2 = Y_MEAN_T0_ARCSEC + dt * Y_DOT_MEAN_T0_ARCSEC_PER_YEAR;
+    double m1 = xp - xm;
+    double m2 = -(yp - ym); 
 
-    // Вариация полюса относительно среднего тренда [rad]
-    double dm_2_x = (xp - xm_2 * C_rad);
-    double dm_2_y = (yp - ym_2 * C_rad);
-    
-    // Скорость вариации полюса относительно среднего тренда [rad/day]
-    // Примечание: d(xm/ym)/dt = 0, так как тренд - константа по времени, но 
-    // Fortran-код использует dxdt/dydt (скорость полюса), поэтому dm_2_v - это просто dxdt/dydt.
-    // Переводим xp_rate и yp_rate из [rad/day] в [rad/s] для dv
-    double dm_2_vx = xp_rate;
-    double dm_2_vy = yp_rate; 
+    double cos_lat = std::cos(lat_geod);
+    double sin_lat = std::sin(lat_geod);
+    double cos_lon = std::cos(lon_geod);
+    double sin_lon = std::sin(lon_geod);
+    double cos_2lat = std::cos(2.0 * lat_geod);
 
-    // 2. Расчет топоцентрических смещений (drse) и скоростей (drse_v)
-    
-    // Формулы (IERS Conventions 2000, Eq 6.1, 6.2)
-    // S_r = -32 * G3 * cos(2*lat) * (xm*cos(lon) + ym*sin(lon)) [mm] -> [m]
-    // S_phi = 32 * G3 * sin(2*lat) * (xm*cos(lon) + ym*sin(lon)) [mm] -> [m]
-    // S_lambda = 32 * G3 * sin(lat) * (xm*sin(lon) - ym*cos(lon)) [mm] -> [m]
-    
-    // 32.0 * G3 * 1e-3 = 32.0 * 0.0036 * 0.001 = 1.152e-4
-    const double FACTOR_D = 32.0 * G3 * 0.001; 
-    
-    double cos_lat = cos(lat_geod);
-    double sin_lat = sin(lat_geod);
-    double cos_2lat = cos(2.0 * lat_geod);
-    double sin_2lat = sin(2.0 * lat_geod);
-    double cos_lon = cos(lon_geod);
-    double sin_lon = sin(lon_geod);
+    // Displacements in Local Topocentric (VEN: Up, East, North)
+    double u_r = factor_r * sin_lat * cos_lat * (m1 * cos_lon + m2 * sin_lon);
+    double u_e = factor_t * sin_lat * (m1 * sin_lon - m2 * cos_lon);
+    double u_n = -factor_t * cos_2lat * (m1 * cos_lon + m2 * sin_lon);
 
-    // Вспомогательные термины для смещения
-    double M_d = dm_2_x * cos_lon + dm_2_y * sin_lon; // (x-xm)cos(lon) + (y-ym)sin(lon)
-    double N_d = dm_2_x * sin_lon - dm_2_y * cos_lon; // (x-xm)sin(lon) - (y-ym)cos(lon)
+    Eigen::Vector3d dr_ven(u_r, u_e, u_n);
 
-    // Топоцентрические смещения (Up, North, East) [m]
-    Vector3d drse;
-    drse(0) = -FACTOR_D * cos_2lat * M_d;  // Up
-    drse(1) = FACTOR_D * sin_2lat * M_d;   // North
-    drse(2) = FACTOR_D * sin_lat * N_d;    // East
-    
-    // Вспомогательные термины для скорости
-    // Скорости полюса dX/dt, dY/dt
-    double M_dv = dm_2_vx * cos_lon + dm_2_vy * sin_lon;
-    double N_dv = dm_2_vx * sin_lon - dm_2_vy * cos_lon;
-    
-    // Топоцентрические скорости (Up, North, East) [m/s]
-    Vector3d drse_v;
-    drse_v(0) = -FACTOR_D * cos_2lat * M_dv / SECDAY; // /SECDAY для перевода [rad/day] -> [rad/s]
-    drse_v(1) = FACTOR_D * sin_2lat * M_dv / SECDAY;
-    drse_v(2) = FACTOR_D * sin_lat * N_dv / SECDAY;
+    // Velocities
+    double dm1_dt = xp_rate;
+    double dm2_dt = -yp_rate;
 
-    // 3. Преобразование из топоцентрической (Up, North, East) в J2000.0
+    double v_r = factor_r * sin_lat * cos_lat * (dm1_dt * cos_lon + dm2_dt * sin_lon);
+    double v_e = factor_t * sin_lat * (dm1_dt * sin_lon - dm2_dt * cos_lon);
+    double v_n = -factor_t * cos_2lat * (dm1_dt * cos_lon + dm2_dt * sin_lon);
 
-    // VW_i - матрица перехода из VEN (Up, North, East) в ITRF (краст-фиксированную X,Y,Z).
-    // dr_itrf = VW_i * drse
-    Vector3d dx_itrf = vw_i * drse;
-    Vector3d dv_itrf = vw_i * drse_v;
+    Eigen::Vector3d dv_ven(v_r, v_e, v_n);
 
-    // R2000 - матрица перехода из ITRF в J2000.0
-    // dx_j2000 = R * dx_itrf
-    const Matrix3d R = r2000.block<3, 3>(0, 0); // R2000(3,3,0)
-    dx_poltide = R * dx_itrf;
+    // Convert VEN to ITRF using vw_i
+    Eigen::Vector3d dx_itrf = vw_i * dr_ven;
+    Eigen::Vector3d dv_itrf = vw_i * dv_ven;
 
-    // dv_j2000 = R_dot * dx_itrf + R * dv_itrf
-    const Matrix3d R_dot = r2000.block<3, 3>(0, 3); // R2000(3,3,1)
-    dv_poltide = R_dot * dx_itrf + R * dv_itrf;
+    // Convert ITRF to J2000 using r2000
+    dx_poltide = r2000.block<3, 3>(0, 0) * dx_itrf;
+    dv_poltide = r2000.block<3, 3>(0, 3) * dx_itrf + r2000.block<3, 3>(0, 0) * dv_itrf;
 }
-
-} // namespace ariadna
+}

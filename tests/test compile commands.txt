@@ -31,3 +31,9 @@ g++ -std=c++17 -I.\external\eigen -I.\external src\nhmf2.cpp src\nwmf2.cpp src\s
 trop_delay
 g++ -std=c++17 -I.\external\eigen -I.\external src\nhmf2.cpp src\nwmf2.cpp src\sast_dry.cpp src\sast_wet.cpp src\trop_delay.cpp tests\test_trop_delay.cpp -o .\tests\test_trop_delay.exe
 
+site_tide_solid
+g++ -std=c++17 -I.\external\eigen -I.\external src\site_tide_solid.cpp tests\test_site_tide_solid.cpp -o .\tests\test_site_tide_solid.exe
+
+site_corr
+g++ -std=c++17 -I.\external\eigen -I.\external src\site_corr.cpp src\GEOD.cpp tests\test_site_corr.cpp -o .\tests\test_site_corr.exe
+
