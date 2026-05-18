@@ -198,6 +198,41 @@ void site(const std::vector<Station>& stations, int j1, int j2, const Observatio
           std::vector<Eigen::Vector3d>& asta_j2000);
 
 /**
+ * @brief Вычисление теоретической задержки и ее производной (модель IERS 2000/2010).
+ * Учитывает релятивистскую гравитационную задержку от Земли, Солнца и Луны (эффект Шапиро),
+ * геометрическую часть задержки с поправками на скорости движения станций, 
+ * а также прибавляет тропосферные и инструментальные смещения.
+ *
+ * @param[in]  base_line   Матрица 3x2: вектор базы (от ст.1 к ст.2) и его производная [м, м/с].
+ * @param[in]  xsta        Векторы (2): геоцентрические координаты станций 1 и 2 в J2000 [м].
+ * @param[in]  vsta        Векторы (2): геоцентрические скорости станций 1 и 2 в J2000 [м/с].
+ * @param[in]  asta        Векторы (2): геоцентрические ускорения станций 1 и 2 в J2000 [м/с^2].
+ * @param[in]  K_s         Единичный вектор направления на источник в J2000.
+ * @param[in]  Earth       Матрица 3x3: координаты, скорость и ускорение барицентра Земли в SSB [м, м/с, м/с^2].
+ * @param[in]  Sun         Матрица 3x3: координаты, скорость и ускорение Солнца в SSB [м, м/с, м/с^2].
+ * @param[in]  Moon        Матрица 3x3: координаты, скорость и ускорение Луны в SSB [м, м/с, м/с^2].
+ * @param[in]  Datmc_d     Матрица 2x2: сухая тропосфера (строка 0 - задержка, строка 1 - производная; столбцы - ст1, ст2) [с, с/с].
+ * @param[in]  Datmc_w     Матрица 2x2: влажная тропосфера [с, с/с].
+ * @param[in]  dtau_off    Матрица 2x2: инструментальная задержка (оси монтировки) [с, с/с].
+ * @param[in]  dt_temp     Матрица 2x2: температурная поправка антенны [с, с/с].
+ * @param[out] t2_t1       Полная теоретическая задержка [секунды].
+ * @param[out] dt2_t1      Производная теоретической задержки по времени [секунды/секунду].
+ */
+void theor_delay(const Eigen::Matrix<double, 3, 2>& base_line,
+                 const std::vector<Eigen::Vector3d>& xsta,
+                 const std::vector<Eigen::Vector3d>& vsta,
+                 const std::vector<Eigen::Vector3d>& asta,
+                 const Eigen::Vector3d& K_s,
+                 const Eigen::Matrix3d& Earth,
+                 const Eigen::Matrix3d& Sun,
+                 const Eigen::Matrix3d& Moon,
+                 const Eigen::Matrix2d& Datmc_d,
+                 const Eigen::Matrix2d& Datmc_w,
+                 const Eigen::Matrix2d& dtau_off,
+                 const Eigen::Matrix2d& dt_temp,
+                 double& t2_t1, double& dt2_t1);
+
+/**
  * @brief Вычисляет поправки к координатам станции из-за температурных деформаций монтировки.
  */
 void therm_def(const Station& station, const Observation& obs, double dtdt, const Eigen::Matrix3d& vw, const Eigen::MatrixXd& r2000, Eigen::Vector3d& dx_temp, Eigen::Vector3d& dv_temp);
@@ -395,10 +430,6 @@ void baseline(const Eigen::Matrix3d& r2000, const Eigen::MatrixXd& xsta_j2000t, 
  */
 void uv_plane(const Source& source, const std::vector<Eigen::Vector3d>& base_line, const std::vector<Eigen::Vector3d>& xsta_j2000t, double scale, Eigen::Vector3d& uv_coor);
 
-/**
- * @brief Расчет теоретической геометрической задержки (Consensus model) и ее производной для наземных баз (VLBI).
- */
-void theor_delay(const std::vector<Eigen::Vector3d>& base_line, const std::vector<Eigen::Vector3d>& xsta_j2000t, const std::vector<Eigen::Vector3d>& vsta_j2000t, const std::vector<Eigen::Vector3d>& asta_j2000, const Eigen::Vector3d& k_s, const Eigen::Vector3d& earth, const Eigen::MatrixXd& sun, const Eigen::MatrixXd& moon, const Eigen::MatrixXd& datmc_d, const Eigen::MatrixXd& datmc_w, const Eigen::MatrixXd& dtau_off, double& t2_t1, double& dt2_t1);
 
 /**
  * @brief Расчет теоретической задержки для баз с участием космических аппаратов (Space VLBI).

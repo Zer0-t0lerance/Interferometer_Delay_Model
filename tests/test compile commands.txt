@@ -37,3 +37,5 @@ g++ -std=c++17 -I.\external\eigen -I.\external src\site_tide_solid.cpp tests\tes
 site_corr
 g++ -std=c++17 -I.\external\eigen -I.\external src\site_corr.cpp src\GEOD.cpp tests\test_site_corr.cpp -o .\tests\test_site_corr.exe
 
+theor_delay
+g++ -std=c++17 -I.\external\eigen -I.\external src\theor_delay.cpp tests\test_theor_delay.cpp -o .\tests\test_theor_delay.exe
