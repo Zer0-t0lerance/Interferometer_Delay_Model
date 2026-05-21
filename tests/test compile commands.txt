@@ -39,3 +39,6 @@ g++ -std=c++17 -I.\external\eigen -I.\external src\site_corr.cpp src\GEOD.cpp te
 
 theor_delay
 g++ -std=c++17 -I.\external\eigen -I.\external src\theor_delay.cpp tests\test_theor_delay.cpp -o .\tests\test_theor_delay.exe
+
+rotation
+g++ -std=c++17 -I.\external\eigen src\rotation.cpp  tests\test_rotation.cpp -o .\tests\test_rotation.exe
