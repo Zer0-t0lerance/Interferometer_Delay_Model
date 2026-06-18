@@ -8,6 +8,14 @@
 #include "..\\external\\spline.h"
 
 namespace ariadna {
+// Описание: Данные океанического прилива для одной станции (11 волн, 3 компоненты (Up, North, East))
+struct OceanTideData {
+    // AMP_OCEAN[3, 11] - Амплитуды [m] в (Up, North, East) для 11 волн
+    Eigen::Matrix<double, 3, cnst::NUM_TIDES> amplitudes;
+    // PHA_OCEAN[3, 11] - Фазы [rad] в (Up, North, East) для 11 волн
+    Eigen::Matrix<double, 3, cnst::NUM_TIDES> phases;
+};
+
 struct Station {
     std::string name; // Station name (e.g., "RASTRON" for space telescope)
     Eigen::Vector3d xyz; // Coordinates in ITRF (m)
@@ -19,6 +27,7 @@ struct Station {
     double h_geod; // Geodetic height (m)
     std::string domes; // DOMES number
     std::string descr; // Description
+    OceanTideData tide_data;
 };
 
 struct Source {
@@ -81,14 +90,6 @@ struct EOPData {
     double y;             // Polar motion y (arcseconds)
     double dpsi;          // Nutation angle dpsi (arcseconds)
     double deps;          // Nutation angle deps (arcseconds)
-};
-
-// Описание: Данные океанического прилива для одной станции (11 волн, 3 компоненты (Up, North, East))
-struct OceanTideData {
-    // AMP_OCEAN[3, 11] - Амплитуды [m] в (Up, North, East) для 11 волн
-    Eigen::Matrix<double, 3, cnst::NUM_TIDES> amplitudes;
-    // PHA_OCEAN[3, 11] - Фазы [rad] в (Up, North, East) для 11 волн
-    Eigen::Matrix<double, 3, cnst::NUM_TIDES> phases;
 };
 
 struct SiteCorrData {

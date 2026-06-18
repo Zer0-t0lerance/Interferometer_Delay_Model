@@ -1,5 +1,6 @@
 #pragma once
 #include "structures.h"
+#include "READ_CAT.h"
 
 namespace ariadna {
 
@@ -273,9 +274,23 @@ void SITE_TIDE_SOLID(const Eigen::Vector3d& xsta_itrf, double lat_gcen, double l
 
 /**
  * @brief Вычисляет смещение и скорость станции, вызванные океаническими приливами (Ocean Tide Loading).
+ * * Вычисляет эффекты от 11 основных океанических приливных волн по модели Швидерского 
+ * (Внимание: фазы Швидерского сдвинуты на +/- 90 градусов и не совпадают со стандартами Дудсона/Картрайта).
+ * Переводит топоцентрические смещения в геоцентрическую систему (ITRF), а затем в J2000.
+ *
+ * @param[in]  jd          Юлианская дата на 0 часов UTC текущих суток (дни).
+ * @param[in]  ut1_sec     Интерполированное значение времени UT1 в течение суток (секунды).
+ * @param[in]  tide_data   Структура амплитуд (метры) и фаз (градусы) 11 волн по 3 осям: Up, West, South.
+ * @param[in]  vw_i        Матрица перехода от локальной системы (VEN) к земной (ITRF).
+ * @param[in]  r2000       Матрица перехода от ITRF к J2000 (в Фортране r2000(1,1,1)).
+ * @param[in]  dr2000_dt   Первая производная матрицы перехода r2000 по времени (в Фортране r2000(1,1,2)).
+ * @param[out] dx_octide   Выходной вектор смещения коры в системе J2000 (метры).
+ * @param[out] dv_octide   Выходной вектор скорости коры в системе J2000 (метры в секунду).
  */
-void SITE_TIDE_OC(int mjd_start, double ut1_sec, const ariadna::OceanTideData& tide_data,
-                  const Eigen::Matrix3d& vw_i, const Eigen::MatrixXd& r2000,
+void SITE_TIDE_OC(double jd, double ut1_sec, const OceanTideData& tide_data,
+                  const Eigen::Matrix3d& vw_i, 
+                  const Eigen::Matrix3d& r2000, 
+                  const Eigen::Matrix3d& dr2000_dt,
                   Eigen::Vector3d& dx_octide, Eigen::Vector3d& dv_octide);
 
 /**
@@ -373,7 +388,7 @@ void get_celestial_bodies(double jd, double ct, Eigen::Matrix3d& Earth, Eigen::M
  * Функция реализует классическое преобразование систем координат согласно модели IAU 1980:
  * R2000 = P * N * S * M, где P — прецессия, N — нутация, S — суточное вращение Земли, M — движение полюса.
  * Производная по времени рассчитывается с учетом угловой скорости вращения Земли вокруг своей оси.
- * * @param[in]  JD_TDB     Юлианская дата в шкале барицентрического динамического времени (TDB).
+ * @param[in]  JD_TDB     Юлианская дата в шкале барицентрического динамического времени (TDB).
  * @param[in]  JD_UT1     Юлианская дата в шкале всемирного времени (UT1).
  * @param[in]  xp         Координата X истинного полюса Земли (в радианах).
  * @param[in]  yp         Координата Y истинного полюса Земли (в радианах).

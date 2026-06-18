@@ -34,6 +34,9 @@ g++ -std=c++17 -I.\external\eigen -I.\external src\nhmf2.cpp src\nwmf2.cpp src\s
 site_tide_solid
 g++ -std=c++17 -I.\external\eigen -I.\external src\site_tide_solid.cpp tests\test_site_tide_solid.cpp -o .\tests\test_site_tide_solid.exe
 
+site_tide_OC
+g++ -std=c++17 -I.\external\eigen src\site_tide_OC.cpp tests\test_site_tide_oc.cpp -o .\tests\test_site_tide_oc.exe
+
 site_corr
 g++ -std=c++17 -I.\external\eigen -I.\external src\site_corr.cpp src\GEOD.cpp tests\test_site_corr.cpp -o .\tests\test_site_corr.exe
 
