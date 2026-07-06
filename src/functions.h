@@ -362,24 +362,32 @@ void site_atm40(int j1, int j2, const std::vector<Station>& stations, const Obse
                 const Eigen::MatrixXd& r2000, Eigen::Matrix<double, 3, 2>& dx_atm, Eigen::Matrix<double, 3, 2>& dv_atm);
 
 /**
- * @brief Вычисляет итоговую позицию и скорость станции в системе J2000.0 
- * путем суммирования всех поправок (приливы, полюс, атмосфера, температура).
+ * @brief Вычисляет итоговую позицию, скорость и ускорение станции в небесной системе координат J2000.0.
+ * Функция суммирует геоцентрические координаты станции с векторами смещений от различных 
+ * геофизических эффектов (твердые приливы, океан, полюс, атмосфера, температурные деформации).
+ * Результат преобразуется в J2000.0 с использованием матриц поворота и их производных.
+ * Внимание: тектоническая скорость станции здесь не нужна, она учтена заранее в xsta_itrf.
+ *
+ * @param[in]  xsta_itrf   Вектор базовых координат станции в земной системе ITRF [м].
+ * @param[in]  r2000       Матрица 3x3 перехода от ITRF к J2000.0.
+ * @param[in]  dr2000      Первая производная матрицы r2000 по времени [1/с].
+ * @param[in]  d2r2000     Вторая производная матрицы r2000 по времени [1/с^2].
+ * @param[in]  dx_tide     Смещение коры от твердых земных приливов [м].
+ * @param[in]  dv_tide     Скорость смещения коры от твердых приливов [м/с].
+ * @param[in]  dx_octide   Смещение коры от океанической нагрузки [м].
+ * @param[in]  dv_octide   Скорость смещения коры от океанической нагрузки [м/с].
+ * @param[in]  dx_poltide  Смещение коры из-за прилива полюса [м].
+ * @param[in]  dv_poltide  Скорость смещения из-за прилива полюса [м/с].
+ * @param[in]  dx_atm      Смещение коры от атмосферной нагрузки [м].
+ * @param[in]  dv_atm      Скорость смещения от атмосферной нагрузки [м/с].
+ * @param[in]  dx_temp     Смещение из-за температурной деформации монтировки [м].
+ * @param[in]  dv_temp     Скорость смещения из-за температурной деформации [м/с].
+ * @param[out] xsta_j2000t Итоговый вектор координат станции в J2000.0 [м].
+ * @param[out] vsta_j2000t Итоговый вектор скорости станции в J2000.0 [м/с].
+ * @param[out] asta_j2000  Итоговый вектор ускорения станции в J2000.0 [м/с^2].
  */
-void SITE_INST(const Eigen::Vector3d& xsta_itrf, const Eigen::Vector3d& vsta_itrf,
-               const Eigen::MatrixXd& r2000,
-               const Eigen::Vector3d& dx_tide, const Eigen::Vector3d& dv_tide,
-               const Eigen::Vector3d& dx_octide, const Eigen::Vector3d& dv_octide,
-               const Eigen::Vector3d& dx_poltide, const Eigen::Vector3d& dv_poltide,
-               const Eigen::Vector3d& dx_atm, const Eigen::Vector3d& dv_atm,
-               const Eigen::Vector3d& dx_temp, const Eigen::Vector3d& dv_temp,
-               Eigen::Vector3d& xsta_j2000t, Eigen::Vector3d& vsta_j2000t,
-               Eigen::Vector3d& asta_j2000);
-
-/**
- * @brief (Перегрузка) Вычисляет итоговую позицию и скорость станции в системе J2000.0 (внутренний вызов).
- */
-void site_inst(const Eigen::Vector3d& xsta_itrf, const Eigen::Vector3d& vsta_itrf,
-               const Eigen::MatrixXd& r2000,
+void SITE_INST(const Eigen::Vector3d& xsta_itrf,
+               const Eigen::Matrix3d& r2000, const Eigen::Matrix3d& dr2000, const Eigen::Matrix3d& d2r2000,
                const Eigen::Vector3d& dx_tide, const Eigen::Vector3d& dv_tide,
                const Eigen::Vector3d& dx_octide, const Eigen::Vector3d& dv_octide,
                const Eigen::Vector3d& dx_poltide, const Eigen::Vector3d& dv_poltide,
