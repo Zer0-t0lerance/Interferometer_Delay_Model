@@ -574,6 +574,10 @@ const double H_REF_S = 1000.0; // h_ref_s (scale height for atmospheric pressure
     // AU - Astronomical Unit [m]
     constexpr double AU_ASTRONOMICAL_UNIT = 149597870700.0;
 
+    // IERS 2000 Constants for Pole Tide (строго по Фортрану)
+    constexpr double factor_r = -0.032; // Radial factor [m/arcsec] (-32.D0 * 1.D-3)
+    constexpr double factor_t = 0.009;  // Transverse factor [m/arcsec] (9.D0 * 1.D-3)
+
     // Константы для POLE_TIDE (IERS Standards 2000)
     // t0 (Epoch for mean pole coordinates)
     constexpr double T0_YEAR_2000 = 2000.0;

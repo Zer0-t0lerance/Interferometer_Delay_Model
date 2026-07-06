@@ -10,14 +10,14 @@ void POLE_TIDE(double cent, double lat_geod, double lon_geod,
                Eigen::Vector3d& dx_poltide, Eigen::Vector3d& dv_poltide) 
 {
     // IERS 2000 Constants for Pole Tide (строго по Фортрану)
-    const double factor_r = -0.032; // Radial factor [m/arcsec] (-32.D0 * 1.D-3)
-    const double factor_t = 0.009;  // Transverse factor [m/arcsec] (9.D0 * 1.D-3)
+    const double factor_r = cnst::factor_r; // Radial factor [m/arcsec] (-32.D0 * 1.D-3)
+    const double factor_t = cnst::factor_t;  // Transverse factor [m/arcsec] (9.D0 * 1.D-3)
 
     // Вековой дрейф полюса (t_0 = 2000)
-    const double x_mean = 0.054;
-    const double y_mean = 0.357;
-    const double xdot_mean = 0.00083; // arcsec/year
-    const double ydot_mean = 0.00395; // arcsec/year
+    const double x_mean = cnst::X_MEAN_T0_ARCSEC;
+    const double y_mean = cnst::Y_MEAN_T0_ARCSEC;
+    const double xdot_mean = cnst::X_DOT_MEAN_T0_ARCSEC_PER_YEAR;
+    const double ydot_mean = cnst::Y_DOT_MEAN_T0_ARCSEC_PER_YEAR;
 
     double dt_years = cent * 100.0;
     
