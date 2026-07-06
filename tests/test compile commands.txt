@@ -40,6 +40,9 @@ g++ -std=c++17 -I.\external\eigen src\site_tide_OC.cpp tests\test_site_tide_oc.c
 site_corr
 g++ -std=c++17 -I.\external\eigen -I.\external src\site_corr.cpp src\GEOD.cpp tests\test_site_corr.cpp -o .\tests\test_site_corr.exe
 
+pole_tide
+g++ -std=c++17 -I.\external\eigen src\pole_tide.cpp tests\test_pole_tide.cpp -o .\tests\test_pole_tide.exe
+
 theor_delay
 g++ -std=c++17 -I.\external\eigen -I.\external src\theor_delay.cpp tests\test_theor_delay.cpp -o .\tests\test_theor_delay.exe
 

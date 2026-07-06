@@ -239,11 +239,27 @@ void theor_delay(const Eigen::Matrix<double, 3, 2>& base_line,
 void therm_def(const Station& station, const Observation& obs, double dtdt, const Eigen::Matrix3d& vw, const Eigen::MatrixXd& r2000, Eigen::Vector3d& dx_temp, Eigen::Vector3d& dv_temp);
 
 /**
- * @brief Вычисляет смещение и скорость станции, вызванные приливом полюса (Pole Tide) в ITRF->J2000.0.
+ * @brief Вычисляет смещение и скорость станции, вызванные приливом полюса (Pole Tide).
+ * Расчет производится в соответствии со стандартами IERS 2000 с учетом векового дрейфа 
+ * среднего полюса. Возвращает векторы смещения и скорости в небесной системе J2000.0.
+ *
+ * @param[in]  cent        Количество юлианских столетий от эпохи J2000.0 (для расчета векового дрейфа).
+ * @param[in]  lat_geod    Геодезическая широта станции (радианы).
+ * @param[in]  lon_geod    Геодезическая долгота станции (радианы).
+ * @param[in]  xp          Координата X полюса Земли из EOP (секунды дуги).
+ * @param[in]  yp          Координата Y полюса Земли из EOP (секунды дуги).
+ * @param[in]  xp_rate     Скорость изменения координаты X полюса (секунды дуги в секунду).
+ * @param[in]  yp_rate     Скорость изменения координаты Y полюса (секунды дуги в секунду).
+ * @param[in]  vw_i        Матрица перехода от локальной топоцентрической системы (VEN) к земной ITRF (3x3).
+ * @param[in]  r2000       Матрица перехода от земной системы ITRF к небесной J2000.0 (3x3).
+ * @param[in]  dr2000_dt   Первая производная матрицы поворота r2000 по времени (3x3).
+ * @param[out] dx_poltide  Выходной вектор смещения коры в системе J2000.0 (метры).
+ * @param[out] dv_poltide  Выходной вектор скорости коры в системе J2000.0 (метры в секунду).
  */
 void POLE_TIDE(double cent, double lat_geod, double lon_geod,
                double xp, double yp, double xp_rate, double yp_rate,
-               const Eigen::Matrix3d& vw_i, const Eigen::MatrixXd& r2000,
+               const Eigen::Matrix3d& vw_i, const Eigen::Matrix3d& r2000,
+               const Eigen::Matrix3d& dr2000_dt,
                Eigen::Vector3d& dx_poltide, Eigen::Vector3d& dv_poltide);
 
 /**
@@ -271,6 +287,17 @@ void SITE_TIDE_SOLID(const Eigen::Vector3d& xsta_itrf, double lat_gcen, double l
                      const Eigen::Matrix3d& vw_i, const Eigen::Vector2d& gast,
                      const Eigen::MatrixXd& r2000,
                      Eigen::Vector3d& dxtide, Eigen::Vector3d& dvtide);
+
+/**
+ * @brief Переносит коэффициенты океанической нагрузки из сырых данных каталога в структуры станций.
+ * * Функция проходит по списку станций, ищет совпадение имени в сыром массиве данных каталога 
+ * и перекладывает плоские массивы коэффициентов (33 элемента) в двумерные матрицы Eigen (3x11) 
+ * (оси: Up, West, South; 11 приливных волн). Если данных для станции нет, заполняет матрицы нулями.
+ *
+ * @param[in]     raw_oc_data  Вектор "сырых" записей каталога океанических приливов (прочитанных из ocload40.dat).
+ * @param[in,out] stations     Вектор структур станций. При совпадении имен поле `tide_data` будет заполнено.
+ */
+void map_ocean_tides_to_stations(const std::vector<oc_record>& raw_oc_data, std::vector<Station>& stations);
 
 /**
  * @brief Вычисляет смещение и скорость станции, вызванные океаническими приливами (Ocean Tide Loading).

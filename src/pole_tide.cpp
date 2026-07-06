@@ -5,52 +5,66 @@ namespace ariadna {
 
 void POLE_TIDE(double cent, double lat_geod, double lon_geod,
                double xp, double yp, double xp_rate, double yp_rate,
-               const Eigen::Matrix3d& vw_i, const Eigen::MatrixXd& r2000,
-               Eigen::Vector3d& dx_poltide, Eigen::Vector3d& dv_poltide) {
+               const Eigen::Matrix3d& vw_i, const Eigen::Matrix3d& r2000,
+               const Eigen::Matrix3d& dr2000_dt,
+               Eigen::Vector3d& dx_poltide, Eigen::Vector3d& dv_poltide) 
+{
+    // IERS 2000 Constants for Pole Tide (строго по Фортрану)
+    const double factor_r = -0.032; // Radial factor [m/arcsec] (-32.D0 * 1.D-3)
+    const double factor_t = 0.009;  // Transverse factor [m/arcsec] (9.D0 * 1.D-3)
+
+    // Вековой дрейф полюса (t_0 = 2000)
+    const double x_mean = 0.054;
+    const double y_mean = 0.357;
+    const double xdot_mean = 0.00083; // arcsec/year
+    const double ydot_mean = 0.00395; // arcsec/year
+
+    double dt_years = cent * 100.0;
     
-    // IERS 2010 Constants for Pole Tide
-    const double factor_r = -0.033; // Radial factor [m/arcsec]
-    const double factor_t = 0.009;  // Transverse factor [m/arcsec]
+    // Среднее положение полюса
+    double x_meant = x_mean + xdot_mean * dt_years;
+    double y_meant = y_mean + ydot_mean * dt_years;
 
-    // Mean pole path (IERS 2010 linear trend approximation)
-    double t_year = 2000.0 + cent * cnst::JUL_CENT / 365.25; 
-    double dt = t_year - 2000.0;
-    
-    double xm = 0.054 + 0.00083 * dt; // arcsec
-    double ym = 0.357 + 0.00395 * dt; // arcsec
+    // Смещение полюса (arcsec)
+    double m1 = xp - x_meant;
+    double m2 = -(yp - y_meant); 
 
-    double m1 = xp - xm;
-    double m2 = -(yp - ym); 
+    // Скорости изменения смещения полюса (arcsec/sec)
+    double dx_mean_dt = xdot_mean * 100.0 / cnst::JUL_CENT / cnst::SECDAY;
+    double dy_mean_dt = ydot_mean * 100.0 / cnst::JUL_CENT / cnst::SECDAY;
+    double dm1_dt = xp_rate - dx_mean_dt;
+    double dm2_dt = -(yp_rate - dy_mean_dt);
 
-    double cos_lat = std::cos(lat_geod);
-    double sin_lat = std::sin(lat_geod);
+    // Геометрия станции
+    double colat = cnst::HALFPI - lat_geod; // Коширота
     double cos_lon = std::cos(lon_geod);
     double sin_lon = std::sin(lon_geod);
-    double cos_2lat = std::cos(2.0 * lat_geod);
+    double cos_colat = std::cos(colat);
+    double cos_2colat = std::cos(2.0 * colat);
+    double sin_2colat = std::sin(2.0 * colat);
 
-    // Displacements in Local Topocentric (VEN: Up, East, North)
-    double u_r = factor_r * sin_lat * cos_lat * (m1 * cos_lon + m2 * sin_lon);
-    double u_e = factor_t * sin_lat * (m1 * sin_lon - m2 * cos_lon);
-    double u_n = -factor_t * cos_2lat * (m1 * cos_lon + m2 * sin_lon);
+    // --- Топоцентрические смещения (Up, East, North) ---
+    // В Фортране drse(3) считается для Юга, а затем инвертируется. Мы считаем сразу Север.
+    double drse_up    = factor_r * sin_2colat * (m1 * cos_lon + m2 * sin_lon);
+    double drse_east  = factor_t * cos_colat  * (m1 * sin_lon - m2 * cos_lon);
+    double drse_south = -factor_t * cos_2colat * (m1 * cos_lon + m2 * sin_lon);
+    
+    Eigen::Vector3d dr_ven(drse_up, drse_east, -drse_south);
 
-    Eigen::Vector3d dr_ven(u_r, u_e, u_n);
+    // --- Топоцентрические скорости (Up, East, North) ---
+    double drsev_up    = factor_r * sin_2colat * (dm1_dt * cos_lon + dm2_dt * sin_lon);
+    double drsev_east  = factor_t * cos_colat  * (dm1_dt * sin_lon - dm2_dt * cos_lon);
+    double drsev_south = -factor_t * cos_2colat * (dm1_dt * cos_lon + dm2_dt * sin_lon);
 
-    // Velocities
-    double dm1_dt = xp_rate;
-    double dm2_dt = -yp_rate;
+    Eigen::Vector3d dv_ven(drsev_up, drsev_east, -drsev_south);
 
-    double v_r = factor_r * sin_lat * cos_lat * (dm1_dt * cos_lon + dm2_dt * sin_lon);
-    double v_e = factor_t * sin_lat * (dm1_dt * sin_lon - dm2_dt * cos_lon);
-    double v_n = -factor_t * cos_2lat * (dm1_dt * cos_lon + dm2_dt * sin_lon);
-
-    Eigen::Vector3d dv_ven(v_r, v_e, v_n);
-
-    // Convert VEN to ITRF using vw_i
+    // --- Преобразование VEN -> ITRF ---
     Eigen::Vector3d dx_itrf = vw_i * dr_ven;
     Eigen::Vector3d dv_itrf = vw_i * dv_ven;
 
-    // Convert ITRF to J2000 using r2000
-    dx_poltide = r2000.block<3, 3>(0, 0) * dx_itrf;
-    dv_poltide = r2000.block<3, 3>(0, 3) * dx_itrf + r2000.block<3, 3>(0, 0) * dv_itrf;
+    // --- Преобразование ITRF -> J2000 ---
+    dx_poltide = r2000 * dx_itrf;
+    dv_poltide = r2000 * dv_itrf + dr2000_dt * dx_itrf;
 }
-}
+
+} // namespace ariadna
