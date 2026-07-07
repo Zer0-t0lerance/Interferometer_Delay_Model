@@ -3,3 +3,11 @@
 *.bsp
 linux_p*
 *.exe
+
+# Артефакты сборки
+*.o
+*.a
+
+# SOFA: исходники (c/src) храним, сборку и документацию — нет
+external/sofa/**/build/
+external/sofa/**/doc/
