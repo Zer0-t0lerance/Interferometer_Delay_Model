@@ -2,34 +2,8 @@
 
 namespace ariadna {
 
-// Функция для преобразования декартовых координат в геодезические (Borkowski, 1989)
-void GEOD(double r, double z, double& fi, double& h) {
-    double a = cnst::AE; // Semimajor axis
-    double fr = cnst::F; // Inverse flattening
-    double b = (z >= 0) ? (a - a / fr) : -(a - a / fr);
-    double E = ((z + b) * b / a - a) / r;
-    double F_val = ((z - b) * b / a + a) / r;
-
-    // Решение уравнения t^4 + 2*E*t^3 + 2*F*t - 1 = 0
-    double P = (E * F_val + 1.0) * 4.0 / 3.0;
-    double Q = (E * E - F_val * F_val) * 2.0;
-    double D = P * P * P + Q * Q;
-
-    double v;
-    if (D >= 0.0) {
-        double s = std::sqrt(D) + Q;
-        s = (s > 0) ? std::exp(std::log(std::abs(s)) / 3.0) : -std::exp(std::log(std::abs(s)) / 3.0);
-        v = P / s - s;
-        v = -(Q + Q + v * v * v) / (3.0 * P);
-    } else {
-        v = 2.0 * std::sqrt(-P) * std::cos(std::acos(Q / P / std::sqrt(-P)) / 3.0);
-    }
-
-    double G = 0.5 * (E + std::sqrt(E * E + v));
-    double t = std::sqrt(G * G + (F_val - v * G) / (G + G - E)) - G;
-    fi = std::atan((1.0 - t * t) * a / (2.0 * b * t));
-    h = (r - a * t) * std::cos(fi) + (z - b) * std::sin(fi);
-}
+// GEOD (декартовы -> геодезические, Borkowski 1989) реализован в GEOD.cpp,
+// объявлен в functions.h. Здесь дубликат удалён — линковать с GEOD.cpp.
 
 // Функция для вращения вокруг оси (аналог R_123)
 void rotation_matrix(int axis, double angle, Eigen::Matrix3d& R) {
