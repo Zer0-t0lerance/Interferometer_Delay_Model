@@ -386,17 +386,35 @@ void GEOD(double equatorial_radius_r, double z_polar, double& geodetic_latitude_
 void calc_tide_angles(int mjd_start, double ut1_sec, Eigen::VectorXd& angle, Eigen::VectorXd& speed_angle);
 
 /**
- * @brief Вычисляет смещение и скорость станции, вызванные атмосферной нагрузкой (Atmospheric Loading).
+ * @brief Смещение и скорость станции из-за атмосферной нагрузки в системе J2000.0 (порт SITE_ATM40).
+ *
+ * Топоцентрическое смещение по модели каталога VLBI_atmload4_12.cat:
+ *   dr(c) = Sum_{i=1..3}[A_i*cos(omega_i*t) + B_i*sin(omega_i*t)]  для всех компонент c=V,E,N,
+ *   а для вертикали (V) дополнительно + b0 + b1*(P - p_0),
+ * где t = MJD - ATM_EPOCH_MJD [сут], omega_i = TWOPI/ATM_PERIODS[i].
+ * Затем VEN -> ITRF (через vw_i) -> J2000 (через r2000), для скорости учитывается
+ * вращение системы: dv = r2000*dv_itrf + dr2000_dt*dx_itrf.
+ *
+ * @param[in]  mjd        Модифицированная юлианская дата на 0h UTC [сут].
+ * @param[in]  utc        Доля суток UTC.
+ * @param[in]  pres       Атмосферное давление на станции P(MJD) [мбар].
+ * @param[in]  dPdt       Производная давления dP/dt (в тех же ед./сут, что ряд; из DMETEO).
+ * @param[in]  atm        Коэффициенты нагрузки станции (Station.atm_load): coef(3x8) [мм] и p_0 [мбар].
+ * @param[in]  vw_i       Матрица перехода VEN (Vertical, East, North) -> ITRF (3x3).
+ * @param[in]  r2000      Матрица перехода ITRF -> J2000.0 (3x3).
+ * @param[in]  dr2000_dt  Первая производная r2000 по времени (3x3) [1/с].
+ * @param[out] dx_atm     Вектор смещения станции в J2000.0 [м].
+ * @param[out] dv_atm     Вектор скорости смещения станции в J2000.0 [м/с].
  */
-void SITE_ATM40(double dPdt, const Eigen::Matrix3d& vw_i, const Eigen::MatrixXd& r2000,
+void SITE_ATM40(int mjd, double utc, double pres, double dPdt,
+                const AtmLoadData& atm,
+                const Eigen::Matrix3d& vw_i,
+                const Eigen::Matrix3d& r2000, const Eigen::Matrix3d& dr2000_dt,
                 Eigen::Vector3d& dx_atm, Eigen::Vector3d& dv_atm);
 
-/**
- * @brief Вычисляет влияние атмосферной нагрузки на координаты двух станций интерферометра.
- */
-void site_atm40(int j1, int j2, const std::vector<Station>& stations, const Observation& observation,
-                const Eigen::Vector2d& dPdt, const std::vector<Eigen::Matrix3d>& vw,
-                const Eigen::MatrixXd& r2000, Eigen::Matrix<double, 3, 2>& dx_atm, Eigen::Matrix<double, 3, 2>& dv_atm);
+// ПРИМЕЧАНИЕ: двухстанционная обёртка site_atm40(j1, j2, ...) (сборка dx_atm/dv_atm
+// для пары станций наблюдения) будет добавлена вместе со слоем оркестрации, когда
+// появятся посуточные P и dP/dt из DMETEO. Её черновик был удалён как несобираемый.
 
 /**
  * @brief Вычисляет итоговую позицию, скорость и ускорение станции в небесной системе координат J2000.0.

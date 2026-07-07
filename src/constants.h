@@ -558,11 +558,12 @@ constexpr double UT1_SCALE = 1.0e-4; // для dut (в секундах)
 constexpr double LOD_SCALE = 1.0e-5; // для dlod (в секундах)
 constexpr double OMEGA_SCALE = 1.0e-14; // для domega (в рад/с)
 
-// --- Константы SITE_ATM40 ---
-const double P_0 = 1013.25; // mbar (Reference pressure at sea level)
-const double rho = 2.383e-10; // m/mbar (Density factor, corresponds to correction of -0.7 mm/mbar)
-const double C_H = 1.0; // Height correction factor (H_h * L_h)
-const double H_REF_S = 1000.0; // h_ref_s (scale height for atmospheric pressure)
+// --- Константы SITE_ATM40 (атмосферная нагрузка, каталог VLBI_atmload4_12.cat) ---
+// Опорная эпоха ряда: t = MJD_obs - ATM_EPOCH_MJD  (1984-01-01).
+constexpr double ATM_EPOCH_MJD = 45700.0;
+// Периоды трёх гармонических членов [сут]: годовой, полугодовой, суточный.
+// Угловые скорости omega_i = TWOPI / ATM_PERIODS[i]  [рад/сут].
+constexpr double ATM_PERIODS[3] = {365.2422, 182.12, 1.0};
 
 // Параметры эллипсоида (из COMMON /PHYS/ в GEOD) — используем канонические
     // константы, объявленные выше: AE (6378136.3), F (298.25765, tide-free),
@@ -629,26 +630,9 @@ const double H_REF_S = 1000.0; // h_ref_s (scale height for atmospheric pressure
         { 2.0,  0.0,  0.0,  0.0  }  // SSA
     };
 
-    // --- Коэффициенты атмосферной нагрузки (Пример) ---
-    // Коэффициенты смещения коры (Up, North, East) [m/mbar]
-    // Эти значения зависят от конкретной модели и местоположения. 
-    // Для универсальности и соответствия Fortran-коду, который предполагает наличие
-    // этих коэффициентов, используем типовые значения (или требуем их как входные данные).
-    // Поскольку коэффициенты не были представлены, вводим заглушки, которые в рабочем коде 
-    // должны быть переданы как входные данные для конкретной станции.
-    // Если предположить, что SITE_ATM40 использует универсальную модель:
-    
-    // R_ATM (Atmospheric loading factors for Up, North, East) [m/mbar]
-    // Источник: VLBI Software Models (типовые значения)
-    constexpr double ATM_LOADING_COEFF_ARRAY[3] = { 
-        4.0e-9, // Up [m/Pa] (4.0 mm/kPa = 4.0e-6 m/kPa = 4.0e-9 m/Pa)
-        0.0,    // North [m/Pa] (заглушка)
-        0.0     // East [m/Pa] (заглушка)
-    };
-    
-    // Fortran-код использует dP/dt [mbar/sec]. 
-    // 1 mbar = 100 Pa.
-    constexpr double ATM_CONV_MBAR_TO_PA = 100.0;
+    // (Коэффициенты атмосферной нагрузки хранятся не здесь, а по станциям —
+    //  структура AtmLoadData в structures.h, заполняется из каталога
+    //  VLBI_atmload4_12.cat через map_atm_loading_to_stations.)
 
 // ============================================================================
 //   INTERP_IERS — высокочастотные (суточные/полусуточные) поправки EOP
