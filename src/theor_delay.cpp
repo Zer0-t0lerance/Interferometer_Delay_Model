@@ -1,20 +1,15 @@
 // theor_delay.cpp
 //
-// Порт SUBROUTINE THEOR_DELAYcorr (версия, которую реально вызывает главная
-// программа ARIADNA) — теоретическая ВАКУУМНАЯ задержка, скорректированная за
-// релятивистские эффекты (гравитационная задержка Шапиро от Солнца/Луны/Земли +
-// геометрия с поправками на движение станций), плюс инструментальная задержка
-// смещения оси монтировки (dtau_off).
+// Порт SUBROUTINE THEOR_DELAY (версия, соответствующая операционному прогону ARIADNA,
+// подтверждённому отладочным дампом): полная теоретическая задержка =
+//   геометрия + релятивизм (Шапиро: Солнце/Луна/Земля)
+//   + тропосфера (Datmc) + инструментальная задержка оси (dtau_off) + термодеформация (dt_temp).
 //
-// Отличия от прежнего порта THEOR_DELAY4_10:
-//   * добавлены члены term2e/term2f («New terms for Radioastron»);
-//   * тропосфера ВНУТРИ не добавляется (в corr Datmc обнулена) — её прибавляет
-//     вызывающий код (trop_delay) отдельно; поэтому Datmc_d/Datmc_w убраны из сигнатуры;
-//   * термодеформация (dt_temp) убрана — в corr она учитывается в координатах станций
-//     (через THERM_DEF), а не в задержке;
-//   * финальная сборка суммирует dtau_off ОБЕИХ станций: dtau_off(1,1)+dtau_off(2,1).
+// Дополнительно включены члены term2e/term2f («New terms for Radioastron») из
+// THEOR_DELAYcorr — для наземно-космических баз. На наземных базах они ~1e-15
+// (ниже шума), поэтому совпадение с наземным дампом сохраняется.
 //
-// Планеты (гравитация Шапиро от планет) пока не считаются (эффект ~пс).
+// Планеты (гравитация Шапиро от планет) пока не учитываются (эффект ~пс).
 
 #include "functions.h"
 #include <cmath>
@@ -29,7 +24,10 @@ void theor_delay(const Eigen::Matrix<double, 3, 2>& base_line,
                  const Eigen::Matrix3d& Earth,
                  const Eigen::Matrix3d& Sun,
                  const Eigen::Matrix3d& Moon,
+                 const Eigen::Matrix2d& Datmc_d,
+                 const Eigen::Matrix2d& Datmc_w,
                  const Eigen::Matrix2d& dtau_off,
+                 const Eigen::Matrix2d& dt_temp,
                  double& t2_t1, double& dt2_t1) {
 
     double C = cnst::C;
@@ -148,10 +146,9 @@ void theor_delay(const Eigen::Matrix<double, 3, 2>& base_line,
     double term2d = Earth.col(1).dot(vsta[1]) / C2;
     double dterm2d = (Earth.col(2).dot(vsta[1]) + Earth.col(1).dot(asta[1])) / C2;
 
-    // --- Новые члены для Радиоастрона (THEOR_DELAYcorr) ---
+    // --- Члены для Радиоастрона (THEOR_DELAYcorr); на наземных базах ~1e-15 ---
     double term2e = Earth.col(2).dot(xsta[1]) / C2;
     double dterm2e = Earth.col(2).dot(vsta[1]) / C2;
-
     double bracket2f = K_s.dot(asta[1]) + K_s.dot(Earth.col(2));
     double term2f = term2a * bracket2f / (2.0 * C);
     double dterm2f = dterm2a * bracket2f / (2.0 * C);
@@ -184,11 +181,24 @@ void theor_delay(const Eigen::Matrix<double, 3, 2>& base_line,
     double tv2_tv1 = numer_Eq9 / den_Eq9;
     double dtv2_tv1 = dnumer_Eq9 / den_Eq9 - numer_Eq9 * dden_Eq9 / (den_Eq9 * den_Eq9);
 
-    // ===================== ИНСТРУМЕНТАЛЬНАЯ ЗАДЕРЖКА (ось монтировки) =====================
-    // Тропосфера здесь НЕ добавляется (в corr Datmc обнулена) — её прибавляет
-    // оркестрация через trop_delay. Складываем задержку смещения оси обеих станций.
-    t2_t1  = tv2_tv1  + dtau_off(0, 0) + dtau_off(1, 0);
-    dt2_t1 = dtv2_tv1 + dtau_off(0, 1) + dtau_off(1, 1);
+    // ===================== ТРОПОСФЕРА =====================
+    Eigen::Vector3d w2_w1 = vsta[1] - vsta[0];
+    double K_dotw2w1 = K_s.dot(w2_w1);
+
+    double Datmc11 = Datmc_d(0, 0) + Datmc_w(0, 0); // Datmc(1,1)
+    double tg2_tg1 = tv2_tv1 + Datmc11 * K_dotw2w1 / C;
+    double dtg2_tg1 = dtv2_tv1;
+
+    double Datmc21 = Datmc_d(0, 1) + Datmc_w(0, 1); // Datmc(2,1)
+    double t2_t1_a = tg2_tg1 + Datmc11 + Datmc21;
+
+    double Datmc12 = Datmc_d(1, 0) + Datmc_w(1, 0); // Datmc(1,2)
+    double Datmc22 = Datmc_d(1, 1) + Datmc_w(1, 1); // Datmc(2,2)
+    double dt2_t1_a = dtg2_tg1 + Datmc12 + Datmc22;
+
+    // ===================== ОСЬ МОНТИРОВКИ + ТЕРМОДЕФОРМАЦИЯ =====================
+    t2_t1 = t2_t1_a + dtau_off(0, 0) + dtau_off(0, 1) + dt_temp(0, 0) - dt_temp(0, 1);
+    dt2_t1 = dt2_t1_a + dtau_off(1, 0) + dtau_off(1, 1) + dt_temp(1, 0) - dt_temp(1, 1);
 }
 
 } // namespace ariadna
