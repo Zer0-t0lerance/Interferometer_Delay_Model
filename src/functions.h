@@ -19,9 +19,18 @@ void tai_time(double mjd, double UTC, double &TAI, double &TT);
 void nsec(double mjd, double& idelt);
 
 /**
- * @brief Интерполяция данных параметров ориентации Земли (IERS) для заданного наблюдения.
+ * @brief Интерполяция параметров ориентации Земли по стандарту IERS (модель Bizouard).
+ *
+ * 4-точечный Лагранж по 7 узлам + суточные/полусуточные поправки (океан + либрация).
+ * ВНИМАНИЕ по единицам: выход НЕ в радианах — eop_int(0)=UT1-UTC [сек],
+ * eop_int(1..2)=x,y [угл.сек], eop_int(3..4)=dpsi,deps [угл.сек].
+ *
+ * @param[in]  obs      Наблюдение (MJD и UTC).
+ * @param[in]  eop_data 7 опорных точек EOP вокруг момента наблюдения.
+ * @param[out] eop_int  Вектор из 5 значений [UT1-UTC, x, y, dpsi, deps].
  */
-void interp_iers(const Observation& obs, Eigen::VectorXd& eop_int);
+void interp_iers(const Observation& obs, const std::vector<EOPData>& eop_data,
+                 Eigen::VectorXd& eop_int);
 
 /**
  * @brief Вычисляет фундаментальные аргументы Луны и Солнца (IERS 2003).
@@ -178,7 +187,28 @@ void terms_lib(double cent, const Eigen::VectorXd& f, const Eigen::VectorXd& fd,
 // ============================================================================
 
 /**
- * @brief Инициализация и расчет базовых геоцентрических и геодезических координат для списка станций.
+ * @brief Инициализация базовых координат станций (аналог SUBROUTINE SITE в Фортране).
+ *
+ * Для каждой станции переносит ITRF-координаты на эпоху наблюдения (с учётом
+ * скорости плит), вычисляет геоцентрические (широта/долгота/радиус) и
+ * геодезические (широта/высота через GEOD) координаты и матрицу перехода
+ * VEN -> ITRF. Космический телескоп ("RASTRON") берётся из space_stations,
+ * геодезия для него обнуляется.
+ *
+ * @param[in]  stations       Список станций (базовые ITRF-координаты, скорости, имена).
+ * @param[in]  space_stations Данные космического телескопа (позиция/скорость в GCRS).
+ * @param[in]  n_stations     Число станций.
+ * @param[in]  dyear          Годы от эпохи каталога до эпохи наблюдения.
+ * @param[out] site_xyz       Геоцентрические ITRF-координаты станций на эпоху [м].
+ * @param[out] site_vel       Скорости станций [м/год].
+ * @param[out] lat_geod       Геодезическая широта [рад].
+ * @param[out] h_geod         Геодезическая высота над эллипсоидом [м].
+ * @param[out] lat_gcen       Геоцентрическая широта [рад].
+ * @param[out] lon_gcen       Геоцентрическая долгота [рад].
+ * @param[out] sph_rad        Сферический радиус (|xyz|) [м].
+ * @param[out] u_site         Расстояние от оси вращения (экваториальный радиус) [км].
+ * @param[out] v_site         Расстояние от экваториальной плоскости (Z) [км].
+ * @param[out] vw             Матрицы перехода VEN (Vertical, East, North) -> ITRF (3x3).
  */
 void site(const std::vector<Station>& stations, const std::vector<SpaceStation>& space_stations, int n_stations, double dyear,
           std::vector<Eigen::Vector3d>& site_xyz, std::vector<Eigen::Vector3d>& site_vel, std::vector<double>& lat_geod,
@@ -187,16 +217,10 @@ void site(const std::vector<Station>& stations, const std::vector<SpaceStation>&
           std::vector<double>& u_site, std::vector<double>& v_site,
           std::vector<Eigen::Matrix3d>& vw);
 
-/**
- * @brief Вычисляет геоцентрические координаты, скорости и ускорения станций в системе J2000 с учетом всех поправок.
- */
-void site(const std::vector<Station>& stations, int j1, int j2, const Observation& observation,
-          double cent, const Eigen::VectorXd& f, const Eigen::VectorXd& fd,
-          double gast, const Eigen::MatrixXd& r2000_full,
-          const Eigen::VectorXd& eop_int, const Eigen::MatrixXd& deop_diu,
-          const Eigen::MatrixXd& deop_lib,
-          std::vector<Eigen::Vector3d>& xsta_j2000t, std::vector<Eigen::Vector3d>& vsta_j2000t,
-          std::vector<Eigen::Vector3d>& asta_j2000);
+// ПРИМЕЧАНИЕ: перегрузка site(...) для пары станций (посуточная сборка координат
+// в J2000 с приливными/нагрузочными поправками) будет восстановлена вместе со
+// слоем оркестрации (см. project-ariadna-port-status). Её черновик был удалён
+// как несобираемый.
 
 /**
  * @brief Вычисление теоретической задержки и ее производной (модель IERS 2000/2010).
@@ -298,6 +322,19 @@ void SITE_TIDE_SOLID(const Eigen::Vector3d& xsta_itrf, double lat_gcen, double l
  * @param[in,out] stations     Вектор структур станций. При совпадении имен поле `tide_data` будет заполнено.
  */
 void map_ocean_tides_to_stations(const std::vector<oc_record>& raw_oc_data, std::vector<Station>& stations);
+
+/**
+ * @brief Переносит коэффициенты атмосферной нагрузки из сырого каталога в структуры станций.
+ *
+ * Ищет совпадение имени станции в массиве atm_record (каталог VLBI_atmload4_12.cat)
+ * и заполняет Station.atm_load.coef (3 компоненты VEN × 8 коэффициентов A1 B1 A2 B2 A3 B3 b0 b1,
+ * амплитуды в мм). Опорное давление p_0 заполняется отдельно из каталога ANTENNA_INFO.
+ * Если станция не найдена — coef обнуляется, has_data = false.
+ *
+ * @param[in]     raw_atm_data Вектор записей каталога атмосферной нагрузки (ReadATM).
+ * @param[in,out] stations     Станции; при совпадении имён заполняется поле atm_load.
+ */
+void map_atm_loading_to_stations(const std::vector<atm_record>& raw_atm_data, std::vector<Station>& stations);
 
 /**
  * @brief Вычисляет смещение и скорость станции, вызванные океаническими приливами (Ocean Tide Loading).
@@ -443,12 +480,27 @@ void get_r2000_matrices(double JD_TDB, double JD_UT1, double xp, double yp,
 void source_vec(const std::vector<Source>& sources, double t_mean, std::vector<Eigen::Vector3d>& k_star);
 
 /**
- * @brief Получение координат Земли, Солнца и Луны на основе эфемерид JPL (матричный формат).
+ * @brief Интерфейс к эфемеридам JPL DE (порт JPLEPH_421), матричный формат.
+ *
+ * Соглашение оригинала: Земля — барицентрическая (SSB); Солнце и Луна —
+ * ГЕОЦЕНТРИЧЕСКИЕ (тело_SSB - Земля_SSB). Обёртка над get_celestial_bodies().
+ *
+ * @param[in]  jd    Юлианская дата на 0h UTC (целая часть) [сут].
+ * @param[in]  ct    Доля координатного времени (TDB/TT) [сут].
+ * @param[out] earth Матрица 3x3: SSB позиция, скорость, ускорение Земли [м, м/с, м/с^2].
+ * @param[out] sun   Матрица 3x2: геоцентрические позиция и скорость Солнца [м, м/с].
+ * @param[out] moon  Матрица 3x2: геоцентрические позиция и скорость Луны [м, м/с].
  */
 void jpl_eph(double jd, double ct, Eigen::Matrix3d& earth, Eigen::MatrixXd& sun, Eigen::MatrixXd& moon);
 
 /**
- * @brief Получение координат Земли, Солнца и Луны на основе эфемерид JPL (векторный формат).
+ * @brief Интерфейс к эфемеридам JPL DE, векторный формат (только позиции).
+ *
+ * @param[in]  jd    Юлианская дата на 0h UTC (целая часть) [сут].
+ * @param[in]  ct    Доля координатного времени (TDB/TT) [сут].
+ * @param[out] earth SSB позиция Земли [м].
+ * @param[out] sun   Геоцентрическая позиция Солнца [м].
+ * @param[out] moon  Геоцентрическая позиция Луны [м].
  */
 void jpleph(double jd, double ct, Eigen::Vector3d& earth, Eigen::Vector3d& sun, Eigen::Vector3d& moon);
 

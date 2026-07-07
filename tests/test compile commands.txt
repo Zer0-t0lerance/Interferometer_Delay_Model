@@ -48,3 +48,9 @@ g++ -std=c++17 -I.\external\eigen -I.\external src\theor_delay.cpp tests\test_th
 
 rotation
 g++ -std=c++17 -I.\external\eigen src\rotation.cpp  tests\test_rotation.cpp -o .\tests\test_rotation.exe
+
+interp_iers
+g++ -std=c++17 -I.\external\eigen -I.\external src\interp_iers.cpp tests\test_interp_iers.cpp -o .\tests\test_interp_iers.exe
+
+jpleph (обёртки над ephemeris.cpp; нужен бинарный файл эфемерид JPL DE для запуска)
+g++ -std=c++17 -I.\external\eigen -I.\external src\jpleph.cpp src\ephemeris.cpp tests\test_jpleph.cpp -o .\tests\test_jpleph.exe
