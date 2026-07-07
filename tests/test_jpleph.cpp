@@ -14,8 +14,21 @@
 #include <cstdio>
 #include <cmath>
 #include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
 
 using namespace ariadna;
+
+// Находит файл вне зависимости от рабочей папки (корень репо или tests/).
+static std::string resolve_path(const char* argv_override, std::vector<std::string> candidates) {
+    if (argv_override) candidates.insert(candidates.begin(), argv_override);
+    for (const auto& c : candidates) {
+        std::ifstream f(c, std::ios::binary);
+        if (f.good()) return c;
+    }
+    return candidates.back();
+}
 
 static int g_fail = 0;
 static void expect(const char* what, bool ok, const char* detail = "") {
@@ -23,13 +36,18 @@ static void expect(const char* what, bool ok, const char* detail = "") {
     printf("  %-42s %s  %s\n", what, ok ? "OK" : "FAIL", detail);
 }
 
-int main() {
+int main(int argc, char** argv) {
     printf("=====================================================================\n");
     printf("  UNIT: jpleph / jpl_eph (frame convention + sanity)\n");
     printf("---------------------------------------------------------------------\n");
 
+    std::string eph = resolve_path(argc > 1 ? argv[1] : nullptr,
+        {"external/dephem-master/linux_p1550p2650.440t",
+         "../external/dephem-master/linux_p1550p2650.440t"});
+    printf("  Эфемериды: %s\n", eph.c_str());
+
     try {
-        init_ephemeris("external/dephem-master/linux_p1550p2650.440t");
+        init_ephemeris(eph);
     } catch (const std::exception& e) {
         std::cerr << "SKIP/FAIL: не удалось загрузить эфемериды: " << e.what() << "\n";
         return 2;

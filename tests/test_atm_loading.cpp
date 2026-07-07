@@ -16,8 +16,21 @@
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <fstream>
+#include <string>
+#include <vector>
 
 using namespace ariadna;
+
+// Находит файл вне зависимости от рабочей папки (корень репо или tests/).
+static std::string resolve_path(const char* argv_override, std::vector<std::string> candidates) {
+    if (argv_override) candidates.insert(candidates.begin(), argv_override);
+    for (const auto& c : candidates) {
+        std::ifstream f(c);
+        if (f.good()) return c;
+    }
+    return candidates.back();
+}
 
 static int g_fail = 0;
 
@@ -28,14 +41,19 @@ static void check(const char* what, double got, double exp) {
     printf("  %-28s got=% .4f exp=% .4f %s\n", what, got, exp, ok ? "OK" : "FAIL");
 }
 
-int main() {
+int main(int argc, char** argv) {
     printf("=====================================================================\n");
     printf("  UNIT: ReadATM + map_atm_loading_to_stations\n");
     printf("---------------------------------------------------------------------\n");
 
+    std::string path = resolve_path(argc > 1 ? argv[1] : nullptr,
+        {"external/catalogs/VLBI_atmload4_12.cat",
+         "../external/catalogs/VLBI_atmload4_12.cat"});
+    printf("  Каталог: %s\n", path.c_str());
+
     std::vector<atm_record> atm;
     char fn[256];
-    std::strcpy(fn, "external/catalogs/VLBI_atmload4_12.cat");
+    std::snprintf(fn, sizeof(fn), "%s", path.c_str());
     int rc = ReadATM(atm, fn);
     printf("  ReadATM rc=%d, stations=%zu (ожид. rc=1, >=198)\n", rc, atm.size());
     if (rc != 1) { printf("  FAIL: каталог не прочитан\n"); return 1; }
