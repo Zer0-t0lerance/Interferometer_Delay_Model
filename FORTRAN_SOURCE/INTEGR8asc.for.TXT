@@ -1,0 +1,809 @@
+      SUBROUTINE INTEGR8asc( m, k, nobs, L_segm, N_wr_tot, Delta_sec,
+     *     Track_site,
+     *     mjd_beg, utc_beg, ct_beg, mjd, utc, ct,
+     *     dyear, r2000,
+     *     xsta_j2000t, vsta_j2000t, asta_j2000, r_sat_pr,
+     *     K_s,
+     *     phase1 )
+C
+C  SUBROUTINE INTEGRATION computes solution of the orbit equations
+C  of celestial mechanics are of the form
+C
+C  d^x/dt^2=F(x,y,z, x_i,y_i,z_i, t)
+C
+C  where the function F, which may be called the force, depends on
+C  time t and the position x,y,z of the body whose path is to be
+C  integrated, as well as the positions of other bodies, as identified
+C  by subscripts i.
+C
+C  The reference system is ICRS
+C  The ephemerides used are JPL DE405/LE405
+C  The time scale is T_eph
+C
+C  All calculations for the Earth satellites will be performed in the GCRS.
+C  Transformation from ITRF to GCRS is described by matrix R2000
+C
+C    Input variables:
+C   1.       m  -  1 or 2 means Radioastron the first or second telescope
+C   2.       k  -  Order number of observation of satellite
+C   3.   L_segm -  order number of segment
+C   4. N_wr_tot -  Length of segments (seconds)
+C  Time of observation
+C   5. mjd  -  The Modified Julian date at zero hours UTC OF THE DATE  (DAYS)
+C   6. UTC  -  THE UTC FRACTION OF THE UTC DAY. (HOUR/HOUR=SEC/SEC)
+C   7. ct   -  The coordinate time fraction of the coordinate time day.
+C                  (DAYS)
+
+C    Output variables:
+C    phase1
+C
+C-----------------------------------------------------------------------
+C
+C     08 Novemder 2014
+C     Corrected to perform observations with closed frequency loop
+C     1) File of dopler residuals is necessary
+C     For the first call structure 'prev_orb' is filled for
+C     all time interval
+C     from UTC_beg+mjd_beg to nscan(nobs)+Delta_sec/secday
+C
+C     Each new call (or each second) 40 measurements of dopler
+C     frequency and phase are read;
+C     phases are integrated for each second
+
+C     Read doppler files for f0= 7.2075 GHz
+
+      USE main
+C
+      IMPLICIT None
+C
+      INTEGER  nn, nc, n_tot, nobs, L_segm, N_wr_tot
+      Integer mjd, mjd_beg
+C
+      Integer i, j, m, n, k, ij, jj, in
+      Integer Kint1, Kint2, kk, kk1
+C
+      Real(8) utc, ct, ct_beg, utc_beg
+      Real(8) t_beg, t_end
+      Real(8) Delta_sec
+      Real(8) xsta_j2000t(3,2), vsta_j2000t(3,2)
+      Real(8) asta_j2000(3,2)
+      Real(8) r_sat(3), v_sat(3), a_sat(3), r_sta(3)
+      Real(8) r_sat_pr(nobs,3)
+      Real(8) del_0, del_1, del_2, r_sta_1(3)
+
+      Real(8) C, F, AE, AU
+      Real(8)  PI, TWOPI, HALFPI
+      Real(8) CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+      character(280) path_geop, path_orb, path_pred, path_dopler
+C
+      character(8) Track_site
+	character(6) no1, no2
+C  For additional files
+      Integer ios
+      Integer, parameter:: N_dop = 25
+      Integer day0,month0,year0, hour0,min0
+      Integer dop_error
+      Integer prev_two
+C
+      Real(8) F_0, F_0s
+      Real(8) sec0, JD_dop, t_sked, t_fin
+      Real(8)  phi_teor
+C      Real(8)  tt
+      Real(8) delta_t0
+      Real(8) delta_t, f_deriv, f_recv, f_res, fi_res, s_max
+      Real(8) f_corr
+      Real(8) dd_t0, t_dop, MJD_dop, UTC_dop, prev_dt
+C      Real(8) phi_0, d_phi, df_res
+      Real(8) d_phi, df_res
+C        Real(8) phase1, phase(N_dop+1)
+        Real(8) phase1, phase2
+        Real(8) prev_phi, ph, prev_cor
+C
+      character(100) file_dopler, file_orbita
+c      character(100) file_phase
+      character(250) line
+
+C      character(1) dt(9)
+C      character(1), parameter :: dot='.'
+C        logical char
+C--------------------------
+C
+      COMMON /PHYS/ C, F, AE, AU
+      COMMON /MATH1/ PI, TWOPI, HALFPI
+      COMMON /MATH2/ CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+      COMMON /CATS4/ path_geop, path_orb, path_pred, path_dopler
+      COMMON /DOPPLER/ delta_t, f_corr, f_deriv, f_recv, f_res, fi_res
+     +               , s_max
+     +               , dd_t0, t_dop, MJD_dop, UTC_dop, prev_dt
+     +               , day0, month0, year0, hour0, min0
+     +               , dop_error
+
+      Real(8) r2000(3,3,3), dyear
+      Real(8) site_TS(3), TS_j2000(3)
+      Real(8) K_s(3)
+	Real(8) dr_rec(3), dr_pr(3), dr_N_rec, dr_N_pr, del_t
+	Real(8) n_TS_rec(3), n_TS_pr(3)
+	Real(8) phase11, phase12, phase13
+      Real(8) NORM, SCAL_PROD
+
+      CHARACTER(16) site_IERS
+      CHARACTER(12) DATA_START, DATA_END
+      CHARACTER(4) TECH
+      CHARACTER(1) SOLN
+      INTEGER Idn, N_dome1, N_dome2
+      REAL(8) XCOR,YCOR,ZCOR, SX,SY,SZ
+      REAL(8) XVEL,YVEL,ZVEL, SVX,SVY,SVZ
+      REAL(8) MJD_S, MJD_E
+
+      CHARACTER(1) First_site
+      character(130) str 
+      character(150) str2
+C  COMMON BLOCKS for transmission of the paths to catalogs
+      character(280) path_data, path_sta1, path_sta2
+      character(280) path_sou1,path_sou2, path_sou3, path_sou4,path_sou5
+      COMMON /CATS1/ path_data, path_sta1, path_sta2, 
+     *               path_sou1,path_sou2,path_sou3,path_sou4,path_sou5
+
+C
+C  All calculations in INTEGRATION module will be made in km !!!
+C
+
+CCCCC write(*,*) 'L_segm, k = ', L_segm, k
+
+C----------------------------------------------------------------------
+C   Beginning of calculation
+C----------------------------------------------------------------------
+       t_beg = dfloat(mjd_beg) + ct_beg
+C
+         t_end = dfloat(mjd) + ct
+         
+c        write(*,*) nobs, t_beg, t_end
+C
+C  Copy Position (km), velocity (km/s), acceleration (km/s**2)
+       call INTERP_ORB_IPM_Copy(nobs, mjd, utc,
+     * r_sat, v_sat, a_sat)
+c	 write(*,*) r_sat
+c	 write(*,*) v_sat
+c	 write(*,*) a_sat
+c      pause
+C  Transform vectors xsta_j2000t(3,2), vsta_j2000t(3,2), asta_j2000(3,2)
+C  Position (m), velocity (m/s), acceleration (m/s**2) for true trajectory
+C
+       if ( m == 1 ) then
+C
+           do i = 1, 3
+           xsta_j2000t(i,1) = r_sat(i) *1.d3
+           vsta_j2000t(i,1) = v_sat(i) *1.d3
+            asta_j2000(i,1) = a_sat(i) *1.d3
+C  Copy ground station coordinate (km)
+           r_sta(i) = xsta_j2000t(i,2) *1.d-3
+         enddo
+         endif
+C
+       if ( m == 2 ) then
+C
+           do i = 1, 3
+           xsta_j2000t(i,2) = r_sat(i) *1.d3    ! m
+           vsta_j2000t(i,2) = v_sat(i) *1.d3    ! m/s
+            asta_j2000(i,2) = a_sat(i) *1.d3    ! m/s**2
+C  Copy ground station coordinate (km)
+           r_sta(i) = xsta_j2000t(i,1) *1.d-3
+         enddo
+         endif
+C
+
+C-------------------------------------------------------------
+        F_0 = 7.2075d9   ! 7.2075 GHz
+        F_0s = (1.d0 + 159.d0/961.d0)* F_0
+CC         F_0s = 15d9
+
+C  Read files of dopler residuals and preliminary orbit
+C  only for the first record
+C
+       if ( k == 1 ) then
+C  Moment of last record in data file + Delta_sec
+       t_fin = dfloat(nscan(nobs)%mjd)+nscan(nobs)%utc
+     +         +Delta_sec*1.5d0/secday
+C  MJD (time of beginning of observation)
+       t_sked = dfloat(nscan(1)%mjd)+nscan(1)%utc
+c      if (L_segm == 1) then
+c      write(*,*) 't_sked,t_fin = ',t_sked,t_fin
+c      else
+c      write(*,*) 't_dop,t_sked,t_fin = ',t_dop,t_sked,t_fin
+c      endif
+c       pause
+C-------------------
+C !!!!!
+       file_dopler =    
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\gbfr84-20180331-035000.crf'     
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pufr84b-20180402-220000.crf'
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\gbfr84-20180402-021000.crf'
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\gbfr84-20180227-074000.crf'
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pufr84b-20171018-120000.crf'   ! cg  	
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pufr84b-20171027-130000.crf'
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pufr84-20171027-133000.crf'
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pufr84b-20171211-200000.crf'
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pufr84b-20170920-210000.crf'  ! az
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pufr84b-20171120-030000.crf'  ! ew
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\gbfr84-20180208-045000.crf'  ! mg
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pufr84b-20180306-182000.crf'  ! ok
+C
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pufr84b-20180319-210000.crf'  ! pm
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\gbfr84-20180320-010000.crf'  ! pn
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\gbfr84-20180321-045000.crf'  ! pr
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pufr84b-20180322-000000.crf'  ! pt
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pufr84b-20180323-120000.crf'  ! pw
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\gbfr84-20180410-045000.crf'  ! qx
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pufr84b-20180411-200000.crf'  ! rb
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\gbfr84-20180509-012000.crf'  ! sd
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pufr84b-20190109-035500.crf'  ! cs
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pufr84b-20181207-015500.crf'  ! ah
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pufr84b-20181207-212000.crf'  ! al
+     *'e:\User\Zharov\ARIADNA40_corr\Dopler\gbfr84-20181211-221000.crf'  ! ba
+C  
+       file_orbita =
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\gb20180331-000002.blt'
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pu20180402-000010.blt'
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\gb20180401-000010.blt'
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\gb20180227-000010.blt'
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pu20171018-000010.blt'    ! cg
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pu20171027-000010.blt'
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pu20171211-000010.blt'
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pu20170920-000010.blt'    ! az
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pu20171120-000010.blt'    ! ew
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pu20180208-000010.blt'    ! mg
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pu20180306-000010.blt'    ! mg
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pu20180319-000010.blt'    ! pm,pn
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pu20180321-000010.blt'    ! pr,pt
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pu20180323-000010.blt'    ! pw
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pu20180410-000010.blt'    ! qx
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pu20180411-000010.blt'    ! rb
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pu20180508-000010.blt'    ! sd
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pu20190109-000010.blt'    ! cs
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pu20181206-000010.blt'    ! ah
+c     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pu20181207-000010.blt'    ! al
+     *'e:\User\Zharov\ARIADNA40_corr\Dopler\pu20181211-000010.blt'    ! ba
+
+C !!!!
+C      file_dopler=trim(exePath)//'dopler\'//'dopler.dat'
+C      write(*,*) file_dopler
+C      pause
+C-------------------
+C       OPEN (21, FILE=path_dopler, STATUS='old', IOSTAT=ios)
+C       if (ios/= 0) stop ' Can not open file of dopler residuals'
+C-------------------
+C READ orbit (predvaritel'nja version)
+        CALL READ_PRED_ORBIT_2( file_orbita, nobs, Delta_sec, r_sat_pr)
+
+C---------------------
+      if (L_segm == 1) then
+C
+C PUSHINO coordinates
+C-------------------
+C  Open the  catalog of stations
+C  Main catalog
+ 
+       OPEN (7, FILE=path_sta1, STATUS='old', IOSTAT=ios)
+       if (ios/= 0) stop ' Can not open the catalog of stations'
+C
+C
+C  Read first comment lines
+         do j = 1, 20
+             READ (7,'(A130)') str
+             READ (str,'(a1)') First_site
+	       if ( First_site /= '#' ) exit
+         enddo
+	backspace(7)
+
+         do while (.not. eof(7))
+C  Read the first line with coordinates of stations
+          READ (7,'(A150)') str2
+c       write(*,'(A140)') str2
+          READ (str2, 26)
+     *    N_dome1, site_IERS, TECH, Idn, XCOR,YCOR,ZCOR, SX,SY,SZ,  
+     *    SOLN, MJD_S, MJD_E, DATA_START, DATA_END
+cc 26       FORMAT (i5,5x,a16,1x,a4,i5,3f13.3,3f6.3,2x,a1,2f8.1,2(1x,a12))   ! for ITRF
+ 26       FORMAT (i5,5x,a16,1x,a4,i5,3f13.3,3f8.5,2x,a1,2f8.1,2(1x,a12))   ! for VTRF
+C  Read the second line with velocities of stations
+          Read (7,27) N_dome2, XVEL,YVEL,ZVEL, SVX,SVY,SVZ
+cc 27       Format (i5,31x, 3f13.4, 3f6.4)  ! for ITRF
+ 27       Format (i5,31x, 3f13.4, 3f8.5)  ! for VTRF
+C
+          if ( site_IERS == Track_site ) then
+
+C   Coordinates of sites at epoch of observation      
+          
+           site_TS(1) = xcor + xvel * dyear
+           site_TS(2) = ycor + yvel * dyear
+           site_TS(3) = zcor + zvel * dyear 
+
+         endif
+
+         enddo !  (.not. eof(7))
+         close(7)  ! close the  catalog of stations
+C-------------------
+C PUSHINO coordinates
+C
+C-------------------
+
+C READ Dopler file
+C     
+       OPEN (21, FILE=file_dopler, STATUS='old', IOSTAT=ios)
+       if (ios/= 0) stop ' Can not open file of dopler residuals'
+       
+C  Read the first line of dopler file
+       READ (21,'(A250)', IOSTAT=ios) line       
+       if (ios/= 0) stop ' Error reading line 1 from doppler file'
+       
+      
+       dop_error = -1
+       do while (dop_error /= 0)
+         do while (dop_error /= 0)
+           call Doppler_Header( line )
+         enddo
+c         write(*,*) t_dop, t_sked, t_fin
+c         pause ' t_dop, t_sked, t_fin '
+C  Beginning of dopler residuals must be earlier moment of observations
+         if ( t_dop > t_sked ) stop
+     *    'INTEGR6 (Header of doppler obs. must be earlier SKED time)'
+C
+C  search for t_sked in doppler file
+C
+C  It is struggle with rounding
+         do while (dop_error == 0 .and.
+     *           (t_dop - t_sked)*secday + delta_t + dd_t0*0.5d0 < 0)
+           prev_dt = delta_t
+C
+           READ (21,'(A250)',IOSTAT=ios) line
+           if (ios /= 0) then
+             call Doppler_Times
+             stop ' Start of 1st time segment is NOT in doppler file'
+           endif
+           if (line(1:1) /= "%" .or. line(2:2) /= "H") then
+cc             READ (line,*,IOSTAT=ios)
+cc     +        delta_t, f_corr, f_deriv, f_recv, f_res, fi_res, s_max !f=8.4
+         READ (line,*,IOSTAT=ios)
+     +   delta_t, no1, no2, f_recv, f_res, fi_res, s_max  !f=15
+
+             if (ios /= 0) then
+               call Doppler_Times
+               stop ' Error searching of 1st segment in doppler file'
+             endif
+           else
+             dop_error = 1
+           endif
+         enddo
+       enddo
+C
+C  partially fill the 1st record
+C  (for all other L_segm it will be already filled in previous call)
+       prev_orb(1)%fres = f_res
+       prev_orb(1)%phi = fi_res
+CCCCC  write(*,*) 'delta_t, f_res = ',delta_t,f_res,' >(1)'
+C
+C  read the next line
+       prev_dt = delta_t
+       READ (21,'(A250)',IOSTAT=ios) line
+       if (ios == 0) 
+cc     *    READ (line,*,IOSTAT=ios)
+cc     +    delta_t, f_corr, f_deriv, f_recv, f_res, fi_res, s_max ! f=8.4
+     *  READ (line,*,IOSTAT=ios)
+     +  delta_t, no1, no2, f_recv, f_res, fi_res, s_max  !f=15
+c
+       if (ios /= 0) then
+         call Doppler_Times
+         stop ' Error reading doppler file (1st time segment)'
+       endif
+cc       write(*,*) 'delta_t, f_res = ', delta_t, f_res
+cc	pause
+C
+      endif ! (L_segm == 1)
+
+C  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+ 
+C  Read records in file of dopler residuals 'path_dopler'
+C  from t_sked to t_fin
+
+C  Number of phases during one segment is
+C  jj = dt * 25  (step = 0.04 s) (dt is N_wr_tot in seconds)
+         jj = N_wr_tot * N_dop
+CCCCC    write(*,*) 'jj =',jj
+         if (size(prev_orb) < jj * L_segm + 1) then     ! (jj + 1) lines
+      write(*,*) 'Not enough room for doppler data: segment = ',L_segm
+      stop ' Too little orbit points for doppler data'
+         endif
+         j = 0
+         do
+           if (dop_error /= 0) then
+             call Doppler_Times
+             stop ' Error reading dopler file'
+           endif
+C
+C  Stop this cycle for last moment of observation + Delta_sec
+           if ((t_dop - t_fin)*secday + delta_t > 0) exit
+C
+C  Read all records because phase variations are of 2pi per 0.2 sec !!!
+           j = j + 1
+C  delta_t0 is time in seconds from beginning in doplr file
+C  corresponding t_sked
+           i = (L_segm-1)*jj+j
+           prev_orb(i)%j   = j
+           prev_orb(i)%mjd = mjd
+CCCCC      write(*,*) 'j(=',j,') mjd >(',i,')'
+           if ( j == 1 ) then
+             delta_t0 = prev_dt
+             prev_orb(i)%utc = utc
+CCCCC        write(*,*) 'delta_t0=',delta_t0,', utc=',utc
+CCCCC+                 ,' >(',i,')'
+             cycle
+           endif
+           prev_orb(i)%utc = utc + (delta_t-delta_t0)/secday
+           prev_orb(i)%fres = f_res
+           prev_orb(i)%phi = fi_res
+ccccc      write(*,*) 'utc, f_res = ', i, prev_orb(i)%utc, f_res
+CCCCC+                ,' >(',i,')'
+C
+c	 write(*,*) j, i, delta_t, f_res, fi_res
+c	 write(*,*) int((t_dop-t_sked)*secday*1.d3)/1000 , delta_t
+c	 write(*,*) int((t_dop-t_sked)*secday*1.d3)+int(delta_t*1.d3)
+c	 write(*,*) prev_orb(j)%j, prev_orb(j)%utc, prev_orb(j)%fres
+c	pause
+cc           endif   !  mod
+
+           prev_dt = delta_t
+C
+           READ (21,'(A250)',IOSTAT=ios) line
+           if (ios /= 0) dop_error = 1
+C
+C  time f_correction df f_measured f_res fi_res spectral_max
+C
+           if (dop_error == 0) 
+cc     *       READ (line,*,IOSTAT=ios)
+cc     +       delta_t, f_corr, f_deriv, f_recv, f_res, fi_res, s_max !f=8.4
+     *      READ (line,*,IOSTAT=ios)
+     +      delta_t, no1, no2, f_recv, f_res, fi_res, s_max  !f=15
+
+           if (ios /= 0) dop_error = 1
+CCCCC      write(*,*) 'delta_t, f_res = ', delta_t, f_res
+C
+           if ( j > jj ) exit           ! (jj + 1) lines
+         enddo  !  while (.not. eof(21))
+C
+C       write(*,*) prev_orb((L_segm-1)*jj+1)%mjd,
+C     *            prev_orb((L_segm-1)*jj+1)%utc,
+C     *            prev_orb((L_segm-1)*jj+1)%fres
+C       write(*,*) jj, delta_t0, dd_t0
+C       write(*,*) prev_orb((L_segm-1)*jj+jj)%mjd,
+C     *            prev_orb((L_segm-1)*jj+jj)%utc,
+C     *            prev_orb((L_segm-1)*jj+jj)%fres
+C       write(*,*) t_fin, t_sked, (t_fin-t_sked)*secday
+C       pause
+C------------------------------------------
+C         close (21)
+C
+       endif  ! ( k == 1 )
+C**************************************************************
+ 
+
+C
+         kk = ( L_segm - 1)*N_wr_tot*N_dop + (k-1)*N_dop + 1
+c         kk = ( L_segm - 1)*jj + (k-1)*N_dop + 1
+           kk1 = kk + N_dop - 1
+c        write(*,*) kk, kk1
+c        pause
+C
+C         phi_0 = prev_orb(1)%phi    ! initial phase
+C
+         if ( k == 1 ) then
+c           prev_orb(1)%cor = 0.d0     ! phi_0 - phi_0   !phi_0
+           prev_orb(1)%cor = prev_orb(1)%fres   ! correct 21.12.19
+         endif
+
+C----------------------------------------------------------------------
+C  Result (in nsec)
+cc       write(*,*) kk, prev_orb(kk)%cor, twopi, F_0s
+cc       pause
+
+C new dot product code
+C
+c         write(*,'(3f25.6)') (site_TS(i), i=1,3)
+
+        CALL MUL_ARR_VEC ( r2000(1,1,1), site_TS, TS_j2000 )
+C For reconstructed orbit
+	 do i = 1, 3
+           dr_rec(i) = xsta_j2000t(i,m) - TS_j2000(i)
+         enddo
+C For prognoz orbit
+	 do i = 1, 3
+           dr_pr(i) = r_sat_pr(k,i) - TS_j2000(i)
+         enddo  
+
+cc         write(*,'(3f25.6)') (r_sat_pr(k,i)*1.d-3, i=1,3)	   
+c	      pause
+c         write(*,'(i5,3f25.6)') k, dr_rec
+c         write(*,'(i5,3f25.6)') k, dr_pr   
+                   
+C
+         dr_N_rec = NORM(dr_rec)
+         dr_N_pr  = NORM(dr_pr)
+	   del_t = - dr_N_rec/C    ! sign was corrected 21.12.19
+
+c	write(*,*) dr_N_rec, dr_N_pr, dr_N_rec-dr_N_pr
+C
+	 do i = 1, 3
+         n_TS_rec(i) = dr_rec(i)/dr_N_rec
+         n_TS_pr(i) = dr_pr(i)/dr_N_pr
+         enddo
+C 
+C  Result (in nsec)
+         phase2 = 1.d0/(N_dop * F_0s) * prev_orb(kk)%cor * 1.d9
+C
+ccc         phase11 = -0.5d0*phase2*SCAL_PROD(n_TS_pr,K_s)
+
+         phase11 = -0.5d0*phase2*SCAL_PROD(n_TS_pr,K_s)*dr_N_rec/dr_N_pr
+
+         phase13 = +0.25d0/ F_0s* prev_orb(kk)%fres* del_t*
+     *               SCAL_PROD(n_TS_pr,K_s)*dr_N_rec/dr_N_pr* 1.d9
+       
+        phase1 = phase11  + phase13 
+C !!!!!! Test
+        phase1 = -phase1
+
+cc       write(*,*) kk, prev_orb(kk)%cor
+c       write(*,29) k, phase2, phase1
+cc       write(*,*)	dr_N_rec/dr_N_pr
+cc       pause
+C
+c       write(*,29) k, phase1
+c 29    format( i5, d26.16, d26.16)
+
+C  Correct phase
+C        if ( kk == 1 ) then
+C                 phase(1) =  phi_0 / TWOPI * N_dop
+C            else
+C                 phase(1) = prev_orb(kk)%cor + phi_0 / TWOPI * N_dop
+C        endif
+        do in = kk+1 , kk1+1
+          i = in - kk
+C
+C          phase(i+1) = phase(i) + prev_orb(in)%fres
+
+          prev_orb(in)%cor = prev_orb(in-1)%cor + prev_orb(in)%fres
+
+cc          prev_orb(in)%cor = prev_orb(in-1)%cor + 
+cc     +    (prev_orb(in-1)%fres + prev_orb(in)%fres)/2.d0
+
+C          prev_orb(in)%cor = phase(i+1) - phi_0 / TWOPI * N_dop
+C
+c       write(28,17) in,i,prev_orb(in-1)%phi,phase(i),
+c       write(*,17) in,i,prev_orb(in-1)%cor,prev_orb(in)%fres,
+c     *  prev_orb(in)%cor
+C--Test of linear model ---------
+c        tt = (in-2)*dd_t0 !+ 249.d0
+c	 phi_teor = twopi *
+cc     * ( (-0.0003315446236d0/2.d0)*tt*tt + 5.505205834d0*tt )
+c     * ( 6.391016518d-9/3.d0*tt**3-0.0003385619597d0/2.d0*tt**2+
+c     +   5.506940337d0*tt )
+c          prev_orb(in-1)%cor = phi_teor
+C--------
+C       write(*,17) in, i,prev_orb(in-1)%phi,phase(i),prev_orb(in-1)%two,
+C     * prev_orb(in-1)%cor !, phi_teor
+ 17    format( 2i4, 3f20.10 ) !, i6, f20.10 )
+c       pause
+C
+       enddo  ! in = kk+1 , kk1+1
+C----------------------------------------------------------------------
+
+      if ((sta(1)%name == Track_site .and. sta(2)%name == Space_tel)
+     *    .or.
+     *   (sta(2)%name == Track_site .and. sta(1)%name == Space_tel))
+     *     then
+
+            open(29,
+     *file=trim(exePath)//'delay0'//trim(task_num)//'.txt')
+C          write(*,*) m
+C          write(*,*) r_sta
+C          write(*,*) vsta_j2000t(1,1),vsta_j2000t(2,1),vsta_j2000t(3,1)
+C
+C          write(*,*) xsta_j2000t(1,2),xsta_j2000t(2,2),xsta_j2000t(3,2)
+C          write(*,*) vsta_j2000t(1,2),vsta_j2000t(2,2),vsta_j2000t(3,2)
+C          write(*,*) Earth(1,2), Earth(2,2), Earth(3,2)
+
+       del_0 =  1.d0/C*
+     * dsqrt( (r_sta(1)*1.d3-xsta_j2000t(1,m))**2+
+     +        (r_sta(2)*1.d3-xsta_j2000t(2,m))**2+
+     +        (r_sta(3)*1.d3-xsta_j2000t(3,m))**2 )
+
+         do i = 1, 3
+         r_sta_1(i) = r_sta(i) * 1.d3 -
+     *    vsta_j2000t(i,2) * del_0               ! PU-RA
+cc     *   ( vsta_j2000t(i,2)+Earth(i,2))* del_0
+         enddo
+C
+       del_1 =  1.d0/C*
+     * dsqrt( (r_sta_1(1) - xsta_j2000t(1,m))**2+
+     +        (r_sta_1(2) - xsta_j2000t(2,m))**2+
+     +        (r_sta_1(3) - xsta_j2000t(3,m))**2 )
+
+         do i = 1, 3
+         r_sta_1(i) = r_sta(i) * 1.d3
+     *    -vsta_j2000t(i,2) * del_1    ! esli nado ubrat` 1-yu iteratziyu, to comment
+c     *   ( vsta_j2000t(i,2)+Earth(i,2))* del_1
+         enddo
+C           write(*,*) del_0, del_1, del_0-del_1
+C
+       del_2 =  1.d0/C*
+     * dsqrt( (r_sta_1(1) - xsta_j2000t(1,m))**2+
+     +        (r_sta_1(2) - xsta_j2000t(2,m))**2+
+     +        (r_sta_1(3) - xsta_j2000t(3,m))**2 )
+
+           write(29,*) del_1
+c           write(*,*) del_0, del_2, del_1-del_2
+
+      endif
+C
+C  Kint1 for debug output (/= 0)
+       Kint1 = 0
+C----------------------------------------------------------------------
+C  Debug output
+      If (Kint1 /= 0) then
+         WRITE (*,'(1x,a)') 'Debug (1) output for Subroutine INTEGR6'
+
+c        call DWRRRL(' Vector sat_xyz_km(3)',
+c     *  1, 3, sat_xyz_km, 1, 0, '(f20.10)', 'Number', 'Number')
+c        call DWRRRL(' Vector sat_vel_km(3)',
+c     *  1, 3, sat_vel_km, 1, 0, '(f20.10)', 'Number', 'Number')
+         pause ' Kint1 '
+C
+      Endif
+C----------------------------------------------------------------------
+C
+      Return
+      END SUBROUTINE INTEGR8asc
+
+      SUBROUTINE Doppler_Header( line )
+C
+C process doppler header (in line):
+C
+C day0, month0, year0, hour0, min0 - from header
+C MJD_dop, UTC_dop, t_dop = UTC_dop + MJD_dop - calculated
+C delta_t, f_corr, f_deriv, f_recv, f_res, fi_res, s_max - from line
+C   after header
+C dd_t0 = 0.04 from 2 lines after header
+C
+C dop_error = 1 -- next 'line' - header (?)
+C dop_error = 2 -- after next 'line' - header (?)
+C
+      character(250) line
+C
+      Integer, parameter:: N_dop = 25
+C
+      Integer i, j, n, nn
+      Real(8) sec0, JD_dop
+C
+      Integer day0,month0,year0, hour0,min0
+      Integer dop_error
+C
+      Real(8) delta_t, f_corr, f_deriv, f_recv, f_res, fi_res, s_max
+      Real(8) dd_t0, t_dop, MJD_dop, UTC_dop, prev_dt
+	character(6) no1, no2
+C
+      COMMON /DOPPLER/ delta_t, f_corr, f_deriv, f_recv, f_res, fi_res
+     +               , s_max
+     +               , dd_t0, t_dop, MJD_dop, UTC_dop, prev_dt
+     +               , day0, month0, year0, hour0, min0
+     +               , dop_error
+C
+      if (line(1:1) /= "%" .or. line(2:2) /= "H")
+     +   stop ' Invalid %H in Header line of doppler residuals file'
+      nn = len_trim(line)
+      n = scan(line(1 : nn), " ")
+      if (n == 0) stop ' Invalid Header line of doppler residuals file'
+      do while (line(n:n) == " ")
+          n = n + 1
+      enddo
+      i = n
+      do while (i <= nn)
+          j = scan(line(i : nn), "-:")
+          if (j == 0) then
+              i = nn + 1
+          else
+              i = i + j
+              line(i-1:i-1) = " "
+          endif
+      enddo
+      READ (line(n:nn),*,IOSTAT=ios) day0,month0,year0,hour0,min0,sec0
+      if (ios/= 0) stop ' Error reading date/time from doppler file'
+C
+c      write(*,*) day0,month0,year0, hour0,min0,sec0
+c      pause
+C  Read the second and third lines of dopler file to
+C  calculate the time interval between phase data
+      READ (21,'(A250)',IOSTAT=ios) line
+      if (ios/= 0)
+     +  stop ' Error reading next line after header from doppler file'
+      if (line(1:1) == "%" .and. line(2:2) == "H") then
+          dop_error = 1
+          return
+      endif
+cc      READ (line,*,IOSTAT=ios)
+cc     +      delta_t, f_corr, f_deriv, f_recv, f_res, fi_res, s_max !f=8.4
+      READ (line,*,IOSTAT=ios)
+     +      delta_t, no1, no2, f_recv, f_res, fi_res, s_max  !f=15
+c	write (*,*) delta_t, no1, no2, f_recv, f_res, fi_res, s_max
+c	pause
+
+      if (ios/= 0)
+     +  stop ' Invalid format of next line after header in doppler file'
+      READ (21,'(A250)',IOSTAT=ios) line
+      if (ios/= 0)
+     + stop ' Error reading 2 next lines after header from doppler file'
+      if (line(1:1) == "%" .and. line(2:2) == "H") then
+          dop_error = 2
+          return
+      endif
+      READ (line,*,IOSTAT=ios) dd_t0
+      if (ios/= 0)
+     +  stop ' Error reading two lines after header from doppler file'
+C  Step (=0.04 s)
+      dd_t0 = dfloat(int(dd_t0*1.d3)-int(delta_t*1.d3))*1.d-3  ! 0.04 s
+C  Number of phases during one segment is
+C  jj = dt * 25  (step = 0.04 s) (dt is N_wr_tot in seconds)
+C           jj = N_wr_tot * int(1.d0/dd_t0)
+c	 write(*,*) jj, t1, t2
+c	 write(*,*) jj, dd_t0
+C  Test for future
+      if ( int(1.d0/dd_t0) /= N_dop ) then
+       stop 'STOP in INTEGR6. N_dop has to be 1/dt (dt is step in file
+     * of dopler);if dt=0.04s N_dop=25.Change N_dop in INTEGR6'
+      endif
+C  Back one record
+      backspace(21)
+C  Calculation of the beginning of the phase file
+      call JULIAN(year0,month0,day0, JD_dop)
+      MJD_dop = JD_dop - 2400000.5d0
+      UTC_dop =
+     =     (dfloat(hour0)+dfloat(min0)/60.d0+sec0/3600.d0)/24.d0
+C  MJD of beginning of dopler file
+      t_dop =  UTC_dop + MJD_dop
+C
+      dop_error = 0
+      return
+      END SUBROUTINE Doppler_Header
+
+      SUBROUTINE Doppler_Times
+C
+C print times from doppler file (in case of error)
+C
+      Integer day0,month0,year0, hour0,min0
+      Integer dop_error
+C
+      Integer i
+      Real(8) tt
+C
+      Real(8) CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+      Real(8) delta_t, f_corr, f_deriv, f_recv, f_res, fi_res, s_max
+      Real(8) dd_t0, t_dop, MJD_dop, UTC_dop, prev_dt
+C
+      COMMON /MATH2/ CDEGRAD, CARCRAD, CTIMRAD, SECDAY, JD2000, JUL_CENT
+      COMMON /DOPPLER/ delta_t, f_corr, f_deriv, f_recv, f_res, fi_res
+     +               , s_max
+     +               , dd_t0, t_dop, MJD_dop, UTC_dop, prev_dt
+     +               , day0, month0, year0, hour0, min0
+     +               , dop_error
+C
+      write(*,*) 'MJD H M S DD MM YYYY of doppler file:',
+     +           MJD_dop, hour0, min0, sec0, day0, month0, year0
+      write(*,*) 'Offset of previous doppler record =',prev_dt,'s'
+      tt = UTC_dop * secday + prev_dt
+      i = int(tt / secday)
+      MJD_dop = MJD_dop + i
+      tt = tt - i * secday
+      hour0 = int(tt / 3600.)
+      tt = tt - hour0 * 3600
+      min0 = int(tt / 60.)
+      tt = tt - min0 * 60
+      write(*,*) 'MJD H M S of previous doppler record:',
+     +           MJD_dop, hour0, min0, tt
+      return
+      END SUBROUTINE Doppler_Times
