@@ -46,8 +46,10 @@ g++ -std=c++17 -I.\external\eigen src\pole_tide.cpp tests\test_pole_tide.cpp -o 
 theor_delay
 g++ -std=c++17 -I.\external\eigen -I.\external src\theor_delay.cpp tests\test_theor_delay.cpp -o .\tests\test_theor_delay.exe
 
-rotation
-g++ -std=c++17 -I.\external\eigen src\rotation.cpp  tests\test_rotation.cpp -o .\tests\test_rotation.exe
+rotation (IAU 2006/2000A через SOFA)
+# Сначала один раз собрать статическую библиотеку SOFA:
+#   sh external/sofa/build_libsofa.sh   ->  external/sofa/20190722/c/build/libsofa.a
+g++ -std=c++17 -I.\external\eigen -I.\external\sofa\20190722\c\src src\rotation.cpp tests\test_rotation.cpp .\external\sofa\20190722\c\build\libsofa.a -o .\tests\test_rotation.exe
 
 interp_iers
 g++ -std=c++17 -I.\external\eigen -I.\external src\interp_iers.cpp tests\test_interp_iers.cpp -o .\tests\test_interp_iers.exe
