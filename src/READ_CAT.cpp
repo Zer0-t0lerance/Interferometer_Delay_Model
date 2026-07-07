@@ -73,8 +73,9 @@ int ReadATM(vector<atm_record> &ATM_Data, char filename_ATM[256])
 
 	if (fs.is_open())
 	{
-		// Read atmosphere files
-		for (int i = 0; i < 26; i++) //skip 26 lines
+		// Пропускаем заголовок каталога: 25 строк до и включая "$$ END HEADER"
+		// (имя первой станции — на строке 26). Ранее пропускалось 26 (off-by-one).
+		for (int i = 0; i < 25; i++)
 		{
 			fs.getline(data, 512);
 		}

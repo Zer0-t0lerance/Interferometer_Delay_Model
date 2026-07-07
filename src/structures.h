@@ -16,6 +16,19 @@ struct OceanTideData {
     Eigen::Matrix<double, 3, cnst::NUM_TIDES> phases;
 };
 
+// Описание: Данные атмосферной нагрузки для одной станции (каталог VLBI_atmload4_12.cat).
+// Модель: смещение = b0 + Sum_{i=1..3}[A_i*cos(omega_i*t) + B_i*sin(omega_i*t)]
+//         + b1*(P - p_0), где omega = 2Pi/{365.2422, 182.12, 1.0} сут, t = MJD - 45700.
+// Амплитуды хранятся В МИЛЛИМЕТРАХ (как в каталоге); перевод в метры — в SITE_ATM40.
+struct AtmLoadData {
+    // coef(c, k): c = 0(Vertical),1(East),2(North);
+    //             k = 0..5 -> A1,B1,A2,B2,A3,B3;  6 -> b0 (const);  7 -> b1 (регрессия по давлению)
+    Eigen::Matrix<double, 3, 8> coef;
+    double p_0;      // Опорное (среднее) давление станции [мбар] — из каталога ANTENNA_INFO
+    bool has_data;   // true, если станция найдена в каталоге атмнагрузки
+    AtmLoadData() : p_0(0.0), has_data(false) { coef.setZero(); }
+};
+
 struct Station {
     std::string name; // Station name (e.g., "RASTRON" for space telescope)
     Eigen::Vector3d xyz; // Coordinates in ITRF (m)
@@ -28,6 +41,7 @@ struct Station {
     std::string domes; // DOMES number
     std::string descr; // Description
     OceanTideData tide_data;
+    AtmLoadData atm_load;
 };
 
 struct Source {
