@@ -62,3 +62,6 @@ g++ -std=c++17 -I.\src -I.\external\eigen src\READ_CAT.cpp src\catalog_bridge.cp
 
 site_atm40 (атмосферная нагрузка)
 g++ -std=c++17 -I.\external\eigen -I.\external src\site_atm40.cpp tests\test_site_atm40.cpp -o .\tests\test_site_atm40.exe
+
+t_eph40 (координатное время TDB через SOFA; нужна libsofa.a)
+g++ -std=c++17 -I.\external\eigen -I.\external\sofa\20190722\c\src src\t_eph40.cpp tests\test_t_eph40.cpp .\external\sofa\20190722\c\build\libsofa.a -o .\tests\test_t_eph40.exe
