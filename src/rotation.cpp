@@ -35,16 +35,26 @@ static Eigen::Matrix3d compute_r2000(double jd_tt, double jd_ut1, double xp, dou
     return R;
 }
 
+// Полная версия: R2000, первая и вторая производные по времени (центральные разности, шаг 1 с).
 void get_r2000_matrices(double JD_TDB, double JD_UT1, double xp, double yp,
-                        Eigen::Matrix3d& R2000, Eigen::Matrix3d& dR2000_dt) {
-    R2000 = compute_r2000(JD_TDB, JD_UT1, xp, yp);
-
-    // Первая производная по времени — центральная разность, шаг 1 секунда.
+                        Eigen::Matrix3d& R2000, Eigen::Matrix3d& dR2000_dt,
+                        Eigen::Matrix3d& d2R2000_dt2) {
     const double dt_sec = 1.0;
     const double dday = dt_sec / cnst::SECDAY;
+
+    R2000 = compute_r2000(JD_TDB, JD_UT1, xp, yp);
     Eigen::Matrix3d Rp = compute_r2000(JD_TDB + dday, JD_UT1 + dday, xp, yp);
     Eigen::Matrix3d Rm = compute_r2000(JD_TDB - dday, JD_UT1 - dday, xp, yp);
-    dR2000_dt = (Rp - Rm) / (2.0 * dt_sec); // [1/с]
+
+    dR2000_dt   = (Rp - Rm) / (2.0 * dt_sec);                     // [1/с]
+    d2R2000_dt2 = (Rp - 2.0 * R2000 + Rm) / (dt_sec * dt_sec);    // [1/с^2]
+}
+
+// Совместимая версия без второй производной.
+void get_r2000_matrices(double JD_TDB, double JD_UT1, double xp, double yp,
+                        Eigen::Matrix3d& R2000, Eigen::Matrix3d& dR2000_dt) {
+    Eigen::Matrix3d d2;
+    get_r2000_matrices(JD_TDB, JD_UT1, xp, yp, R2000, dR2000_dt, d2);
 }
 
 } // namespace ariadna

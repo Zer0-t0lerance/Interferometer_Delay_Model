@@ -37,8 +37,8 @@ int main() {
     const double xp = 2.55060238e-7;       // рад
     const double yp = 1.860359247e-6;      // рад
 
-    Eigen::Matrix3d R2000, dR2000_dt;
-    get_r2000_matrices(jd, jd, xp, yp, R2000, dR2000_dt);
+    Eigen::Matrix3d R2000, dR2000_dt, d2R2000_dt2;
+    get_r2000_matrices(jd, jd, xp, yp, R2000, dR2000_dt, d2R2000_dt2);
 
     // Эталон R2000 = transpose(rc2t) из SOFA t_c2t06a.
     Eigen::Matrix3d Rref;
@@ -75,6 +75,24 @@ int main() {
            std::fabs(omega - OMEGA_EARTH) < 5e-8 ? "OK" : "FAIL");
     if (antisym >= 1e-9) ++g_fail;
     if (std::fabs(omega - OMEGA_EARTH) >= 5e-8) ++g_fail;
+
+    // Вторая производная d2R/dt2: масштаб ~omega^2 и согласованность разложения Тейлора:
+    // R(t+h) ~ R + dR*h + 0.5*d2R*h^2 (остаток O(h^3) ~ 4e-10 при h=10 с).
+    double d2norm = d2R2000_dt2.norm();
+    printf("\n  [Вторая производная d2R/dt2]\n");
+    printf("  ||d2R/dt2|| = %.3e  (~omega^2 ~ %.1e)  %s\n", d2norm, OMEGA_EARTH * OMEGA_EARTH,
+           (d2norm > 1e-9 && d2norm < 5e-8) ? "OK" : "FAIL");
+    if (!(d2norm > 1e-9 && d2norm < 5e-8)) ++g_fail;
+
+    double h = 10.0; // с
+    double hday = h / 86400.0;
+    Eigen::Matrix3d Rh, dRh;
+    get_r2000_matrices(jd + hday, jd + hday, xp, yp, Rh, dRh);
+    Eigen::Matrix3d taylor = R2000 + dR2000_dt * h + 0.5 * d2R2000_dt2 * (h * h);
+    double taylor_err = (Rh - taylor).norm();
+    printf("  Тейлор 2-го порядка при h=10с: ||R(t+h) - (R + dR*h + 0.5*d2R*h^2)|| = %.3e  %s\n",
+           taylor_err, taylor_err < 1e-8 ? "OK" : "FAIL");
+    if (taylor_err >= 1e-8) ++g_fail;
 
     printf("=====================================================================\n");
     printf("  РЕЗУЛЬТАТ: %s (провалов: %d)\n", g_fail == 0 ? "PASS" : "FAIL", g_fail);
