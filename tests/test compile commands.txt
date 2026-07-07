@@ -66,6 +66,9 @@ g++ -std=c++17 -I.\external\eigen -I.\external src\site_atm40.cpp tests\test_sit
 t_eph40 (координатное время TDB через SOFA; нужна libsofa.a)
 g++ -std=c++17 -I.\external\eigen -I.\external\sofa\20190722\c\src src\t_eph40.cpp tests\test_t_eph40.cpp .\external\sofa\20190722\c\build\libsofa.a -o .\tests\test_t_eph40.exe
 
+site_pair (сборка координат станций в J2000; запуск из корня, нужны эфемериды и libsofa.a; libsofa.a — ПОСЛЕДНИМ)
+g++ -std=c++17 -I.\external\eigen -I.\external -I.\external\dephem-master\include -I.\external\sofa\20190722\c\src src\site_pair.cpp src\site_tide_solid.cpp src\site_tide_OC.cpp src\pole_tide.cpp src\site_atm40.cpp src\site_inst.cpp src\jpleph.cpp src\ephemeris.cpp src\fund_arg.cpp src\GEOD.cpp src\rotation.cpp .\external\dephem-master\include\dephem\EphemerisRelease.cpp tests\test_site_pair.cpp .\external\sofa\20190722\c\build\libsofa.a -o .\tests\test_site_pair.exe
+
 delay_pipeline (низ конвейера: baseline->trop_delay->theor_delay vs дамп, одно наблюдение)
 g++ -std=c++17 -I.\external\eigen -I.\external src\baseline.cpp src\trop_delay.cpp src\nhmf2.cpp src\nwmf2.cpp src\sast_dry.cpp src\sast_wet.cpp src\theor_delay.cpp tests\test_delay_pipeline.cpp -o .\tests\test_delay_pipeline.exe
 

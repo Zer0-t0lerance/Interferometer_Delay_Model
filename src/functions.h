@@ -456,6 +456,40 @@ void SITE_INST(const Eigen::Vector3d& xsta_itrf,
                Eigen::Vector3d& xsta_j2000t, Eigen::Vector3d& vsta_j2000t,
                Eigen::Vector3d& asta_j2000);
 
+/**
+ * @brief Посуточная сборка координат ПАРЫ станций в J2000.0 со всеми геофизическими поправками.
+ *
+ * Для каждой станции вычисляет твёрдые приливы (SITE_TIDE_SOLID), океаническую (SITE_TIDE_OC)
+ * и атмосферную (SITE_ATM40) нагрузки, прилив полюса (POLE_TIDE) и через SITE_INST переводит
+ * в J2000 с первой и второй производными. Термодеформация пока не учитывается (нет THERM_DEF40).
+ * ВНИМАНИЕ: sun_geo/moon_geo — ГЕОЦЕНТРИЧЕСКИЕ (jpleph), не SSB.
+ *
+ * @param[in]  s1, s2       Подготовленные данные двух станций (SitePrep).
+ * @param[in]  mjd, utc     Дата/время наблюдения.
+ * @param[in]  jd           Юлианская дата на 0h [сут] (для океанических приливов).
+ * @param[in]  ut1_sec      UT1 в течение суток [сек] (для океанических приливов).
+ * @param[in]  cent         Юлианские столетия от J2000 (для прилива полюса).
+ * @param[in]  f, fd        Фундаментальные аргументы и их производные.
+ * @param[in]  gast         Гринвичское истинное звёздное время и его производная [рад, рад/с].
+ * @param[in]  sun_geo      Геоцентрические поз/скор Солнца 3x2 [м, м/с].
+ * @param[in]  moon_geo     Геоцентрические поз/скор Луны 3x2 [м, м/с].
+ * @param[in]  xp, yp       Координаты полюса [рад] и их скорости xp_rate, yp_rate [рад/с].
+ * @param[in]  r2000, dr2000, d2r2000  Матрица ITRF->J2000 и её первая/вторая производные.
+ * @param[out] xsta_j2000, vsta_j2000, asta_j2000  Координаты/скорости/ускорения станций в J2000 (2 шт.).
+ */
+void site_pair(const SitePrep& s1, const SitePrep& s2,
+               int mjd, double utc, double jd, double ut1_sec, double cent,
+               const Eigen::VectorXd& f, const Eigen::VectorXd& fd,
+               const Eigen::Vector2d& gast,
+               const Eigen::Matrix<double, 3, 2>& sun_geo,
+               const Eigen::Matrix<double, 3, 2>& moon_geo,
+               double xp, double yp, double xp_rate, double yp_rate,
+               const Eigen::Matrix3d& r2000, const Eigen::Matrix3d& dr2000,
+               const Eigen::Matrix3d& d2r2000,
+               std::vector<Eigen::Vector3d>& xsta_j2000,
+               std::vector<Eigen::Vector3d>& vsta_j2000,
+               std::vector<Eigen::Vector3d>& asta_j2000);
+
 // ============================================================================
 // ЭФЕМЕРИДЫ (JPL DE)
 // ============================================================================
