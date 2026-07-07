@@ -1,3 +1,21 @@
+// theor_delay.cpp
+//
+// Порт SUBROUTINE THEOR_DELAYcorr (версия, которую реально вызывает главная
+// программа ARIADNA) — теоретическая ВАКУУМНАЯ задержка, скорректированная за
+// релятивистские эффекты (гравитационная задержка Шапиро от Солнца/Луны/Земли +
+// геометрия с поправками на движение станций), плюс инструментальная задержка
+// смещения оси монтировки (dtau_off).
+//
+// Отличия от прежнего порта THEOR_DELAY4_10:
+//   * добавлены члены term2e/term2f («New terms for Radioastron»);
+//   * тропосфера ВНУТРИ не добавляется (в corr Datmc обнулена) — её прибавляет
+//     вызывающий код (trop_delay) отдельно; поэтому Datmc_d/Datmc_w убраны из сигнатуры;
+//   * термодеформация (dt_temp) убрана — в corr она учитывается в координатах станций
+//     (через THERM_DEF), а не в задержке;
+//   * финальная сборка суммирует dtau_off ОБЕИХ станций: dtau_off(1,1)+dtau_off(2,1).
+//
+// Планеты (гравитация Шапиро от планет) пока не считаются (эффект ~пс).
+
 #include "functions.h"
 #include <cmath>
 
@@ -11,10 +29,7 @@ void theor_delay(const Eigen::Matrix<double, 3, 2>& base_line,
                  const Eigen::Matrix3d& Earth,
                  const Eigen::Matrix3d& Sun,
                  const Eigen::Matrix3d& Moon,
-                 const Eigen::Matrix2d& Datmc_d,
-                 const Eigen::Matrix2d& Datmc_w,
                  const Eigen::Matrix2d& dtau_off,
-                 const Eigen::Matrix2d& dt_temp,
                  double& t2_t1, double& dt2_t1) {
 
     double C = cnst::C;
@@ -38,8 +53,6 @@ void theor_delay(const Eigen::Matrix<double, 3, 2>& base_line,
     double R_geo = R_geocen.norm();
 
     double U_Sun = cnst::GSUN / C2;
-    double U_Earth = cnst::GEARTH / C2;
-
     double U = U_Sun / R_geo;
     double dR_geo = R_geocen.dot(V_geocen) / R_geo;
     double dU = -(U_Sun / (R_geo * R_geo)) * dR_geo;
@@ -89,7 +102,7 @@ void theor_delay(const Eigen::Matrix<double, 3, 2>& base_line,
     double denom4 = w2_e + K_s.dot(xsta[1]);
     double delta_t_grav_Earth = C_Earth_grav * std::log(numer4 / denom4);
 
-    double delta_t_grav_Pl = 0.0;
+    double delta_t_grav_Pl = 0.0; // планеты не учитываются
     double delta_t_grav = delta_t_grav_Sun + delta_t_grav_Moon + delta_t_grav_Pl + delta_t_grav_Earth;
     double term1 = delta_t_grav + add_grav_Sun1;
 
@@ -124,18 +137,30 @@ void theor_delay(const Eigen::Matrix<double, 3, 2>& base_line,
 
     // ===================== TERM 2 =====================
     double term2a = K_starB / C;
-    double term2b = 1.0 - (1.0 + Gamma) * U;
-    double term2c = Earth.col(1).dot(Earth.col(1)) / (2.0 * C2);
-    double term2d = Earth.col(1).dot(vsta[1]) / C2;
-    double term2bcd = term2b - term2c - term2d;
-    double term2 = term2a * term2bcd;
-
     double dterm2a = dotK_starB / C;
+
+    double term2b = 1.0 - (1.0 + Gamma) * U;
     double dterm2b = -(1.0 + Gamma) * dU;
+
+    double term2c = Earth.col(1).dot(Earth.col(1)) / (2.0 * C2);
     double dterm2c = Earth.col(1).dot(Earth.col(2)) / C2;
+
+    double term2d = Earth.col(1).dot(vsta[1]) / C2;
     double dterm2d = (Earth.col(2).dot(vsta[1]) + Earth.col(1).dot(asta[1])) / C2;
-    double dterm2bcd = dterm2b - dterm2c - dterm2d;
-    double dterm2 = dterm2a * term2bcd + term2a * dterm2bcd;
+
+    // --- Новые члены для Радиоастрона (THEOR_DELAYcorr) ---
+    double term2e = Earth.col(2).dot(xsta[1]) / C2;
+    double dterm2e = Earth.col(2).dot(vsta[1]) / C2;
+
+    double bracket2f = K_s.dot(asta[1]) + K_s.dot(Earth.col(2));
+    double term2f = term2a * bracket2f / (2.0 * C);
+    double dterm2f = dterm2a * bracket2f / (2.0 * C);
+
+    double term2bcd = term2b - term2c - term2d - term2e + term2f;
+    double dterm2bcd = dterm2b - dterm2c - dterm2d - dterm2e + dterm2f;
+
+    double term2 = term2a * term2bcd;
+    double dterm2 = term2a * dterm2bcd + dterm2a * term2bcd;
 
     // ===================== TERM 3 =====================
     double term3a = Earth.col(1).dot(b) / C2;
@@ -159,23 +184,11 @@ void theor_delay(const Eigen::Matrix<double, 3, 2>& base_line,
     double tv2_tv1 = numer_Eq9 / den_Eq9;
     double dtv2_tv1 = dnumer_Eq9 / den_Eq9 - numer_Eq9 * dden_Eq9 / (den_Eq9 * den_Eq9);
 
-    // ===================== TROPOSPHERE & OFFSET =====================
-    Eigen::Vector3d w2_w1 = vsta[1] - vsta[0];
-    double K_dotw2w1 = K_s.dot(w2_w1);
-
-    double Datmc11 = Datmc_d(0, 0) + Datmc_w(0, 0); // Datmc(1,1)
-    double tg2_tg1 = tv2_tv1 + Datmc11 * K_dotw2w1 / C;
-    double dtg2_tg1 = dtv2_tv1;
-
-    double Datmc21 = Datmc_d(0, 1) + Datmc_w(0, 1); // Datmc(2,1)
-    double t2_t1_a = tg2_tg1 + Datmc11 + Datmc21;
-    
-    double Datmc12 = Datmc_d(1, 0) + Datmc_w(1, 0); // Datmc(1,2)
-    double Datmc22 = Datmc_d(1, 1) + Datmc_w(1, 1); // Datmc(2,2)
-    double dt2_t1_a = dtg2_tg1 + Datmc12 + Datmc22;
-
-    t2_t1 = t2_t1_a + dtau_off(0, 0) + dtau_off(0, 1) + dt_temp(0, 0) - dt_temp(0, 1);
-    dt2_t1 = dt2_t1_a + dtau_off(1, 0) + dtau_off(1, 1) + dt_temp(1, 0) - dt_temp(1, 1);
+    // ===================== ИНСТРУМЕНТАЛЬНАЯ ЗАДЕРЖКА (ось монтировки) =====================
+    // Тропосфера здесь НЕ добавляется (в corr Datmc обнулена) — её прибавляет
+    // оркестрация через trop_delay. Складываем задержку смещения оси обеих станций.
+    t2_t1  = tv2_tv1  + dtau_off(0, 0) + dtau_off(1, 0);
+    dt2_t1 = dtv2_tv1 + dtau_off(0, 1) + dtau_off(1, 1);
 }
 
 } // namespace ariadna
