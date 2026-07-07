@@ -84,8 +84,26 @@ int main() {
     chk("Moon.x(SSB)",Moon(0,0),-30457209591.74120, 1e7);
     chk("Moon.y(SSB)",Moon(1,0),133170659155.41185, 1e7);
 
+    // --- Вращение: SOFA r2000 vs логированная r2000 ARIADNA (из test_baseline) ---
+    // Точная r2000 требует EOP (xp,yp,UT1-UTC), которых нет. Проверяем, что SOFA
+    // воспроизводит матрицу ARIADNA на уровне EOP (~1e-5): подтверждает согласие
+    // прецессии/нутации/вращения; остаток = движение полюса (~0.3") + UT1-UTC.
+    Eigen::Matrix3d rF;
+    rF << 0.9988360617015190E+00,  0.4820309780423414E-01,  0.1727196188789892E-02,
+         -0.4820310447537553E-01,  0.9988375540050903E+00, -0.3778973045624359E-04,
+         -0.1727009998570988E-02, -0.4551047279605037E-04,  0.9999985076815172E+00;
+    double jd_tt = 2458121.209643333;             // точная эпоха (TT) из test_trop_delay
+    double jd_ut1 = jd_tt - 69.184 / 86400.0 + 0.15 / 86400.0; // UTC + приблизит. UT1-UTC~0.15с
+    Eigen::Matrix3d Rs, dRs;
+    get_r2000_matrices(jd_tt, jd_ut1, 0.0, 0.0, Rs, dRs);
+    double rdiff = (Rs - rF).cwiseAbs().maxCoeff();
+    bool rok = rdiff < 5e-5;
+    if (!rok) ++g_fail;
+    printf("\n  [SOFA r2000 vs ARIADNA r2000 (EOP-уровень, xp=yp=0, UT1-UTC~0.15с)]\n");
+    printf("  max|Rs - Rf| = %.3e  (остаток = EOP: полюс ~0.3\" + UT1)  %s\n", rdiff, rok ? "OK" : "FAIL");
+
     printf("=====================================================================\n");
     printf("  РЕЗУЛЬТАТ: %s (провалов: %d)\n", g_fail == 0 ? "PASS" : "FAIL", g_fail);
-    printf("  [геометрия (site/baseline/r2000) требует EOP на MJD 58120 — следующий шаг]\n");
+    printf("  [для метровой геометрии нужны точные EOP (xp,yp,UT1-UTC) на MJD 58120]\n");
     return g_fail == 0 ? 0 : 1;
 }
