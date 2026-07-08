@@ -24,6 +24,15 @@ static void site_one(const SitePrep& s,
                      const Eigen::Matrix3d& r2000, const Eigen::Matrix3d& dr2000,
                      const Eigen::Matrix3d& d2r2000,
                      Eigen::Vector3d& x_j2000, Eigen::Vector3d& v_j2000, Eigen::Vector3d& a_j2000) {
+    // Космический телескоп: положение/скорость/ускорение — напрямую из орбиты (J2000),
+    // наземные поправки (приливы, нагрузки, термо) НЕ применяются.
+    if (s.is_space) {
+        x_j2000 = s.x_orbit;
+        v_j2000 = s.v_orbit;
+        a_j2000 = s.a_orbit;
+        return;
+    }
+
     // Твёрдые земные приливы: r2000 передаётся блоком 9x3 (r0=R, r1=dR).
     Eigen::MatrixXd r2000_blk = Eigen::MatrixXd::Zero(9, 3);
     r2000_blk.block<3, 3>(0, 0) = r2000;

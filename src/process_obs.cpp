@@ -50,6 +50,10 @@ void compute_delay_obs(const SitePrep& s1, const SitePrep& s2,
     st1.lat_geod = s1.lat_geod; st1.h_geod = s1.h_geod;
     st2.lat_geod = s2.lat_geod; st2.h_geod = s2.h_geod;
     Eigen::MatrixXd eM = e2, azM = az2;
+    // Космическая станция: тропосферы нет. Ставим зенит, чтобы NHMF2/NWMF2 не давали
+    // NaN на её (нефизичной) элевации; её вклад тропосферы всё равно обнулим ниже.
+    if (s1.is_space) { eM(0, 0) = cnst::HALFPI; azM(0, 0) = 0.0; }
+    if (s2.is_space) { eM(1, 0) = cnst::HALFPI; azM(1, 0) = 0.0; }
     Eigen::MatrixXd dd, dw, dhmf, dwmf, dgn, dge, zd, zw;
     double jd_full = jd0 + ct; // JD в шкале TT/TDB для тропосферы (day-of-year)
     trop_delay(obs, jd_full, 0.0, st1, st2, eM, azM, dd, dw, dhmf, dwmf, dgn, dge, zd, zw);
@@ -64,6 +68,11 @@ void compute_delay_obs(const SitePrep& s1, const SitePrep& s2,
     std::vector<Eigen::Vector3d> ks{K_s};
     Eigen::MatrixXd doff_dl, d_dax, dtau_mt;
     mount_tel(obs, r2000_9, mst, ks, vw, eM, azM, doff_dl, d_dax, dtau_mt);
+
+    // Космическая станция: обнуляем её тропосферу и инструментальную задержку монтировки
+    // (наземных поправок для орбитального телескопа нет — как THEOR_DELAYcorr_ORB).
+    if (s1.is_space) { dd.row(0).setZero(); dw.row(0).setZero(); dtau_mt.row(0).setZero(); }
+    if (s2.is_space) { dd.row(1).setZero(); dw.row(1).setZero(); dtau_mt.row(1).setZero(); }
 
     // 6. Теоретическая задержка (Datmc и dtau_off транспонируем; Солнце/Луна SSB; dt_temp=0).
     Eigen::Matrix<double, 3, 2> bl; bl.col(0) = blm.col(0); bl.col(1) = blm.col(1);

@@ -660,6 +660,22 @@ void compute_delay_obs(const SitePrep& s1, const SitePrep& s2,
 void source_vec(const std::vector<Source>& sources, double t_mean, std::vector<Eigen::Vector3d>& k_star);
 
 /**
+ * @brief Интерполяция орбиты космического телескопа (RASTRON) на момент наблюдения.
+ *
+ * Орбита задаётся готовой эфемеридой (таблица .scf: время, положение, скорость в GCRS/J2000);
+ * между точками положение/скорость/ускорение получаются кубическим сплайном. Интегратор
+ * орбиты (INTEGR8asc) НЕ используется. Кадр GCRS≈J2000 берётся напрямую (без r2000).
+ *
+ * @param[in]  orbit    Точки орбиты (SpaceStation: mjd, utc, xyz [км], vel [км/с]), по возрастанию времени.
+ * @param[in]  mjd_utc  Момент интерполяции (MJD + доля суток UTC).
+ * @param[out] x_j2000  Положение в J2000 [м].
+ * @param[out] v_j2000  Скорость в J2000 [м/с].
+ * @param[out] a_j2000  Ускорение в J2000 [м/с^2].
+ */
+void orbit_interp(const std::vector<SpaceStation>& orbit, double mjd_utc,
+                  Eigen::Vector3d& x_j2000, Eigen::Vector3d& v_j2000, Eigen::Vector3d& a_j2000);
+
+/**
  * @brief Интерфейс к эфемеридам JPL DE (порт JPLEPH_421), матричный формат.
  *
  * Соглашение оригинала: Земля — барицентрическая (SSB); Солнце и Луна —

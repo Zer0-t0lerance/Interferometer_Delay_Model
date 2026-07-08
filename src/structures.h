@@ -136,6 +136,15 @@ struct SitePrep {
     DefPar def_par;             // параметры антенны (термодеформация) из ANTENNA_INFO
     std::string axsty = "AZEL"; // тип монтировки (для mount_tel)
     double offs = 0.0;          // смещение оси монтировки [м]
+
+    // --- Космический телескоп (наземно-космические базы) ---
+    // Для космической станции (RASTRON) наземные поправки (приливы, нагрузки, термо,
+    // монтировка) и тропосфера НЕ применяются: положение/скорость/ускорение в J2000
+    // берутся напрямую из орбиты (интерполяция готовой эфемериды .scf, orbit_interp).
+    bool is_space = false;
+    Eigen::Vector3d x_orbit = Eigen::Vector3d::Zero(); // положение в J2000 [м]
+    Eigen::Vector3d v_orbit = Eigen::Vector3d::Zero(); // скорость в J2000 [м/с]
+    Eigen::Vector3d a_orbit = Eigen::Vector3d::Zero(); // ускорение в J2000 [м/с^2]
 };
 
 struct SiteCorrData {

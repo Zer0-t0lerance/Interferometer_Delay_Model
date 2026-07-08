@@ -69,6 +69,9 @@ g++ -std=c++17 -I.\external\eigen -I.\external src\therm_def40.cpp tests\test_th
 dmeteo (производные метео dTdt/dPdt/dHumdt, МНК-полином)
 g++ -std=c++17 -I.\external\eigen -I.\external src\dmeteo.cpp tests\test_dmeteo.cpp -o .\tests\test_dmeteo.exe
 
+orbit_space (наземно-космический путь: orbit_interp + site_pair(is_space))
+g++ -std=c++17 -I.\external\eigen -I.\external src\orbit_interp.cpp src\site_pair.cpp src\site_tide_solid.cpp src\site_tide_OC.cpp src\pole_tide.cpp src\site_atm40.cpp src\therm_def40.cpp src\site_inst.cpp tests\test_orbit_space.cpp -o .\tests\test_orbit_space.exe
+
 t_eph40 (координатное время TDB через SOFA; нужна libsofa.a)
 g++ -std=c++17 -I.\external\eigen -I.\external\sofa\20190722\c\src src\t_eph40.cpp tests\test_t_eph40.cpp .\external\sofa\20190722\c\build\libsofa.a -o .\tests\test_t_eph40.exe
 
