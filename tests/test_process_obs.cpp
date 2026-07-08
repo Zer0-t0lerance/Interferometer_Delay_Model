@@ -104,11 +104,24 @@ int main() {
     Eigen::MatrixXd dd,dw,dhmf,dwmf,dgn,dge,zd,zw;
     trop_delay(obs, 2458121.209643333, 0.0, st1, st2, eM, azM, dd,dw,dhmf,dwmf,dgn,dge,zd,zw);
 
-    // --- THEOR_DELAY (Datmc транспонируем; Солнце/Луна SSB; dtau_off/dt_temp логированные) ---
+    // --- MOUNT_TEL -> dtau_off (r2000 как 9x3 с блоком R^T; vw VEN->ITRF; e/az MatrixXd) ---
+    Eigen::MatrixXd r2000_9(9,3); r2000_9.setZero();
+    r2000_9.block<3,3>(0,0) = r2000.transpose();
+    r2000_9.block<3,3>(3,0) = dR2000.transpose();
+    std::vector<Station> mstations(2);
+    mstations[0].axsty="AZEL"; mstations[0].offs=0.00637;  mstations[0].lat_geod=latg[0];
+    mstations[1].axsty="AZEL"; mstations[1].offs=1.49500;  mstations[1].lat_geod=latg[1];
+    std::vector<Eigen::Vector3d> ks{K_s};
+    Eigen::MatrixXd doff_dl, d_dax, dtau_mt;
+    mount_tel(obs, r2000_9, mstations, ks, vw, eM, azM, doff_dl, d_dax, dtau_mt);
+    printf("\n  [mount_tel -> dtau_off]\n");
+    chk("dtau st1", dtau_mt(0,0), 0.1658888657089142e-10, 1e-13);
+    chk("dtau st2", dtau_mt(1,0), -0.3833381489451837e-08, 1e-12);
+
+    // --- THEOR_DELAY (Datmc и dtau_off транспонируем; Солнце/Луна SSB; dt_temp логированный) ---
     Eigen::Matrix<double,3,2> bl; bl.col(0)=blm.col(0); bl.col(1)=blm.col(1);
     Eigen::Matrix2d Dd=Eigen::Matrix2d(dd).transpose(), Dw=Eigen::Matrix2d(dw).transpose();
-    Eigen::Matrix2d dtau, dtmp;
-    dtau << 0.1658888657089142e-10, -0.3833381489451837e-08, -0.8349692241350816e-15, -0.8724128831589889e-13;
+    Eigen::Matrix2d dtau=Eigen::Matrix2d(dtau_mt).transpose(), dtmp;
     dtmp << 0.8286346437956392e-10,  0.1445568241005169e-09,  0.0, 0.0;
     double t2,dt2;
     theor_delay(bl, xs, vs, as_, K_s, Earth, Sun, Moon, Dd, Dw, dtau, dtmp, t2, dt2);
