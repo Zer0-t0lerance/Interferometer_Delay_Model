@@ -34,32 +34,23 @@ sh external/sofa/build_libsofa.sh
 `process_ariadna` — верхний слой: читает каталоги, гоняет цикл по наблюдениям и на
 каждое считает теоретическую задержку через `compute_delay_obs`
 (site_pair → baseline → aber_source → trop_delay → mount_tel → theor_delay).
-Запускать из **корня репозитория** (нужны эфемериды и каталоги по относительным путям).
 
-```bash
-g++ -std=c++17 \
-  -I./external/eigen -I./external -I./external/dephem-master/include \
-  -I./external/sofa/20190722/c/src \
-  src/process_ariadna.cpp src/process_obs.cpp \
-  src/site_pair.cpp src/site_tide_solid.cpp src/site_tide_OC.cpp src/pole_tide.cpp \
-  src/site_atm40.cpp src/therm_def40.cpp src/site_inst.cpp \
-  src/baseline.cpp src/aber_source.cpp \
-  src/trop_delay.cpp src/nhmf2.cpp src/nwmf2.cpp src/sast_dry.cpp src/sast_wet.cpp \
-  src/mount_tel.cpp src/sbend.cpp src/theor_delay.cpp \
-  src/jpleph.cpp src/ephemeris.cpp src/fund_arg.cpp src/GEOD.cpp \
-  src/site_functions.cpp src/rotation.cpp \
-  src/dmeteo.cpp src/t_eph40.cpp src/tai_time40.cpp src/nsec.cpp \
-  src/interp_eop.cpp src/terms_71.cpp src/terms_lib.cpp src/UT1R_2010.cpp \
-  src/READ_CAT.cpp src/catalog_bridge.cpp \
-  ./external/dephem-master/include/dephem/EphemerisRelease.cpp \
-  tests/test_final_build.cpp \
-  ./external/sofa/20190722/c/build/libsofa.a \
-  -o tests/test_final_build.exe
+### Проще всего — скрипт (из корня репозитория, Git Bash):
 
-./tests/test_final_build.exe   # запуск из корня репозитория
+```sh
+sh build.sh                    # собрать tests/test_final_build.exe и запустить
+sh build.sh tests/my_main.cpp  # тот же набор модулей с другим main
 ```
 
-Замена `tests/test_final_build.cpp` на свой `main` даёт целевой исполняемый файл.
+**ВАЖНО — про ошибку `ld.exe: cannot find \`:** команда `g++` НЕ должна вставляться
+в PowerShell/cmd построчно с `\` на концах строк — там `\` не является продолжением
+строки и уходит в линкер как аргумент (отсюда "cannot find \"). Варианты:
+- запускать `sh build.sh` (внутри sh-скрипта переносы `\` работают корректно);
+- либо ввести всю команду `g++ ... -o ...` **одной строкой** (без `\` и переносов).
+
+Скрипт [`build.sh`](build.sh) содержит полный список из ~34 модулей; замена аргумента
+на свой `main.cpp` даёт целевой исполняемый файл. Запускать exe из **корня репозитория**
+(нужны эфемериды и каталоги по относительным путям).
 
 ## 4. Модульные тесты
 
