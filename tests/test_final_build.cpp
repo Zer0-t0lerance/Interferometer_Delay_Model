@@ -12,6 +12,11 @@
 // Тропосферные промежутки (Datmc, Z_d/Z_w, E) из Вывод.txt покомпонентно проверены
 // отдельными тестами (test_theor_delay, test_delay_pipeline, test_trop_delay).
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>  // ПЕРВЫМ (до "using namespace std"), иначе конфликт std::byte
+#endif
 #include "../src/functions.h"
 #include "../src/catalog_bridge.h"
 #include "../src/READ_CAT.h"
@@ -39,6 +44,9 @@ static Station mk(const char* name, double x, double y, double z,
 }
 
 int main() {
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8); // русский вывод в консоли Windows без кракозябр
+#endif
     printf("=====================================================================\n");
     printf("  ИТОГОВЫЙ БИЛД: process_ariadna по эталону Вывод.txt (18JAN02XA)\n");
     printf("---------------------------------------------------------------------\n");

@@ -41,26 +41,34 @@ delay_model/
 
 ---
 
-## 3. Сборка под Windows (cmd / PowerShell / VS Code)
+## 3. Сборка под Windows (PowerShell / VS Code / cmd)
 
-Из корня репозитория:
+Из корня репозитория. **В терминале VS Code (PowerShell) — предпочтительно `build.ps1`:**
 
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build.ps1
+powershell -ExecutionPolicy Bypass -File .\build.ps1 tests\test_xxx.cpp
+```
+(если локальные скрипты разрешены — просто `.\build.ps1`).
+
+**Из cmd — `build.bat`:**
 ```bat
-.\build.bat                    :: собрать libsofa.a (если нет) + tests\verify.exe и запустить
-.\build.bat tests\test_xxx.cpp :: собрать другой main тем же набором модулей
+.\build.bat
+.\build.bat tests\test_xxx.cpp
 ```
 
-`build.bat` сам:
-1) один раз компилирует `libsofa.a` из исходников SOFA;
-2) собирает переданный `main` (по умолчанию `tests\verify.cpp`) со всеми ~35 модулями;
-3) запускает результат.
+Оба скрипта: 1) один раз собирают `libsofa.a` из исходников SOFA; 2) собирают
+переданный `main` (по умолчанию `tests\verify.cpp`) со всеми ~35 модулями; 3) запускают.
 
-**VS Code:** `Ctrl+Shift+B` → задача **«build (Windows)»** (см. `.vscode/tasks.json`).
-Есть также задача «build current file (Windows)» — собрать открытый `tests/*.cpp`.
+**VS Code:** `Ctrl+Shift+B` → задача **«build (Windows)»** (запускает `build.ps1`).
+Есть «build current file (Windows)» — собрать открытый `tests/*.cpp`.
 
-> **Почему НЕ вставлять команду g++ построчно в PowerShell/cmd.** В PowerShell/cmd `\`
-> в конце строки — НЕ продолжение строки, и уходит в линкер как аргумент → ошибка
-> `ld.exe: cannot find \`. Используйте `build.bat` (или введите всю команду ОДНОЙ строкой).
+> **Кодировка (кракозябры):** программы сами ставят консоль в UTF-8 (`SetConsoleOutputCP`),
+> поэтому русский вывод читается. Отдельно всё пишется в `tests/verify_report.txt`
+> (UTF-8, открыть в VS Code). Скрипты сборки — ASCII (иначе PowerShell 5.1 / cmd ломают
+> разбор). Файлы `.bat` — CRLF (через `.gitattributes`), иначе cmd не разбирает.
+> **НЕ** вставляйте команду `g++` построчно с `\` в PowerShell/cmd — там `\` не
+> продолжение строки → `ld.exe: cannot find \`. Используйте скрипт.
 
 ---
 

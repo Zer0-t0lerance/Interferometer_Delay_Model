@@ -9,6 +9,13 @@
 //
 // Референсные числа взяты из tests/Вывод.txt (Debug output TROP_DELAY / itог задержки).
 
+// windows.h — ПЕРВЫМ (до project-заголовков с "using namespace std"), иначе конфликт
+// std::byte vs Windows byte в C++17; WIN32_LEAN_AND_MEAN/NOMINMAX уменьшают включения.
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
 #include "../src/functions.h"
 #include "../src/catalog_bridge.h"
 #include "../src/READ_CAT.h"
@@ -46,6 +53,9 @@ static void hdr(std::FILE* fp, const char* s) {
 }
 
 int main() {
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8); // русский вывод в консоли Windows без кракозябр
+#endif
     std::FILE* fp = std::fopen("tests/verify_report.txt", "w");
 
     hdr(fp, "=====================================================================================");
