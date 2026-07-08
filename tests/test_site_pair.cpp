@@ -37,13 +37,12 @@ static void prep_geom(SitePrep& s) {
     double req = std::sqrt(s.xsta_itrf.x()*s.xsta_itrf.x() + s.xsta_itrf.y()*s.xsta_itrf.y());
     double h;
     GEOD(req, s.xsta_itrf.z(), s.lat_geod, h);
-    // vw = Rz(-lon)*Ry(lat_geod) (VEN->ITRF), как в site_functions.cpp
-    Eigen::Matrix3d W = Eigen::Matrix3d::Identity(), V = Eigen::Matrix3d::Identity();
-    double c = std::cos(s.lat_geod), sn = std::sin(s.lat_geod);
-    W(0,0)=c; W(0,2)=sn; W(2,0)=-sn; W(2,2)=c;                 // Ry(lat_geod)
-    double cl = std::cos(-s.lon_gcen), sl = std::sin(-s.lon_gcen);
-    V(0,0)=cl; V(0,1)=-sl; V(1,0)=sl; V(1,1)=cl;               // Rz(-lon)
-    s.vw_i = V * W;
+    // vw (VEN->ITRF) строим напрямую (как в исправленном site_functions.cpp)
+    double cla = std::cos(s.lat_geod), sla = std::sin(s.lat_geod);
+    double clo = std::cos(s.lon_gcen), slo = std::sin(s.lon_gcen);
+    s.vw_i.col(0) << cla*clo, cla*slo, sla;   // Up
+    s.vw_i.col(1) << -slo, clo, 0.0;          // East
+    s.vw_i.col(2) << -sla*clo, -sla*slo, cla; // North
 }
 
 int main() {

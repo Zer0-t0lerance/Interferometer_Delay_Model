@@ -80,11 +80,13 @@ void site(const std::vector<Station>& stations, const std::vector<SpaceStation>&
             double req = std::sqrt(site_xyz[i](0) * site_xyz[i](0) + site_xyz[i](1) * site_xyz[i](1));
             GEOD(req, site_xyz[i](2), lat_geod[i], h_geod[i]);
 
-            // Матрица преобразования VEN -> ITRF
-            Eigen::Matrix3d W, V;
-            rotation_matrix(2, lat_geod[i], W); // Вращение вокруг Y на lat_geod
-            rotation_matrix(3, -lon_gcen[i], V); // Вращение вокруг Z на -lon_gcen
-            vw[i] = matrix_multiply(V, W);
+            // Матрица преобразования VEN (Up, East, North) -> ITRF.
+            // Строим напрямую (прежняя композиция rotation_matrix давала неверные знаки Up).
+            double cla = std::cos(lat_geod[i]), sla = std::sin(lat_geod[i]);
+            double clo = std::cos(lon_gcen[i]), slo = std::sin(lon_gcen[i]);
+            vw[i].col(0) << cla * clo, cla * slo, sla;        // Up (Vertical)
+            vw[i].col(1) << -slo, clo, 0.0;                   // East
+            vw[i].col(2) << -sla * clo, -sla * slo, cla;      // North
         } else {
             // Для космического телескопа заглушки
             lat_geod[i] = 0.0;
