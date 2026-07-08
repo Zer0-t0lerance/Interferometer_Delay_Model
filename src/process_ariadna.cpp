@@ -53,8 +53,11 @@ void process_ariadna(const std::vector<Station>& stations, const std::vector<Sou
                      int n_segm, int k_ch_c, int k_ch_z, double delta_sec,
                      const std::string& output_path,
                      const std::vector<EOPData>& eop_data,
-                     double mjd_mean, double utc_mean, double t_mean) {
+                     double mjd_mean, double utc_mean, double t_mean,
+                     std::vector<DelayResult>& results, std::vector<CompDebug>* debug) {
     (void)orbit_data; (void)n_segm; (void)k_ch_c; (void)k_ch_z; (void)delta_sec;
+    results.clear();
+    if (debug) debug->clear();
 
     const int n_stations = static_cast<int>(stations.size());
 
@@ -93,16 +96,20 @@ void process_ariadna(const std::vector<Station>& stations, const std::vector<Sou
     std::vector<Eigen::VectorXd> t_coef, p_coef, hum_coef;
     dmeteo1_dt(observations, n_stations, t_mean, ndeg, t_coef, p_coef, hum_coef);
 
-    // --- Вывод ---
-    std::ofstream out(output_path);
-    if (!out) {
-        std::fprintf(stderr, "process_ariadna: не удалось открыть %s для записи\n", output_path.c_str());
-        return;
+    // --- Необязательный файл-отчёт (только если путь непустой; данные и так в памяти) ---
+    std::ofstream out;
+    const bool write_file = !output_path.empty();
+    if (write_file) {
+        out.open(output_path);
+        if (!out) {
+            std::fprintf(stderr, "process_ariadna: не удалось открыть %s для записи\n", output_path.c_str());
+            return;
+        }
+        out.setf(std::ios::scientific);
+        out.precision(15);
+        out << "# ARIADNA theoretical delays\n";
+        out << "# mjd utc sta1 sta2 sou tau[s] dtau[s/s]\n";
     }
-    out.setf(std::ios::scientific);
-    out.precision(15);
-    out << "# ARIADNA theoretical delays\n";
-    out << "# mjd utc sta1 sta2 sou tau[s] dtau[s/s]\n";
 
     // --- НА КАЖДОЕ НАБЛЮДЕНИЕ ---
     for (const Observation& obs : observations) {
@@ -160,15 +167,25 @@ void process_ariadna(const std::vector<Station>& stations, const std::vector<Sou
         s1.pres = obs.p1; s1.dPdt = dP1; s1.tC = obs.t1; s1.dTdt = dT1;
         s2.pres = obs.p2; s2.dPdt = dP2; s2.tC = obs.t2; s2.dTdt = dT2;
 
-        // Полный конвейер задержки.
+        // Полный конвейер задержки (с опциональным сбором промежуточных величин).
         double tau, dtau;
+        CompDebug dbg;
         compute_delay_obs(s1, s2, k_star[obs.sou], obs,
                           mjd, utc, jd0, ct, cent, ut1_sec, f, fd, gast,
                           Earth, Sun, Moon, sun_geo, moon_geo,
-                          xp, yp, xp_rate, yp_rate, R, dR, d2R, tau, dtau);
+                          xp, yp, xp_rate, yp_rate, R, dR, d2R, tau, dtau,
+                          debug ? &dbg : nullptr);
 
-        out << mjd << ' ' << utc << ' ' << obs.sta1 << ' ' << obs.sta2 << ' '
-            << obs.sou << ' ' << tau << ' ' << dtau << '\n';
+        // Результат — в память.
+        DelayResult r;
+        r.mjd = mjd; r.utc = utc; r.sta1 = obs.sta1; r.sta2 = obs.sta2; r.sou = obs.sou;
+        r.tau = tau; r.dtau = dtau;
+        results.push_back(r);
+        if (debug) debug->push_back(dbg);
+
+        if (write_file)
+            out << mjd << ' ' << utc << ' ' << obs.sta1 << ' ' << obs.sta2 << ' '
+                << obs.sou << ' ' << tau << ' ' << dtau << '\n';
     }
 }
 

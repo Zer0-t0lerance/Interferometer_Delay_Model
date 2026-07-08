@@ -103,23 +103,13 @@ int main() {
         eop[i].dpsi = 0.0; eop[i].deps = 0.0;
     }
 
-    // --- Полный прогон ---
-    std::string out_path = "tests/out_final_build.txt";
+    // --- Полный прогон: результат В ПАМЯТИ (без промежуточного файла) ---
     std::vector<SpaceStation> space; std::vector<OrbitData> orb;
+    std::vector<DelayResult> res;
     double mjd_mean = 58120, utc_mean = utc_obs, t_mean = 58120.0 + utc_obs;
-    process_ariadna(st, src, obs, space, orb, 1, 2, 4, 0.0, out_path, eop, mjd_mean, utc_mean, t_mean);
-
-    // --- Чтение итоговой задержки ---
-    std::ifstream fin(out_path);
-    if (!fin) { printf("FAIL: нет выходного файла %s\n", out_path.c_str()); return 1; }
-    double tau = 0.0; bool got = false; std::string line;
-    while (std::getline(fin, line)) {
-        if (line.empty() || line[0] == '#') continue;
-        std::istringstream ss(line);
-        int mjd, s1, s2, so; double utc, t, dt;
-        if (ss >> mjd >> utc >> s1 >> s2 >> so >> t >> dt) { tau = t; got = true; }
-    }
-    if (!got) { printf("FAIL: не удалось прочитать задержку\n"); return 1; }
+    process_ariadna(st, src, obs, space, orb, 1, 2, 4, 0.0, "", eop, mjd_mean, utc_mean, t_mean, res);
+    if (res.empty()) { printf("FAIL: пустой результат\n"); return 1; }
+    double tau = res[0].tau;
 
     const double ref = -0.3450839807711632e-03;
     const double d = std::fabs(tau - ref);

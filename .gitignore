@@ -11,3 +11,7 @@ linux_p*
 # SOFA: исходники (c/src) храним, сборку и документацию — нет
 external/sofa/**/build/
 external/sofa/**/doc/
+
+# генерируемые отчёты/выводы тестов
+tests/verify_report.txt
+tests/out_*.txt

@@ -648,7 +648,7 @@ void compute_delay_obs(const SitePrep& s1, const SitePrep& s2,
                        const Eigen::Matrix<double, 3, 2>& sun_geo, const Eigen::Matrix<double, 3, 2>& moon_geo,
                        double xp, double yp, double xp_rate, double yp_rate,
                        const Eigen::Matrix3d& r2000, const Eigen::Matrix3d& dr2000, const Eigen::Matrix3d& d2r2000,
-                       double& tau, double& dtau);
+                       double& tau, double& dtau, CompDebug* dbg = nullptr);
 
 // ============================================================================
 // Астрометрия и матрицы переходов (Эфемериды, прецессия, нутация)
@@ -833,7 +833,11 @@ void integr8_asc(const Station& station, const Observation& obs, int nobs, int l
  * ОДИН РАЗ на сессию: site() (геодезия + VEN->ITRF на среднюю эпоху) и source_vec() (направления).
  * НА КАЖДОЕ НАБЛЮДЕНИЕ: время (tai_time/t_eph40), EOP (окно 7 узлов + interp_iers), эфемериды
  * (get_celestial_bodies/jpl_eph), ориентация Земли (get_r2000_matrices/fund_arg/gast_iau2006),
- * затем весь конвейер задержки compute_delay_obs(). Результат пишется в output_path.
+ * затем весь конвейер задержки compute_delay_obs().
+ *
+ * РЕЗУЛЬТАТ ВОЗВРАЩАЕТСЯ В ПАМЯТИ (results) — БЕЗ промежуточных файлов. Запись в файл
+ * output_path выполняется ТОЛЬКО если путь непустой (необязательный итоговый отчёт).
+ * Опционально заполняет debug (промежуточные величины конвейера на каждое наблюдение).
  *
  * @param[in]  stations       Станции с координатами ITRF@эпоха каталога, скоростями, нагрузками, монтировкой.
  * @param[in]  sources        Источники (RA/Dec в рад).
@@ -841,11 +845,13 @@ void integr8_asc(const Station& station, const Observation& obs, int nobs, int l
  * @param[in]  space_stations Данные бортовых станций (Space VLBI); передаются в site().
  * @param[in]  orbit_data     Орбитальные данные (Space VLBI); не задействованы.
  * @param[in]  n_segm,k_ch_c,k_ch_z,delta_sec  Параметры сегментации вывода; не задействованы.
- * @param[in]  output_path    Путь к файлу результатов (mjd utc sta1 sta2 sou tau dtau).
+ * @param[in]  output_path    Путь к необязательному файлу-отчёту ("" = не писать файл).
  * @param[in]  eop_data       Полная таблица EOP (EOPData, отсортирована по MJD); окно выбирается на наблюдение.
  * @param[in]  mjd_mean,utc_mean  Средняя эпоха сессии (для дрейфа координат в site()).
  * @param[in]  t_mean         Средняя эпоха для собственного движения источников (source_vec).
+ * @param[out] results        Задержки всех наблюдений (В ПАМЯТИ).
+ * @param[out] debug          (опц.) промежуточные величины на наблюдение; nullptr = не считать.
  */
-void process_ariadna(const std::vector<Station>& stations, const std::vector<Source>& sources, const std::vector<Observation>& observations, const std::vector<SpaceStation>& space_stations, const std::vector<OrbitData>& orbit_data, int n_segm, int k_ch_c, int k_ch_z, double delta_sec, const std::string& output_path, const std::vector<EOPData>& eop_data, double mjd_mean, double utc_mean, double t_mean);
+void process_ariadna(const std::vector<Station>& stations, const std::vector<Source>& sources, const std::vector<Observation>& observations, const std::vector<SpaceStation>& space_stations, const std::vector<OrbitData>& orbit_data, int n_segm, int k_ch_c, int k_ch_z, double delta_sec, const std::string& output_path, const std::vector<EOPData>& eop_data, double mjd_mean, double utc_mean, double t_mean, std::vector<DelayResult>& results, std::vector<CompDebug>* debug = nullptr);
 
 } // namespace ariadna

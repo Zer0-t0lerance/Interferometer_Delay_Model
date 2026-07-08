@@ -147,6 +147,26 @@ struct SitePrep {
     Eigen::Vector3d a_orbit = Eigen::Vector3d::Zero(); // ускорение в J2000 [м/с^2]
 };
 
+// Результат расчёта задержки одного наблюдения (возвращается В ПАМЯТИ, без файла).
+struct DelayResult {
+    int mjd = 0; double utc = 0.0;
+    int sta1 = 0, sta2 = 0, sou = 0;
+    double tau = 0.0;   // теоретическая задержка [с]
+    double dtau = 0.0;  // производная задержки [с/с]
+};
+
+// Промежуточные величины конвейера одного наблюдения — для ПОДРОБНОЙ сверки с дампом
+// (заполняется опционально: compute_delay_obs получает указатель, nullptr = не считать).
+struct CompDebug {
+    Eigen::Matrix2d E = Eigen::Matrix2d::Zero();        // элевации [рад]: (станция, значение/скорость)
+    Eigen::Matrix2d Az = Eigen::Matrix2d::Zero();       // азимуты [рад]
+    Eigen::Vector2d Zd = Eigen::Vector2d::Zero();       // зенитная сухая задержка [м] по станциям
+    Eigen::Vector2d Zw = Eigen::Vector2d::Zero();       // зенитная влажная задержка [м]
+    Eigen::Matrix2d Datmc_d = Eigen::Matrix2d::Zero();  // тропо сухая [с]: (станция, задержка/скорость)
+    Eigen::Matrix2d Datmc_w = Eigen::Matrix2d::Zero();  // тропо влажная [с]
+    Eigen::Vector3d baseline = Eigen::Vector3d::Zero(); // вектор базы [м]
+};
+
 struct SiteCorrData {
     Eigen::Vector3d xyz;     // Координаты на эпоху наблюдения ITRF [м]
     Eigen::Vector3d vel;     // Скорости станции ITRF [м/год]

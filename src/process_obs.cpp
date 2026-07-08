@@ -24,7 +24,7 @@ void compute_delay_obs(const SitePrep& s1, const SitePrep& s2,
                        const Eigen::Matrix<double, 3, 2>& sun_geo, const Eigen::Matrix<double, 3, 2>& moon_geo,
                        double xp, double yp, double xp_rate, double yp_rate,
                        const Eigen::Matrix3d& r2000, const Eigen::Matrix3d& dr2000, const Eigen::Matrix3d& d2r2000,
-                       double& tau, double& dtau) {
+                       double& tau, double& dtau, CompDebug* dbg) {
     // 1. Координаты станций в J2000 со всеми поправками.
     std::vector<Eigen::Vector3d> xs, vs, as_;
     site_pair(s1, s2, mjd, utc, jd0, ut1_sec, cent, f, fd, gast, sun_geo, moon_geo,
@@ -73,6 +73,16 @@ void compute_delay_obs(const SitePrep& s1, const SitePrep& s2,
     // (наземных поправок для орбитального телескопа нет — как THEOR_DELAYcorr_ORB).
     if (s1.is_space) { dd.row(0).setZero(); dw.row(0).setZero(); dtau_mt.row(0).setZero(); }
     if (s2.is_space) { dd.row(1).setZero(); dw.row(1).setZero(); dtau_mt.row(1).setZero(); }
+
+    // Промежуточные величины для подробной сверки с дампом (если запрошено).
+    if (dbg) {
+        dbg->E = e2; dbg->Az = az2;
+        dbg->Zd << zd(0, 0), zd(1, 0);
+        dbg->Zw << zw(0, 0), zw(1, 0);
+        dbg->Datmc_d = Eigen::Matrix2d(dd);
+        dbg->Datmc_w = Eigen::Matrix2d(dw);
+        dbg->baseline = blm.col(0);
+    }
 
     // 6. Теоретическая задержка (Datmc и dtau_off транспонируем; Солнце/Луна SSB; dt_temp=0).
     Eigen::Matrix<double, 3, 2> bl; bl.col(0) = blm.col(0); bl.col(1) = blm.col(1);
