@@ -36,6 +36,14 @@ void build_sources_from_icrf(const std::vector<src_icrf_record>& raw_icrf,
                              std::vector<Source>& sources);
 
 /**
+ * @brief Заполняет параметры антенн (DefPar: термодеформация, опорное давление p_0) из ANTENNA_INFO.
+ * @param[in]  raw_ant  Записи каталога ANTENNA_INFO (ReadANT_INFO).
+ * @param[in,out] stations Станции: заполняются def_par и atm_load.p_0 (по совпадению имени).
+ */
+void build_def_par_from_ant_info(const std::vector<ant_record>& raw_ant,
+                                 std::vector<Station>& stations);
+
+/**
  * @brief Выбирает N узлов EOP вокруг даты наблюдения и переводит в EOPData (для interp_iers/interp_eop).
  * @param[in]  raw_eop  Записи каталога EOP (ReadEOP), отсортированы по MJD.
  * @param[in]  mjd_obs  MJD наблюдения.

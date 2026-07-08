@@ -13,8 +13,10 @@ void interp_eop(int k_int, const Observation& obs, double tt, double& ut1,
     std::vector<double> x_nodes(N);
     std::vector<std::vector<double>> y_smooth(5, std::vector<double>(N));
 
-    // Вычисляем TT-UTC для узлов (на январь 2016 года это 36 сек високосных + 32.184)
-    double tt_node = 68.184 / cnst::SECDAY;
+    // TT-UTC для узлов: (TAI-UTC високосные + 32.184)/86400 на эпоху наблюдения.
+    // Раньше было жёстко 68.184 (36 сек, только 2016) — исправлено на nsec (эпоха-независимо).
+    double idelt; nsec(static_cast<double>(obs.mjd), idelt);
+    double tt_node = (idelt + 32.184) / cnst::SECDAY;
 
     for (int i = 0; i < N; ++i) {
         x_nodes[i] = static_cast<double>(i);
@@ -50,8 +52,8 @@ void interp_eop(int k_int, const Observation& obs, double tt, double& ut1,
     terms_71(cent, f, fd, deop_diu, arg_oc_tide);
     terms_lib(cent, f, fd, deop_lib);
 
-    // СБОРКА ЗНАЧЕНИЙ (добавляем приливы и 36 сек для перевода TAI -> UTC)
-    eop_int(0) += dut + deop_diu(0, 0) + deop_lib(0, 0) + 36.0; // Сразу UT1-UTC
+    // СБОРКА ЗНАЧЕНИЙ (добавляем приливы и високосные сек idelt для перевода TAI -> UTC)
+    eop_int(0) += dut + deop_diu(0, 0) + deop_lib(0, 0) + idelt; // Сразу UT1-UTC
     eop_int(1) += deop_diu(1, 0) + deop_lib(1, 0);       
     eop_int(2) += deop_diu(2, 0) + deop_lib(2, 0);       
 

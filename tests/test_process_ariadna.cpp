@@ -7,12 +7,19 @@
 // каталога EOPC04 (MJD 58117..58123). Сверка итоговой задержки из выходного файла
 // с дампом ARIADNA.
 //
-// Отличие от test_compute_delay: здесь EOP не задаются готовыми числами, а
-// интерполируются внутри process_ariadna из каталожных узлов — проверяется вся
-// цепочка оркестрации, включая выбор окна EOP и interp_iers.
+// Отличие от test_compute_delay: EOP интерполируются внутри process_ariadna из
+// каталожных узлов (INTERP_EOP40, как ARIADNA), а океаническая/атмосферная нагрузки
+// и термопараметры антенн читаются из РЕАЛЬНЫХ каталогов (VLBI_ocload/atmload,
+// antenna-info) — проверяется вся цепочка оркестрации и адаптеры каталогов.
+//
+// ОСТАТОК ~5 см обусловлен: (1) суб-суточной поправкой UT1 (~5e-5 с -> 24 мм), которую
+// оба независимых интерполятора (interp_eop terms_71/lib и interp_iers PMUT1/GRAVI)
+// дают согласованно, но которая уходит от «сырой» интерполяции дампа ARIADNA;
+// (2) аргументом времени эфемерид (TDB). Оба требуют дампов ARIADNA для бит-сверки.
 
 #include "../src/functions.h"
 #include "../src/catalog_bridge.h"
+#include "../src/READ_CAT.h"
 #include <cstdio>
 #include <cmath>
 #include <fstream>
@@ -36,22 +43,31 @@ int main() {
     try { init_ephemeris(find_eph()); }
     catch (const std::exception& e) { printf("SKIP: эфемериды недоступны: %s\n", e.what()); return 2; }
 
-    // --- Станции (координаты каталога @2000.0 + скорости; нагрузки обнулены) ---
+    // --- Станции (координаты каталога @2000.0 + скорости) ---
     std::vector<Station> st(2);
     st[0].name = "FORTLEZA"; st[0].axsty = "AZEL"; st[0].offs = 0.00637;
     st[0].xyz  = Eigen::Vector3d(4985370.025, -3955020.358, -428472.184);
     st[0].vel  = Eigen::Vector3d(-0.0024, -0.0039, 0.0126);
-    // ANTENNA_INFO (Nothnagel): t_0, hf/gamma_hf, hp/gamma_hp для термодеформации
-    st[0].def_par.t_0 = 26.7; st[0].def_par.hf = 4.44; st[0].def_par.gamma_hf = 1.0e-5;
-    st[0].def_par.hp = 3.71;  st[0].def_par.gamma_hp = 1.2e-5;
     st[1].name = "HART15M";  st[1].axsty = "AZEL"; st[1].offs = 1.49500;
     st[1].xyz  = Eigen::Vector3d(5085490.783, 2668161.315, -2768692.721);
     st[1].vel  = Eigen::Vector3d(0.0019, 0.0216, 0.0133);
-    st[1].def_par.t_0 = 16.1; st[1].def_par.hf = 6.32; st[1].def_par.gamma_hf = 0.8e-5;
-    st[1].def_par.hp = 3.36;  st[1].def_par.gamma_hp = 1.2e-5;
-    for (auto& s : st) {
-        s.tide_data.amplitudes.setZero(); s.tide_data.phases.setZero();
-        s.atm_load.coef.setZero(); s.atm_load.has_data = false;
+
+    // --- Нагрузки и термопараметры — из РЕАЛЬНЫХ каталогов ---
+    {
+        char p_oc[256]  = "external/catalogs/VLBI_ocload_40.cat";
+        char p_atm[256] = "external/catalogs/VLBI_atmload4_12.cat";
+        char p_ant[256] = "external/catalogs/antenna-info.cat";
+        std::vector<oc_record> oc; std::vector<atm_record> atm; std::vector<ant_record> ant;
+        ReadOC(oc, p_oc);         map_ocean_tides_to_stations(oc, st);
+        ReadATM(atm, p_atm);      map_atm_loading_to_stations(atm, st);
+        ReadANT_INFO(ant, p_ant); build_def_par_from_ant_info(ant, st);
+        printf("  каталоги: oc=%zu atm=%zu ant=%zu\n", oc.size(), atm.size(), ant.size());
+        printf("  FORTLEZA: hf=%.3f gamma_hf=%.2e hp=%.3f t_0=%.1f p_0=%.1f oc_amp[V,M2]=%.5f atm_has=%d\n",
+               st[0].def_par.hf, st[0].def_par.gamma_hf, st[0].def_par.hp, st[0].def_par.t_0,
+               st[0].atm_load.p_0, st[0].tide_data.amplitudes(0, 0), (int)st[0].atm_load.has_data);
+        printf("  HART15M : hf=%.3f gamma_hf=%.2e hp=%.3f t_0=%.1f p_0=%.1f oc_amp[V,M2]=%.5f atm_has=%d\n",
+               st[1].def_par.hf, st[1].def_par.gamma_hf, st[1].def_par.hp, st[1].def_par.t_0,
+               st[1].atm_load.p_0, st[1].tide_data.amplitudes(0, 0), (int)st[1].atm_load.has_data);
     }
 
     // --- Источник 0017+200 ---
@@ -84,7 +100,9 @@ int main() {
     for (int i = 0; i < 7; ++i) {
         eop[i].mjd = eop_rows[i][0];
         eop[i].x = eop_rows[i][1]; eop[i].y = eop_rows[i][2];
-        eop[i].ut1_utc = eop_rows[i][3]; eop[i].ut1_tai = 0.0;
+        eop[i].ut1_utc = eop_rows[i][3];
+        double idelt; nsec(eop_rows[i][0], idelt);
+        eop[i].ut1_tai = eop_rows[i][3] - idelt; // UT1-TAI = (UT1-UTC) - (TAI-UTC); нужно interp_eop
         eop[i].dpsi = 0.0; eop[i].deps = 0.0;
     }
 

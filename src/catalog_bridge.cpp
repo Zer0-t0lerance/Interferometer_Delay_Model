@@ -111,6 +111,31 @@ void build_sources_from_icrf(const std::vector<src_icrf_record>& raw_icrf,
     }
 }
 
+void build_def_par_from_ant_info(const std::vector<ant_record>& raw_ant,
+                                 std::vector<Station>& stations) {
+    // Маппинг ant_record (ANTENNA_INFO, Nothnagel) -> DefPar станции + опорное давление.
+    // Соответствует READ_CAT42corr def_par: hf=ant_h, gamma_hf=th_exp_f, hp=f_a_len (fixed axis),
+    // gamma_hp=th_exp_f_a, AO=a_of_len, hv=dist_mov_a, hs=sub_h.
+    for (Station& st : stations) {
+        for (const ant_record& rec : raw_ant) {
+            if (st.name == trim_name(rec.telescope, 8)) {
+                DefPar& d = st.def_par;
+                d.name     = st.name;
+                d.t_0      = rec.ref_temp;
+                d.p_0      = rec.ref_press;
+                d.ant_diam = rec.ant_diam;
+                d.hf = rec.ant_h;      d.gamma_hf = rec.th_exp_f;
+                d.hp = rec.f_a_len;    d.gamma_hp = rec.th_exp_f_a;
+                d.AO = rec.a_of_len;   d.gamma_AO = rec.a_of_thermal;
+                d.hv = rec.dist_mov_a; d.gamma_hv = rec.therm_exp;
+                d.hs = rec.sub_h;      d.gamma_hs = rec.sub_exp;
+                st.atm_load.p_0 = rec.ref_press; // опорное давление для SITE_ATM40
+                break;
+            }
+        }
+    }
+}
+
 void select_eop_nodes(const std::vector<eop_record>& raw_eop, int mjd_obs, int n,
                       std::vector<EOPData>& nodes) {
     nodes.clear();

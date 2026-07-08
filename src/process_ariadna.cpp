@@ -114,14 +114,20 @@ void process_ariadna(const std::vector<Station>& stations, const std::vector<Sou
         double TAI, TT;
         tai_time(static_cast<double>(mjd), utc, TAI, TT);
 
-        // EOP на момент: окно 7 узлов -> Лагранж + приливные поправки.
+        // EOP на момент через INTERP_EOP40 (как ARIADNA, k_int=0 кубический сплайн):
+        // окно 7 узлов -> сплайн UT1R + суточные приливы (terms_71) + либрация (terms_lib).
+        // Даёт EOP (радианы) И их производные (xp/yp rate) -> прилив полюса и т.д.
         std::vector<EOPData> nodes;
         window_eop(eop_data, static_cast<double>(mjd) + utc, cnst::EOP_NDATA, nodes);
-        Eigen::VectorXd eop_int;
-        interp_iers(obs, nodes, eop_int);
-        const double ut1_utc = eop_int(0);                 // сек
-        const double xp = eop_int(1) * cnst::CARCRAD;      // угл.сек -> рад
-        const double yp = eop_int(2) * cnst::CARCRAD;
+        double ut1_out;
+        Eigen::VectorXd eop_int(5), deop_int(5), arg_oc(8);
+        Eigen::MatrixXd deop_diu(3, 2), deop_lib(3, 2);
+        interp_eop(0, obs, TT, ut1_out, eop_int, deop_int, arg_oc, deop_diu, deop_lib, nodes);
+        const double ut1_utc = eop_int(0);   // сек
+        const double xp = eop_int(1);        // рад (interp_eop уже в СИ)
+        const double yp = eop_int(2);
+        const double xp_rate = deop_int(1);  // рад/с
+        const double yp_rate = deop_int(2);
 
         // Производные величины времени.
         const double ut1_frac = utc + ut1_utc / cnst::SECDAY;
@@ -159,7 +165,7 @@ void process_ariadna(const std::vector<Station>& stations, const std::vector<Sou
         compute_delay_obs(s1, s2, k_star[obs.sou], obs,
                           mjd, utc, jd0, ct, cent, ut1_sec, f, fd, gast,
                           Earth, Sun, Moon, sun_geo, moon_geo,
-                          xp, yp, 0.0, 0.0, R, dR, d2R, tau, dtau);
+                          xp, yp, xp_rate, yp_rate, R, dR, d2R, tau, dtau);
 
         out << mjd << ' ' << utc << ' ' << obs.sta1 << ' ' << obs.sta2 << ' '
             << obs.sou << ' ' << tau << ' ' << dtau << '\n';
