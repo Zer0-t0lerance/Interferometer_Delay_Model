@@ -66,6 +66,9 @@ g++ -std=c++17 -I.\external\eigen -I.\external src\site_atm40.cpp tests\test_sit
 t_eph40 (координатное время TDB через SOFA; нужна libsofa.a)
 g++ -std=c++17 -I.\external\eigen -I.\external\sofa\20190722\c\src src\t_eph40.cpp tests\test_t_eph40.cpp .\external\sofa\20190722\c\build\libsofa.a -o .\tests\test_t_eph40.exe
 
+compute_delay (ПОЛНЫЙ конвейер через compute_delay_obs vs дамп; из корня, эфемериды+libsofa.a последней)
+g++ -std=c++17 -I.\external\eigen -I.\external -I.\external\dephem-master\include -I.\external\sofa\20190722\c\src src\process_obs.cpp src\site_pair.cpp src\site_tide_solid.cpp src\site_tide_OC.cpp src\pole_tide.cpp src\site_atm40.cpp src\site_inst.cpp src\baseline.cpp src\aber_source.cpp src\trop_delay.cpp src\nhmf2.cpp src\nwmf2.cpp src\sast_dry.cpp src\sast_wet.cpp src\mount_tel.cpp src\sbend.cpp src\theor_delay.cpp src\jpleph.cpp src\ephemeris.cpp src\fund_arg.cpp src\GEOD.cpp src\site_functions.cpp src\rotation.cpp .\external\dephem-master\include\dephem\EphemerisRelease.cpp tests\test_compute_delay.cpp .\external\sofa\20190722\c\build\libsofa.a -o .\tests\test_compute_delay.exe
+
 process_obs (полная связка source_vec->aber_source->trop_delay->mount_tel->theor_delay vs дамп; из корня, эфемериды+libsofa.a последней)
 g++ -std=c++17 -I.\external\eigen -I.\external -I.\external\dephem-master\include -I.\external\sofa\20190722\c\src src\aber_source.cpp src\site_functions.cpp src\GEOD.cpp src\ephemeris.cpp src\jpleph.cpp src\rotation.cpp src\baseline.cpp src\trop_delay.cpp src\nhmf2.cpp src\nwmf2.cpp src\sast_dry.cpp src\sast_wet.cpp src\theor_delay.cpp src\mount_tel.cpp src\sbend.cpp .\external\dephem-master\include\dephem\EphemerisRelease.cpp tests\test_process_obs.cpp .\external\sofa\20190722\c\build\libsofa.a -o .\tests\test_process_obs.exe
 

@@ -109,12 +109,15 @@ struct EOPData {
 // Подготовленные данные одной станции для посуточной сборки координат (site_pair):
 // координаты ITRF на эпоху + геодезия/матрица VEN->ITRF + каталоги нагрузок + метео.
 struct SitePrep {
+    std::string name;
     Eigen::Vector3d xsta_itrf = Eigen::Vector3d::Zero(); // координаты ITRF на эпоху [м]
-    double lat_gcen = 0.0, lon_gcen = 0.0, lat_geod = 0.0;
+    double lat_gcen = 0.0, lon_gcen = 0.0, lat_geod = 0.0, h_geod = 0.0;
     Eigen::Matrix3d vw_i = Eigen::Matrix3d::Identity();   // VEN -> ITRF
     OceanTideData tide_data;    // океаническая нагрузка
     AtmLoadData atm_load;       // атмосферная нагрузка
     double pres = 0.0, dPdt = 0.0; // давление станции и его производная
+    std::string axsty = "AZEL"; // тип монтировки (для mount_tel)
+    double offs = 0.0;          // смещение оси монтировки [м]
 };
 
 struct SiteCorrData {

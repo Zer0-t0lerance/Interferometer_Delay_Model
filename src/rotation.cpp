@@ -57,4 +57,12 @@ void get_r2000_matrices(double JD_TDB, double JD_UT1, double xp, double yp,
     get_r2000_matrices(JD_TDB, JD_UT1, xp, yp, R2000, dR2000_dt, d2);
 }
 
+// Гринвичское истинное звёздное время (GAST) по IAU 2006/2000A (SOFA) и его производная.
+// Возвращает Vector2d: [GAST [рад], d(GAST)/dt ~ угловая скорость Земли [рад/с]].
+Eigen::Vector2d gast_iau2006(double jd_tt, double jd_ut1) {
+    const double djmjd0 = 2400000.5;
+    double g = iauGst06a(djmjd0, jd_ut1 - djmjd0, djmjd0, jd_tt - djmjd0);
+    return Eigen::Vector2d(g, cnst::OMEGA_EARTH);
+}
+
 } // namespace ariadna

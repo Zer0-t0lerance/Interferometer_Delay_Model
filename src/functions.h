@@ -550,6 +550,43 @@ void get_r2000_matrices(double JD_TDB, double JD_UT1, double xp, double yp,
 void get_r2000_matrices(double JD_TDB, double JD_UT1, double xp, double yp,
                         Eigen::Matrix3d& R2000, Eigen::Matrix3d& dR2000_dt);
 
+/**
+ * @brief Гринвичское истинное звёздное время (GAST) по IAU 2006/2000A (SOFA) и его производная.
+ * @param[in] jd_tt  Юлианская дата TT.
+ * @param[in] jd_ut1 Юлианская дата UT1.
+ * @return Vector2d: [GAST рад, d(GAST)/dt рад/с (~угловая скорость Земли)].
+ */
+Eigen::Vector2d gast_iau2006(double jd_tt, double jd_ut1);
+
+/**
+ * @brief Полная теоретическая задержка ОДНОГО наблюдения (связка всех блоков конвейера).
+ *
+ * Собирает site_pair -> baseline -> aber_source -> trop_delay -> mount_tel -> theor_delay.
+ * "Средовые" величины (время, эфемериды, EOP, r2000, gast) готовит вызывающий код.
+ * Солнце/Луна: для theor_delay — SSB (Earth/Sun/Moon), для приливов — геоцентрические (sun_geo/moon_geo).
+ *
+ * @param[in]  s1, s2      Подготовленные станции (SitePrep: ITRF, геодезия, vw, нагрузки, метео, монтировка).
+ * @param[in]  K_s         Единичный вектор на источник в J2000 (source_vec).
+ * @param[in]  obs         Наблюдение (метео, индексы).
+ * @param[in]  mjd, utc, jd0, ct, cent, ut1_sec  Время (MJD/UTC, JD@0h, доля TDB, столетия, UT1 в сек суток).
+ * @param[in]  f, fd, gast Фундаментальные аргументы и GAST (рад, рад/с).
+ * @param[in]  Earth, Sun, Moon      Матрицы 3x3 в SSB (поз/скор/ускор) — для theor_delay.
+ * @param[in]  sun_geo, moon_geo     Геоцентрические поз/скор 3x2 — для приливов.
+ * @param[in]  xp, yp, xp_rate, yp_rate  Полюс [рад] и скорости [рад/с].
+ * @param[in]  r2000, dr2000, d2r2000    ITRF->J2000 и производные.
+ * @param[out] tau, dtau   Теоретическая задержка [с] и её производная [с/с].
+ */
+void compute_delay_obs(const SitePrep& s1, const SitePrep& s2,
+                       const Eigen::Vector3d& K_s, const Observation& obs,
+                       int mjd, double utc, double jd0, double ct, double cent, double ut1_sec,
+                       const Eigen::VectorXd& f, const Eigen::VectorXd& fd,
+                       const Eigen::Vector2d& gast,
+                       const Eigen::Matrix3d& Earth, const Eigen::Matrix3d& Sun, const Eigen::Matrix3d& Moon,
+                       const Eigen::Matrix<double, 3, 2>& sun_geo, const Eigen::Matrix<double, 3, 2>& moon_geo,
+                       double xp, double yp, double xp_rate, double yp_rate,
+                       const Eigen::Matrix3d& r2000, const Eigen::Matrix3d& dr2000, const Eigen::Matrix3d& d2r2000,
+                       double& tau, double& dtau);
+
 // ============================================================================
 // Астрометрия и матрицы переходов (Эфемериды, прецессия, нутация)
 // ============================================================================
