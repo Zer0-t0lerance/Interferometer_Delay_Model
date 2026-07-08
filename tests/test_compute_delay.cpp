@@ -77,6 +77,10 @@ int main() {
     Observation obs{}; obs.sta1=0; obs.sta2=1;
     obs.t1=30.427;obs.p1=1006.7;obs.e1=60.973; obs.t2=25.884;obs.p2=861.233;obs.e2=43.395;
 
+    // Термопараметры антенн (ANTENNA_INFO, Nothnagel) + температура наблюдения.
+    s1.tC=obs.t1; s1.def_par.t_0=26.7; s1.def_par.hf=4.44; s1.def_par.gamma_hf=1.0e-5; s1.def_par.hp=3.71; s1.def_par.gamma_hp=1.2e-5;
+    s2.tC=obs.t2; s2.def_par.t_0=16.1; s2.def_par.hf=6.32; s2.def_par.gamma_hf=0.8e-5; s2.def_par.hp=3.36; s2.def_par.gamma_hp=1.2e-5;
+
     double tau,dtau;
     compute_delay_obs(s1,s2,k_star[0],obs, mjd,utc,jd0,ct,cent,ut1_sec, f,fd,gast,
                       Earth,Sun,Moon, sun_geo,moon_geo, xp,yp,0.0,0.0, R,dR,d2R, tau,dtau);

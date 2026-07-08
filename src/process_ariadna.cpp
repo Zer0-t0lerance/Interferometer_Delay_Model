@@ -79,6 +79,7 @@ void process_ariadna(const std::vector<Station>& stations, const std::vector<Sou
         s.vw_i      = vw[i];
         s.tide_data = stations[i].tide_data;
         s.atm_load  = stations[i].atm_load;
+        s.def_par   = stations[i].def_par;
         s.axsty     = stations[i].axsty;
         s.offs      = stations[i].offs;
     }
@@ -142,8 +143,8 @@ void process_ariadna(const std::vector<Station>& stations, const std::vector<Sou
         // Станции этого наблюдения: постоянная часть + метео из записи.
         SitePrep s1 = prep[obs.sta1];
         SitePrep s2 = prep[obs.sta2];
-        s1.pres = obs.p1; s1.dPdt = 0.0;
-        s2.pres = obs.p2; s2.dPdt = 0.0;
+        s1.pres = obs.p1; s1.dPdt = 0.0; s1.tC = obs.t1; s1.dTdt = 0.0;
+        s2.pres = obs.p2; s2.dPdt = 0.0; s2.tC = obs.t2; s2.dTdt = 0.0;
 
         // Полный конвейер задержки.
         double tau, dtau;

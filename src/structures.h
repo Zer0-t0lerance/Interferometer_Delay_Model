@@ -29,6 +29,21 @@ struct AtmLoadData {
     AtmLoadData() : p_0(0.0), has_data(false) { coef.setZero(); }
 };
 
+// Параметры антенны из каталога ANTENNA_INFO (Nothnagel 2009) для термодеформации
+// и опорных метеоусловий. Читаются форматом READ_CAT42corr FORMAT 155.
+// Значения по умолчанию — для мобильных антенн (DATA hf/1/, hp/5/, gamma_f/1e-5/, gamma_a/1.2e-5/).
+struct DefPar {
+    std::string name;
+    double t_0 = 20.0;        // Опорная температура [°C]
+    double p_0 = 0.0;         // Опорное давление [мбар]
+    double ant_diam = 0.0;    // Диаметр зеркала [м]
+    double hf = 1.0, gamma_hf = 1.0e-5;   // Высота фундамента [м] + коэфф. расширения [1/°C]
+    double hp = 5.0, gamma_hp = 1.2e-5;   // Высота опоры/колонны [м] + коэфф. расширения
+    double AO = 0.0, gamma_AO = 1.2e-5;   // Осевое смещение [м] + коэфф. (в THERM_DEF40 не используется)
+    double hv = 0.0, gamma_hv = 1.2e-5;   // Высота вершины зеркала [м] (не используется)
+    double hs = 0.0, gamma_hs = 1.2e-5;   // Высота субрефлектора [м] (не используется)
+};
+
 struct Station {
     std::string name; // Station name (e.g., "RASTRON" for space telescope)
     Eigen::Vector3d xyz; // Coordinates in ITRF (m)
@@ -42,6 +57,7 @@ struct Station {
     std::string descr; // Description
     OceanTideData tide_data;
     AtmLoadData atm_load;
+    DefPar def_par; // Параметры антенны (термодеформация, опорные метео) из ANTENNA_INFO
 };
 
 struct Source {
@@ -116,6 +132,8 @@ struct SitePrep {
     OceanTideData tide_data;    // океаническая нагрузка
     AtmLoadData atm_load;       // атмосферная нагрузка
     double pres = 0.0, dPdt = 0.0; // давление станции и его производная
+    double tC = 0.0, dTdt = 0.0;   // температура станции [°C] и её производная [°C/с] (для термодеформации)
+    DefPar def_par;             // параметры антенны (термодеформация) из ANTENNA_INFO
     std::string axsty = "AZEL"; // тип монтировки (для mount_tel)
     double offs = 0.0;          // смещение оси монтировки [м]
 };

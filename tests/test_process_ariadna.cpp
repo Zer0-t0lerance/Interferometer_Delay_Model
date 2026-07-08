@@ -41,9 +41,14 @@ int main() {
     st[0].name = "FORTLEZA"; st[0].axsty = "AZEL"; st[0].offs = 0.00637;
     st[0].xyz  = Eigen::Vector3d(4985370.025, -3955020.358, -428472.184);
     st[0].vel  = Eigen::Vector3d(-0.0024, -0.0039, 0.0126);
+    // ANTENNA_INFO (Nothnagel): t_0, hf/gamma_hf, hp/gamma_hp для термодеформации
+    st[0].def_par.t_0 = 26.7; st[0].def_par.hf = 4.44; st[0].def_par.gamma_hf = 1.0e-5;
+    st[0].def_par.hp = 3.71;  st[0].def_par.gamma_hp = 1.2e-5;
     st[1].name = "HART15M";  st[1].axsty = "AZEL"; st[1].offs = 1.49500;
     st[1].xyz  = Eigen::Vector3d(5085490.783, 2668161.315, -2768692.721);
     st[1].vel  = Eigen::Vector3d(0.0019, 0.0216, 0.0133);
+    st[1].def_par.t_0 = 16.1; st[1].def_par.hf = 6.32; st[1].def_par.gamma_hf = 0.8e-5;
+    st[1].def_par.hp = 3.36;  st[1].def_par.gamma_hp = 1.2e-5;
     for (auto& s : st) {
         s.tide_data.amplitudes.setZero(); s.tide_data.phases.setZero();
         s.atm_load.coef.setZero(); s.atm_load.has_data = false;

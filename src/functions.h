@@ -417,6 +417,29 @@ void SITE_ATM40(int mjd, double utc, double pres, double dPdt,
                 const Eigen::Matrix3d& r2000, const Eigen::Matrix3d& dr2000_dt,
                 Eigen::Vector3d& dx_atm, Eigen::Vector3d& dv_atm);
 
+/**
+ * @brief Термодеформация антенны (порт THERM_DEF40, модель Nothnagel 2009).
+ *
+ * Тепловое расширение бетонного фундамента (высота hf) и колонны/опоры (высота hp)
+ * поднимает опорную точку станции по вертикали на d_up = (gamma_hf*hf + gamma_hp*hp)*(T - T0).
+ * Разность (T - T0) в °C и K одинакова. Только эти члены используются в оригинале
+ * (hv/hs/AO закомментированы). Смещение задаётся в VEN (только вертикаль) и переводится
+ * VEN -> ITRF (vw_i) -> J2000 (r2000); скорость учитывает вращение и dTdt (из DMETEO2_DT).
+ *
+ * @param[in]  tC         Локальная температура станции T [°C].
+ * @param[in]  dTdt       Производная температуры dT/dt [°C/с] (из DMETEO; 0, если не задана).
+ * @param[in]  dp         Параметры антенны (ANTENNA_INFO): t_0, hf, gamma_hf, hp, gamma_hp.
+ * @param[in]  vw_i       Матрица перехода VEN (Vertical, East, North) -> ITRF (3x3).
+ * @param[in]  r2000      Матрица перехода ITRF -> J2000.0 (3x3).
+ * @param[in]  dr2000_dt  Первая производная r2000 по времени (3x3) [1/с].
+ * @param[out] dx_temp    Вектор смещения станции в J2000.0 [м].
+ * @param[out] dv_temp    Вектор скорости смещения станции в J2000.0 [м/с].
+ */
+void THERM_DEF40(double tC, double dTdt, const DefPar& dp,
+                 const Eigen::Matrix3d& vw_i,
+                 const Eigen::Matrix3d& r2000, const Eigen::Matrix3d& dr2000_dt,
+                 Eigen::Vector3d& dx_temp, Eigen::Vector3d& dv_temp);
+
 // ПРИМЕЧАНИЕ: двухстанционная обёртка site_atm40(j1, j2, ...) (сборка dx_atm/dv_atm
 // для пары станций наблюдения) будет добавлена вместе со слоем оркестрации, когда
 // появятся посуточные P и dP/dt из DMETEO. Её черновик был удалён как несобираемый.

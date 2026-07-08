@@ -3,7 +3,7 @@
 // Посуточная сборка координат ПАРЫ станций в системе J2000.0 (роль SUBROUTINE SITE
 // в основном цикле ARIADNA): для каждой из двух станций вычисляет геофизические
 // поправки (твёрдые приливы, океаническая нагрузка, прилив полюса, атмосферная
-// нагрузка; термодеформация пока = 0) и через SITE_INST переводит в J2000 с
+// нагрузка, термодеформация антенны) и через SITE_INST переводит в J2000 с
 // производными.
 //
 // Конвенции подтверждены сверкой с дампами:
@@ -45,8 +45,9 @@ static void site_one(const SitePrep& s,
     Eigen::Vector3d dx_atm, dv_atm;
     SITE_ATM40(mjd, utc, s.pres, s.dPdt, s.atm_load, s.vw_i, r2000, dr2000, dx_atm, dv_atm);
 
-    // Термодеформация — пока не учитывается (нет THERM_DEF40).
-    Eigen::Vector3d dx_temp = Eigen::Vector3d::Zero(), dv_temp = Eigen::Vector3d::Zero();
+    // Термодеформация антенны (Nothnagel 2009): расширение фундамента+колонны.
+    Eigen::Vector3d dx_temp, dv_temp;
+    THERM_DEF40(s.tC, s.dTdt, s.def_par, s.vw_i, r2000, dr2000, dx_temp, dv_temp);
 
     // Суммирование и перевод в J2000 с производными.
     SITE_INST(s.xsta_itrf, r2000, dr2000, d2r2000,
