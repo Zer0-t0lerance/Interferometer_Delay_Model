@@ -748,7 +748,24 @@ void create_matr(const Observation& obs, const Station& sta1, const Station& sta
 void integr8_asc(const Station& station, const Observation& obs, int nobs, int l_segm, int n_wr_tot, double delta_sec, const std::string& track_site, int mjd_beg, double utc_beg, double ct_beg, double dyear, const Eigen::MatrixXd& r2000, std::vector<Eigen::Vector3d>& xsta_j2000t, std::vector<Eigen::Vector3d>& vsta_j2000t, std::vector<Eigen::Vector3d>& asta_j2000, Eigen::MatrixXd& r_sat_pr, const Eigen::Vector3d& k_s, double& phase1);
 
 /**
- * @brief Главная функция обработки наблюдений: расчет геометрических, тропосферных и ионосферных задержек, производных и формирование уравнений для МНК.
+ * @brief Верхний слой оркестрации: пакетный расчёт теоретической задержки всех наблюдений сессии.
+ *
+ * Порт основного цикла ARIADNA4_5corr (без слоя оценивания der_* и create_matr — вне области переноса).
+ * ОДИН РАЗ на сессию: site() (геодезия + VEN->ITRF на среднюю эпоху) и source_vec() (направления).
+ * НА КАЖДОЕ НАБЛЮДЕНИЕ: время (tai_time/t_eph40), EOP (окно 7 узлов + interp_iers), эфемериды
+ * (get_celestial_bodies/jpl_eph), ориентация Земли (get_r2000_matrices/fund_arg/gast_iau2006),
+ * затем весь конвейер задержки compute_delay_obs(). Результат пишется в output_path.
+ *
+ * @param[in]  stations       Станции с координатами ITRF@эпоха каталога, скоростями, нагрузками, монтировкой.
+ * @param[in]  sources        Источники (RA/Dec в рад).
+ * @param[in]  observations   Наблюдения (индексы станций/источника, метео, эпоха).
+ * @param[in]  space_stations Данные бортовых станций (Space VLBI); передаются в site().
+ * @param[in]  orbit_data     Орбитальные данные (Space VLBI); не задействованы.
+ * @param[in]  n_segm,k_ch_c,k_ch_z,delta_sec  Параметры сегментации вывода; не задействованы.
+ * @param[in]  output_path    Путь к файлу результатов (mjd utc sta1 sta2 sou tau dtau).
+ * @param[in]  eop_data       Полная таблица EOP (EOPData, отсортирована по MJD); окно выбирается на наблюдение.
+ * @param[in]  mjd_mean,utc_mean  Средняя эпоха сессии (для дрейфа координат в site()).
+ * @param[in]  t_mean         Средняя эпоха для собственного движения источников (source_vec).
  */
 void process_ariadna(const std::vector<Station>& stations, const std::vector<Source>& sources, const std::vector<Observation>& observations, const std::vector<SpaceStation>& space_stations, const std::vector<OrbitData>& orbit_data, int n_segm, int k_ch_c, int k_ch_z, double delta_sec, const std::string& output_path, const std::vector<EOPData>& eop_data, double mjd_mean, double utc_mean, double t_mean);
 

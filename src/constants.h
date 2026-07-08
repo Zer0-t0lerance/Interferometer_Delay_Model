@@ -11,6 +11,9 @@ constexpr double CTIMRAD = 7.272205216643039903849e-5; // time sec to rad
 constexpr double SECDAY = 86400.0; // seconds per day
 constexpr double JUL_CENT = 36525.00000000000000000000L; // Julian days per century
 constexpr double JD2000 = 2451545.00000000000000000000L; // Julian date of J2000.0
+constexpr double MJD_OFFSET = 2400000.5; // JD = MJD + MJD_OFFSET
+constexpr double MJD_J2000 = 51544.5; // MJD эпохи J2000.0 (опора для дрейфа координат станций)
+constexpr double DAYS_PER_YEAR = 365.25; // Юлианский год [сут] (перевод дрейфа станций год<->сут)
 //constexpr double SEC360 = 1296000.0; // arcseconds in one turn
 
 // Physical constants
