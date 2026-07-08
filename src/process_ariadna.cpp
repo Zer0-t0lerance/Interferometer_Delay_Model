@@ -88,6 +88,11 @@ void process_ariadna(const std::vector<Station>& stations, const std::vector<Sou
     std::vector<Eigen::Vector3d> k_star;
     source_vec(sources, t_mean, k_star);
 
+    // --- ОДИН РАЗ: полиномы метео станций (для производных dTdt/dPdt/dHumdt) ---
+    const int ndeg = 2; // степень полинома (как в ARIADNA DMETEO1_DT)
+    std::vector<Eigen::VectorXd> t_coef, p_coef, hum_coef;
+    dmeteo1_dt(observations, n_stations, t_mean, ndeg, t_coef, p_coef, hum_coef);
+
     // --- Вывод ---
     std::ofstream out(output_path);
     if (!out) {
@@ -141,10 +146,13 @@ void process_ariadna(const std::vector<Station>& stations, const std::vector<Sou
         Eigen::Vector2d gast = gast_iau2006(jd_tt, jd_ut1);
 
         // Станции этого наблюдения: постоянная часть + метео из записи.
+        double dT1, dP1, dH1, dT2, dP2, dH2;
+        dmeteo2_dt(obs.sta1, ndeg, mjd, utc, t_mean, t_coef, p_coef, hum_coef, dT1, dP1, dH1);
+        dmeteo2_dt(obs.sta2, ndeg, mjd, utc, t_mean, t_coef, p_coef, hum_coef, dT2, dP2, dH2);
         SitePrep s1 = prep[obs.sta1];
         SitePrep s2 = prep[obs.sta2];
-        s1.pres = obs.p1; s1.dPdt = 0.0; s1.tC = obs.t1; s1.dTdt = 0.0;
-        s2.pres = obs.p2; s2.dPdt = 0.0; s2.tC = obs.t2; s2.dTdt = 0.0;
+        s1.pres = obs.p1; s1.dPdt = dP1; s1.tC = obs.t1; s1.dTdt = dT1;
+        s2.pres = obs.p2; s2.dPdt = dP2; s2.tC = obs.t2; s2.dTdt = dT2;
 
         // Полный конвейер задержки.
         double tau, dtau;

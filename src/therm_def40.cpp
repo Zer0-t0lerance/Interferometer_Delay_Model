@@ -16,6 +16,8 @@
 // чисто вертикальное, затем VEN -> ITRF (vw_i) -> J2000 (r2000), для скорости — с
 // учётом вращения Земли (dr2000_dt) и производной температуры dTdt (из DMETEO2_DT).
 // Конвенция полностью совпадает с SITE_ATM40 / POLE_TIDE / SITE_TIDE_OC.
+// ЕДИНИЦЫ: dTdt в °C/СУТ (как dPdt в SITE_ATM40) — вертикальная скорость делится
+// на SECDAY для перевода в м/с.
 //
 // Частные производные (для МНК) не вычисляются — вне области геометрических задержек.
 
@@ -31,9 +33,10 @@ void THERM_DEF40(double tC, double dTdt, const DefPar& dp,
     // Эффективный коэффициент вертикального расширения [м/°C].
     const double kappa = dp.gamma_hf * dp.hf + dp.gamma_hp * dp.hp;
 
-    // Вертикальное смещение опорной точки [м] и его скорость [м/с].
+    // Вертикальное смещение опорной точки [м] и его скорость [м/с]
+    // (dTdt в °C/сут -> делим на SECDAY).
     const double d_up  = kappa * (tC - dp.t_0);
-    const double dv_up = kappa * dTdt;
+    const double dv_up = kappa * dTdt / cnst::SECDAY;
 
     // Топоцентрический вектор VEN: только вертикаль (col 0 = Vertical/Up).
     Eigen::Vector3d dr_ven(d_up, 0.0, 0.0);

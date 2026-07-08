@@ -48,11 +48,11 @@ int main() {
     printf("  |dx_temp| = %.6e (ожидание |d_up| = %.6e), |Δ|=%.2e\n", dx.norm(), std::fabs(d_up), len_err);
     printf("  направление вдоль Up: |dx - d_up*Up| = %.2e\n", dir_err);
 
-    // (4) скорость: dTdt != 0, r2000=I, dr2000=0 -> dv = vw*(kappa*dTdt,0,0).
+    // (4) скорость: dTdt != 0, r2000=I, dr2000=0 -> dv = vw*(kappa*dTdt/SECDAY,0,0).
     Eigen::Vector3d dx2, dv2;
-    double dTdt2 = 1.0e-4; // °C/с
+    double dTdt2 = 5.0; // °C/сут
     THERM_DEF40(tC, dTdt2, dp, vw, I, Z, dx2, dv2);
-    Eigen::Vector3d dv_expect = vw * Eigen::Vector3d(kappa * dTdt2, 0.0, 0.0);
+    Eigen::Vector3d dv_expect = vw * Eigen::Vector3d(kappa * dTdt2 / cnst::SECDAY, 0.0, 0.0);
     double v_err = (dv2 - dv_expect).norm();
     printf("  скорость: |dv_temp - vw*(kappa*dTdt,0,0)| = %.2e\n", v_err);
 

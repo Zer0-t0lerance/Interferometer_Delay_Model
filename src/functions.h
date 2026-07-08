@@ -172,6 +172,46 @@ void sast_wet(double rel_hum, double tc, double dot_rel_hum, double dot_tc, doub
 void trop_delay(const Observation& obs, double jd, double ct, const Station& sta1, const Station& sta2, const Eigen::MatrixXd& e, const Eigen::MatrixXd& az, Eigen::MatrixXd& datmc_d, Eigen::MatrixXd& datmc_w, Eigen::MatrixXd& datmp_hmf, Eigen::MatrixXd& datmp_wmf, Eigen::MatrixXd& dgrad_n, Eigen::MatrixXd& dgrad_e, Eigen::MatrixXd& zen_dry, Eigen::MatrixXd& zen_wet);
 
 /**
+ * @brief Подгонка метеопараметров станций полиномом по времени (порт DMETEO1_DT).
+ *
+ * Для каждой станции собирает точки (температура, давление, влажность) из всех её
+ * наблюдений и строит МНК-полином степени ndeg в аргументе (t - t_mean) [сутки].
+ * Коэффициенты идут в dmeteo2_dt для вычисления производных.
+ *
+ * @param[in]  observations Наблюдения сессии (метео t1/p1/e1, t2/p2/e2 по станциям).
+ * @param[in]  n_stations   Число станций.
+ * @param[in]  t_mean       Средняя эпоха сессии [MJD] (центр аргумента полинома).
+ * @param[in]  ndeg         Степень полинома (обычно 2); при нехватке точек снижается.
+ * @param[out] t_coef       Коэффициенты полинома температуры по станциям (ndeg+1, по возрастанию).
+ * @param[out] p_coef       Коэффициенты полинома давления по станциям.
+ * @param[out] hum_coef     Коэффициенты полинома влажности по станциям.
+ */
+void dmeteo1_dt(const std::vector<Observation>& observations, int n_stations,
+                double t_mean, int ndeg,
+                std::vector<Eigen::VectorXd>& t_coef,
+                std::vector<Eigen::VectorXd>& p_coef,
+                std::vector<Eigen::VectorXd>& hum_coef);
+
+/**
+ * @brief Производные метеопараметров станции на момент наблюдения (порт DMETEO2_DT).
+ *
+ * Возвращает dT/dt, dP/dt, dHum/dt как производные полиномов (dmeteo1_dt) в точке
+ * (mjd+utc). Единицы — на СУТКИ: dPdt [мбар/сут] -> SITE_ATM40, dTdt [°C/сут] -> THERM_DEF40.
+ *
+ * @param[in]  ista            Индекс станции.
+ * @param[in]  ndeg            Степень полинома (не используется явно; для совместимости).
+ * @param[in]  mjd, utc        Эпоха наблюдения.
+ * @param[in]  t_mean          Средняя эпоха (центр полинома).
+ * @param[in]  t_coef,p_coef,hum_coef  Коэффициенты из dmeteo1_dt.
+ * @param[out] dTdt,dPdt,dHumdt Производные [ед./сут].
+ */
+void dmeteo2_dt(int ista, int ndeg, int mjd, double utc, double t_mean,
+                const std::vector<Eigen::VectorXd>& t_coef,
+                const std::vector<Eigen::VectorXd>& p_coef,
+                const std::vector<Eigen::VectorXd>& hum_coef,
+                double& dTdt, double& dPdt, double& dHumdt);
+
+/**
  * @brief Вычисление суточных и полусуточных приливных поправок (71 гармоника) к EOP.
  */
 void terms_71(double cent, const Eigen::VectorXd& f, const Eigen::VectorXd& fd, Eigen::MatrixXd& dEOP_diu, Eigen::VectorXd& arg_oc_tide);
@@ -427,7 +467,7 @@ void SITE_ATM40(int mjd, double utc, double pres, double dPdt,
  * VEN -> ITRF (vw_i) -> J2000 (r2000); скорость учитывает вращение и dTdt (из DMETEO2_DT).
  *
  * @param[in]  tC         Локальная температура станции T [°C].
- * @param[in]  dTdt       Производная температуры dT/dt [°C/с] (из DMETEO; 0, если не задана).
+ * @param[in]  dTdt       Производная температуры dT/dt [°C/сут] (из DMETEO2_DT; 0, если не задана).
  * @param[in]  dp         Параметры антенны (ANTENNA_INFO): t_0, hf, gamma_hf, hp, gamma_hp.
  * @param[in]  vw_i       Матрица перехода VEN (Vertical, East, North) -> ITRF (3x3).
  * @param[in]  r2000      Матрица перехода ITRF -> J2000.0 (3x3).
