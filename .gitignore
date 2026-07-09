@@ -15,3 +15,7 @@ external/sofa/**/doc/
 # генерируемые отчёты/выводы тестов
 tests/verify_report.txt
 tests/out_*.txt
+
+# сгенерированные полиномы (тестовый вывод)
+example/*_OUR.TXT
+tests/*_OUR.TXT

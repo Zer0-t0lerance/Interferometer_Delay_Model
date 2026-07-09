@@ -777,4 +777,37 @@ bool parse_cfx(const std::string& path, CfxTask& task);
  */
 bool read_scf_orbit(const std::string& path, std::vector<SpaceStation>& orbit);
 
+// ============================================================================
+// Полиномы задержки для коррелятора
+// ============================================================================
+
+/**
+ * @brief Полиномы задержки одной НАЗЕМНОЙ станции по сеансу (сшитые кубическим сплайном).
+ *
+ * Считает геоцентрическую ВАКУУМНУЮ задержку станции (относительно центра Земли,
+ * без тропосферы и clock) на сетке с шагом sample_sec, строит единый кубический сплайн
+ * (C2-непрерывность = сшивка) и раскладывает по блокам block_sec в полиномы степени degree.
+ *
+ * @param[in]  st         Станция задания (координаты ITRF, эпоха, монтировка).
+ * @param[in]  src        Источник (RA/Dec [рад]).
+ * @param[in]  mjd0,utc0  Начало сеанса (MJD, доля суток UTC).
+ * @param[in]  dur_sec    Длительность сеанса [с].
+ * @param[in]  eop        Узлы EOP (7 шт.) вокруг сеанса.
+ * @param[in]  block_sec  Длительность блока полинома [с] (эталон = 60).
+ * @param[in]  degree     Степень полинома (эталон = 5, т.е. order=6).
+ * @param[in]  sample_sec Шаг сетки расчёта задержки [с] (плотнее блока).
+ * @return Полиномы станции (StationPoly).
+ */
+StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
+                                 int mjd0, double utc0, double dur_sec,
+                                 const std::vector<EOPData>& eop,
+                                 double block_sec, int degree, double sample_sec);
+
+/**
+ * @brief Запись полиномов задержки станции в текстовый файл .TXT (формат эталона).
+ * @param[in] path  Путь к выходному файлу.
+ * @param[in] poly  Полиномы станции.
+ */
+void write_station_poly(const std::string& path, const StationPoly& poly);
+
 } // namespace ariadna
