@@ -130,11 +130,30 @@ StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
         mjd = mjd0 + add; utc = tot - add;
     };
 
+    // Сплайны орбиты (пол/скор/уск) строим ОДИН РАЗ до цикла — иначе 39601 точка × сотни
+    // вызовов orbit_interp (сильно медленно). Ось — секунды от старта орбиты (точность).
+    tk::spline osx, osy, osz; double orb_t0 = 0.0; bool orb_ok = false;
+    if (st.is_space && orbit.size() >= 2) {
+        int n = static_cast<int>(orbit.size());
+        orb_t0 = static_cast<double>(orbit[0].mjd) + orbit[0].utc;
+        std::vector<double> t(n), px(n), py(n), pz(n);
+        for (int i = 0; i < n; ++i) {
+            t[i] = ((static_cast<double>(orbit[i].mjd) - orbit[0].mjd) + (orbit[i].utc - orbit[0].utc)) * cnst::SECDAY;
+            px[i] = orbit[i].xyz.x() * 1000.0; py[i] = orbit[i].xyz.y() * 1000.0; pz[i] = orbit[i].xyz.z() * 1000.0;
+        }
+        osx.set_points(t, px); osy.set_points(t, py); osz.set_points(t, pz); orb_ok = true;
+    }
+
     // SitePrep станции на момент: наземная (координаты+дрейф) или космическая (орбита).
     auto make_siteprep = [&](int m, double u) -> SitePrep {
         if (st.is_space) {
             SitePrep sp; sp.is_space = true;
-            orbit_interp(orbit, m + u, sp.x_orbit, sp.v_orbit, sp.a_orbit);
+            if (orb_ok) {
+                double q = (m + u - orb_t0) * cnst::SECDAY; // сек от старта орбиты
+                sp.x_orbit << osx(q), osy(q), osz(q);
+                sp.v_orbit << osx.deriv(1, q), osy.deriv(1, q), osz.deriv(1, q);
+                sp.a_orbit << osx.deriv(2, q), osy.deriv(2, q), osz.deriv(2, q);
+            }
             return sp;
         }
         return siteprep_ground(st, m + u, phys);
