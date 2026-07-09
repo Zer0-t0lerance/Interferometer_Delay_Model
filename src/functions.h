@@ -9,12 +9,21 @@ namespace ariadna {
 // ============================================================================
 
 /**
- * @brief Конвертация времени из шкал MJD и UTC в атомное (TAI) и земное время (TT).
+ * @brief Конвертация времени из шкал MJD/UTC в атомное (TAI) и земное (TT).
+ *
+ * TAI = UTC + високосные секунды (nsec); TT = TAI + 32.184 с. Всё — доли суток.
+ *
+ * @param[in]  mjd  Модифицированная юлианская дата на 0h (целые сутки).
+ * @param[in]  UTC  Доля суток UTC.
+ * @param[out] TAI  Международное атомное время (доля суток).
+ * @param[out] TT   Земное время (доля суток).
  */
 void tai_time(double mjd, double UTC, double &TAI, double &TT);
 
 /**
- * @brief Определение количества високосных секунд (leap seconds) на заданную дату.
+ * @brief Число високосных секунд (TAI-UTC) на заданную дату.
+ * @param[in]  mjd    Модифицированная юлианская дата.
+ * @param[out] idelt  Число високосных секунд TAI-UTC [с].
  */
 void nsec(double mjd, double& idelt);
 
@@ -212,12 +221,21 @@ void dmeteo2_dt(int ista, int ndeg, int mjd, double utc, double t_mean,
                 double& dTdt, double& dPdt, double& dHumdt);
 
 /**
- * @brief Вычисление суточных и полусуточных приливных поправок (71 гармоника) к EOP.
+ * @brief Суточные/полусуточные приливные поправки к EOP (71 океаническая гармоника).
+ * @param[in]  cent         Юлианские столетия от J2000.0 (T).
+ * @param[in]  f            5 фундаментальных аргументов (l, l', F, D, Omega) [рад].
+ * @param[in]  fd           Производные аргументов [рад/сут].
+ * @param[out] dEOP_diu     Поправки полюса/UT1: 3x2 (x, y, UT1 × значение/скорость).
+ * @param[out] arg_oc_tide  Аргументы океанических приливов (для дальнейших расчётов).
  */
 void terms_71(double cent, const Eigen::VectorXd& f, const Eigen::VectorXd& fd, Eigen::MatrixXd& dEOP_diu, Eigen::VectorXd& arg_oc_tide);
 
 /**
- * @brief Вычисление поправок к EOP, обусловленных либрацией нежесткой Земли.
+ * @brief Поправки к EOP от либрации нежёсткой Земли (суточные члены полюса/UT1).
+ * @param[in]  cent      Юлианские столетия от J2000.0 (T).
+ * @param[in]  f         5 фундаментальных аргументов [рад].
+ * @param[in]  fd        Производные аргументов [рад/сут].
+ * @param[out] dEOP_lib  Поправки полюса/UT1 от либрации: 3x2 (x, y, UT1 × значение/скорость).
  */
 void terms_lib(double cent, const Eigen::VectorXd& f, const Eigen::VectorXd& fd, Eigen::MatrixXd& dEOP_lib);
 
@@ -587,7 +605,15 @@ void get_r2000_matrices(double JD_TDB, double JD_UT1, double xp, double yp,
                         Eigen::Matrix3d& R2000, Eigen::Matrix3d& dR2000_dt,
                         Eigen::Matrix3d& d2R2000_dt2);
 
-/** @brief Совместимая версия без второй производной (см. перегрузку выше). */
+/**
+ * @brief Матрица ITRF->J2000 и её первая производная (без второй производной).
+ *        Совместимая версия основной перегрузки (см. выше).
+ * @param[in]  JD_TDB     Юлианская дата TDB.
+ * @param[in]  JD_UT1     Юлианская дата UT1.
+ * @param[in]  xp, yp     Координаты полюса Земли [рад].
+ * @param[out] R2000      Матрица поворота 3x3 (X_J2000 = R2000 * X_ITRF).
+ * @param[out] dR2000_dt  Первая производная поворота 3x3 [1/с].
+ */
 void get_r2000_matrices(double JD_TDB, double JD_UT1, double xp, double yp,
                         Eigen::Matrix3d& R2000, Eigen::Matrix3d& dR2000_dt);
 
@@ -633,7 +659,10 @@ void compute_delay_obs(const SitePrep& s1, const SitePrep& s2,
 // ============================================================================
 
 /**
- * @brief Вычисляет единичные векторы направлений на радиоисточники.
+ * @brief Единичные векторы направлений на радиоисточники в J2000.0.
+ * @param[in]  sources  Источники (RA/Dec [рад] + собственное движение).
+ * @param[in]  t_mean   Эпоха для учёта собственного движения источников [MJD].
+ * @param[out] k_star   Единичные векторы на источники в J2000 (по одному на источник).
  */
 void source_vec(const std::vector<Source>& sources, double t_mean, std::vector<Eigen::Vector3d>& k_star);
 
@@ -668,16 +697,30 @@ void orbit_interp(const std::vector<SpaceStation>& orbit, double mjd_utc,
 void jpl_eph(double jd, double ct, Eigen::Matrix3d& earth, Eigen::MatrixXd& sun, Eigen::MatrixXd& moon);
 
 // ============================================================================
-// Расчет задержек, производных и тропосферы
+// Аберрация, вектор базы, теоретическая задержка
 // ============================================================================
 
 /**
- * @brief Вычисляет положение источника, скорректированное за годовую и суточную аберрацию.
+ * @brief Элевации/азимуты станций с учётом годовой и суточной аберрации источника.
+ * @param[in]  obs          Наблюдение (индексы станций).
+ * @param[in]  r2000        {R, dR/dt}: матрица ITRF->J2000 и её производная.
+ * @param[in]  k_s          Единичный вектор на источник в J2000.
+ * @param[in]  earth        Скорость Земли (SSB) в столбце 1 — для годовой аберрации [м/с].
+ * @param[in]  vsta_j2000t  Скорости станций в J2000 [м/с] (суточная аберрация).
+ * @param[in]  vw           Матрицы VEN->ITRF по станциям (локальный горизонт).
+ * @param[out] e            Элевации: 2x2 (станция × значение/скорость) [рад, рад/с].
+ * @param[out] az           Азимуты:  2x2 (станция × значение/скорость) [рад, рад/с].
  */
 void aber_source(const Observation& obs, const std::vector<Eigen::Matrix3d>& r2000, const Eigen::Vector3d& k_s, const Eigen::Matrix<double, 3, 3>& earth, const std::vector<Eigen::Vector3d>& vsta_j2000t, const std::vector<Eigen::Matrix3d>& vw, Eigen::Matrix2d& e, Eigen::Matrix2d& az);
 
 /**
- * @brief Вычисляет вектор базы в инерциальной (J2000) и земной (Crust-fixed) системах координат.
+ * @brief Вектор базы в инерциальной (J2000) и земной (crust-fixed) системах координат.
+ * @param[in]  r2000        Матрица ITRF->J2000.
+ * @param[in]  xsta_j2000t  Координаты двух станций в J2000, 3x2 [м].
+ * @param[in]  vsta_j2000t  Скорости двух станций в J2000, 3x2 [м/с].
+ * @param[in]  asta_j2000   Ускорения двух станций в J2000, 3x2 [м/с^2].
+ * @param[out] base_line    Вектор базы в J2000, 3x2 (значение/скорость) [м, м/с].
+ * @param[out] b_cfs        Вектор базы в земной (crust-fixed) системе [м].
  */
 void baseline(const Eigen::Matrix3d& r2000, const Eigen::MatrixXd& xsta_j2000t, const Eigen::MatrixXd& vsta_j2000t, const Eigen::MatrixXd& asta_j2000, Eigen::MatrixXd& base_line, Eigen::Vector3d& b_cfs);
 
