@@ -67,7 +67,8 @@ int main() {
 
     printf("  сеанс: MJD %d utc0=%.6f dur=%.0f с; блок 60 с, степень 5, сетка 6 с\n", mjd0, utc0, dur);
     std::vector<SpaceStation> no_orbit;
-    StationPoly poly = compute_station_poly(*bad, src, mjd0, utc0, dur, eop, 60.0, 5, 6.0, no_orbit);
+    Station phys; phys.tide_data.amplitudes.setZero(); phys.tide_data.phases.setZero(); phys.atm_load.coef.setZero();
+    StationPoly poly = compute_station_poly(*bad, src, mjd0, utc0, dur, eop, 60.0, 5, 6.0, no_orbit, false, phys);
     write_station_poly("example/BADARY_OUR.TXT", poly);
 
     std::vector<double> ref = read_ref_P0("example/BADARY.TXT");

@@ -49,8 +49,10 @@ static EpochEnv prep_epoch(int mjd, double utc, const std::vector<EOPData>& eop)
     return e;
 }
 
-// SitePrep наземной станции на эпоху: координаты + дрейф от эпохи каталога.
-static SitePrep siteprep_ground(const CfxStation& st, double epoch_mjd_utc) {
+// SitePrep наземной станции на эпоху: координаты + дрейф + физика из каталогов
+// (океан/атм нагрузка, термопараметры). phys — Station с заполненными tide_data/
+// atm_load/def_par (из каталогов); солидные приливы и прилив полюса считаются всегда.
+static SitePrep siteprep_ground(const CfxStation& st, double epoch_mjd_utc, const Station& phys) {
     SitePrep s;
     double drift_epoch = (st.epoch_mjd > 1.0) ? st.epoch_mjd : cnst::MJD_J2000;
     double dyear = (epoch_mjd_utc - drift_epoch) / cnst::DAYS_PER_YEAR;
@@ -64,8 +66,15 @@ static SitePrep siteprep_ground(const CfxStation& st, double epoch_mjd_utc) {
     s.vw_i.col(0) << cla * clo, cla * slo, sla;
     s.vw_i.col(1) << -slo, clo, 0.0;
     s.vw_i.col(2) << -sla * clo, -sla * slo, cla;
-    s.tide_data.amplitudes.setZero(); s.tide_data.phases.setZero(); s.atm_load.coef.setZero();
-    s.axsty = st.mount; s.offs = st.axoff; s.pres = 1013.25; s.tC = 0.0;
+    // Физика из каталогов: океаническая/атмосферная нагрузка + термопараметры.
+    s.tide_data = phys.tide_data;   // океаническая нагрузка (SITE_TIDE_OC)
+    s.atm_load = phys.atm_load;     // атмосферная нагрузка (SITE_ATM40)
+    s.def_par = phys.def_par;       // термодеформация (THERM_DEF40)
+    s.axsty = st.mount; s.offs = st.axoff;
+    // Метео в задании нет: давление = опорное p_0 (регрессия по давлению = 0, но
+    // гармоническая атм.нагрузка работает); температура = опорная t_0 (dT=0 -> термо = 0).
+    s.pres = (phys.atm_load.p_0 > 0.0) ? phys.atm_load.p_0 : 1013.25;
+    s.tC = phys.def_par.t_0;
     return s;
 }
 
@@ -105,7 +114,8 @@ StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
                                  int mjd0, double utc0, double dur_sec,
                                  const std::vector<EOPData>& eop,
                                  double block_sec, int degree, double sample_sec,
-                                 const std::vector<SpaceStation>& orbit, bool with_tropo) {
+                                 const std::vector<SpaceStation>& orbit, bool with_tropo,
+                                 const Station& phys) {
     StationPoly poly; poly.telescope = st.name; poly.source = src.name; poly.order = degree + 1;
 
     // Направление на источник (в J2000; для фикс. источника постоянно).
@@ -127,7 +137,7 @@ StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
             orbit_interp(orbit, m + u, sp.x_orbit, sp.v_orbit, sp.a_orbit);
             return sp;
         }
-        return siteprep_ground(st, m + u);
+        return siteprep_ground(st, m + u, phys);
     };
 
     // 1) Сетка задержек по сеансу (+ запас на края для сплайна).
@@ -215,9 +225,26 @@ void process_task(const std::string& cfx_path, const std::string& orbit_path,
     if (ReadEOP(raw_eop, epath) == 0 || !raw_eop.empty()) select_eop_nodes(raw_eop, mjd0, cnst::EOP_NDATA, eop);
     if (eop.size() < (size_t)cnst::EOP_NDATA) { std::fprintf(stderr, "process_task: мало узлов EOP\n"); return; }
 
+    // Физика станций из каталогов (та же папка, что EOP): океан/атм нагрузка + термопараметры.
+    std::string catdir = eop_path;
+    size_t sl = catdir.find_last_of("/\\"); catdir = (sl == std::string::npos) ? "" : catdir.substr(0, sl + 1);
+    std::vector<Station> phys(task.stations.size());
+    for (size_t i = 0; i < task.stations.size(); ++i) phys[i].name = task.stations[i].name;
+    {
+        char p_oc[256], p_at[256], p_an[256];
+        std::snprintf(p_oc, 256, "%sVLBI_ocload_40.cat", catdir.c_str());
+        std::snprintf(p_at, 256, "%sVLBI_atmload4_12.cat", catdir.c_str());
+        std::snprintf(p_an, 256, "%santenna-info.cat", catdir.c_str());
+        std::vector<oc_record> oc; std::vector<atm_record> at; std::vector<ant_record> an;
+        ReadOC(oc, p_oc);        map_ocean_tides_to_stations(oc, phys);
+        ReadATM(at, p_at);       map_atm_loading_to_stations(at, phys);
+        ReadANT_INFO(an, p_an);  build_def_par_from_ant_info(an, phys);
+    }
+
     // Каждой станции — свой файл полиномов.
-    for (const auto& st : task.stations) {
-        StationPoly poly = compute_station_poly(st, src, mjd0, utc0, dur, eop, block_sec, degree, sample_sec, orbit, with_tropo);
+    for (size_t i = 0; i < task.stations.size(); ++i) {
+        const CfxStation& st = task.stations[i];
+        StationPoly poly = compute_station_poly(st, src, mjd0, utc0, dur, eop, block_sec, degree, sample_sec, orbit, with_tropo, phys[i]);
         std::string out = out_dir; if (!out.empty() && out.back() != '/' && out.back() != '\\') out += "/";
         out += st.poly_file;
         write_station_poly(out, poly);

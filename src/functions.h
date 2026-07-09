@@ -797,13 +797,16 @@ bool read_scf_orbit(const std::string& path, std::vector<SpaceStation>& orbit);
  * @param[in]  degree     Степень полинома (эталон = 5, т.е. order=6).
  * @param[in]  sample_sec Шаг сетки расчёта задержки [с] (плотнее блока).
  * @param[in]  orbit      Орбита (для космической станции, is_space); пусто для наземной.
+ * @param[in]  with_tropo Подключать тропосферу (по умолчанию true).
+ * @param[in]  phys       Station с физикой из каталогов (tide_data/atm_load/def_par) для наземной.
  * @return Полиномы станции (StationPoly).
  */
 StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
                                  int mjd0, double utc0, double dur_sec,
                                  const std::vector<EOPData>& eop,
                                  double block_sec, int degree, double sample_sec,
-                                 const std::vector<SpaceStation>& orbit, bool with_tropo = true);
+                                 const std::vector<SpaceStation>& orbit, bool with_tropo,
+                                 const Station& phys);
 
 /**
  * @brief Запись полиномов задержки станции в текстовый файл .TXT (формат эталона).
