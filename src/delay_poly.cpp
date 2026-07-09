@@ -217,9 +217,73 @@ void write_station_poly(const std::string& path, const StationPoly& poly) {
     }
 }
 
+// Координаты пункта приёма (ITRF XYZ, м) по имени из каталога ITRF2005 (geodetic->cartesian).
+// Формат строки: DOMES NAME FULLNAME ... описание ... LON(d m s) LAT(d m s) HEIGHT.
+static bool reception_itrf(const std::string& cat, const std::string& name, Eigen::Vector3d& xyz) {
+    std::ifstream f(cat); if (!f) return false;
+    std::string line;
+    while (std::getline(f, line)) {
+        std::istringstream ss(line); std::string domes, nm;
+        if (!(ss >> domes >> nm)) continue;
+        if (nm != name) continue;
+        // Последние 7 числовых токенов строки: lon d m s, lat d m s, height.
+        std::vector<double> nums; std::istringstream s2(line); std::string tok;
+        while (s2 >> tok) { try { size_t p; double v = std::stod(tok, &p); if (p == tok.size()) nums.push_back(v); } catch (...) {} }
+        if (nums.size() < 7) return false;
+        size_t k = nums.size() - 7;
+        double lon = (nums[k] + nums[k + 1] / 60.0 + nums[k + 2] / 3600.0) * cnst::CDEGRAD;
+        double lat = (nums[k + 3] + nums[k + 4] / 60.0 + nums[k + 5] / 3600.0) * cnst::CDEGRAD;
+        double h = nums[k + 6];
+        double a = cnst::AE, fl = 1.0 / cnst::F, e2 = fl * (2.0 - fl);
+        double N = a / std::sqrt(1.0 - e2 * std::sin(lat) * std::sin(lat));
+        xyz << (N + h) * std::cos(lat) * std::cos(lon), (N + h) * std::cos(lat) * std::sin(lon),
+               (N * (1.0 - e2) + h) * std::sin(lat);
+        return true;
+    }
+    return false;
+}
+
+// Перезапись задания cfx с пересчитанными TIMEOFS (даунлинк космос->пункт приёма).
+// Копирует cfx построчно; в блоке космической станции строки TIMEOFSxx заменяет на
+// новые: TIMEOFS = -|R_RASTRON(t) - r2000(t)*R_recv_itrf|/c (MJD берётся из строки).
+void write_timeofs_cfx(const std::string& cfx_in, const std::string& cfx_out,
+                       const std::vector<SpaceStation>& orbit, const std::vector<EOPData>& eop,
+                       const Eigen::Vector3d& recv_itrf, const std::string& space_name) {
+    std::ifstream fin(cfx_in); std::ofstream fout(cfx_out);
+    if (!fin || !fout) { std::fprintf(stderr, "write_timeofs_cfx: ошибка файла\n"); return; }
+    std::string line; bool in_tlsc = false, is_space = false;
+    while (std::getline(fin, line)) {
+        std::string t = line; size_t a = t.find_first_not_of(" \t\r\n"); std::string tl = (a == std::string::npos) ? "" : t.substr(a);
+        if (tl.rfind("[$TLSC]", 0) == 0) { in_tlsc = true; is_space = false; }
+        else if (tl.rfind("[$end]", 0) == 0 || tl.rfind("[$END]", 0) == 0) { in_tlsc = false; is_space = false; }
+        // Космический блок опознаём по name = <space_name> (идёт ПЕРЕД TIMEOFS) или по ORB_FILE.
+        else if (in_tlsc && tl.rfind("name", 0) == 0 && tl.find(space_name) != std::string::npos) is_space = true;
+        else if (in_tlsc && tl.rfind("ORB_FILE", 0) == 0) is_space = true;
+
+        if (in_tlsc && is_space && tl.rfind("TIMEOFS", 0) == 0) {
+            // Разбор: TIMEOFSxx = <delay>, <mjd_utc>
+            size_t eq = line.find('='), cm = line.find(',');
+            std::string tag = line.substr(0, eq);
+            double mjd_utc = std::stod(line.substr(cm + 1));
+            int m = static_cast<int>(std::floor(mjd_utc)); double u = mjd_utc - m;
+            EpochEnv e = prep_epoch(m, u, eop);
+            Eigen::Vector3d xr, vr, aa; orbit_interp(orbit, mjd_utc, xr, vr, aa);
+            Eigen::Vector3d recv_j2000 = e.R * recv_itrf;
+            double timeofs = -((xr - recv_j2000).norm()) / cnst::C;
+            char buf[160];
+            std::snprintf(buf, sizeof(buf), "%s= %.15e, %.15e", tag.c_str(), timeofs, mjd_utc);
+            fout << buf << "\n";
+        } else {
+            fout << line << "\n";
+        }
+    }
+    std::printf("  TIMEOFS пересчитаны -> %s (пункт приёма |R|=%.1f км)\n", cfx_out.c_str(), recv_itrf.norm() / 1e3);
+}
+
 void process_task(const std::string& cfx_path, const std::string& orbit_path,
                   const std::string& out_dir, const std::string& eop_path,
-                  double block_sec, int degree, double sample_sec, bool with_tropo) {
+                  double block_sec, int degree, double sample_sec, bool with_tropo,
+                  const std::string& recv_name) {
     CfxTask task;
     if (!parse_cfx(cfx_path, task)) { std::fprintf(stderr, "process_task: не разобрать %s\n", cfx_path.c_str()); return; }
 
@@ -268,6 +332,21 @@ void process_task(const std::string& cfx_path, const std::string& orbit_path,
         out += st.poly_file;
         write_station_poly(out, poly);
         std::printf("  %-9s -> %s (%zu блоков)\n", st.name.c_str(), out.c_str(), poly.blocks.size());
+    }
+
+    // TIMEOFS (даунлинк космос->пункт приёма): пересчитать и записать новый *_p.cfx.
+    if (has_space && !orbit.empty()) {
+        char itrf[256]; std::snprintf(itrf, 256, "%sITRF2005_2.CAT", catdir.c_str());
+        Eigen::Vector3d recv;
+        std::string space_name; for (const auto& s : task.stations) if (s.is_space) space_name = s.name;
+        if (reception_itrf(itrf, recv_name, recv)) {
+            std::string cfx_out = cfx_path;
+            size_t dot = cfx_out.rfind(".cfx");
+            cfx_out = (dot == std::string::npos) ? (cfx_out + "_p.cfx") : (cfx_out.substr(0, dot) + "_p.cfx");
+            write_timeofs_cfx(cfx_path, cfx_out, orbit, eop, recv, space_name);
+        } else {
+            std::fprintf(stderr, "process_task: пункт приёма '%s' не найден в %s (TIMEOFS пропущены)\n", recv_name.c_str(), itrf);
+        }
     }
 }
 

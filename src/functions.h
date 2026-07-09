@@ -832,9 +832,12 @@ void write_station_poly(const std::string& path, const StationPoly& poly);
  * @param[in] degree     Степень полинома (по умолчанию 5).
  * @param[in] sample_sec Шаг сетки задержки [с] (по умолчанию 6).
  * @param[in] with_tropo Подключать тропосферу (по умолчанию true; false = вакуумная геометрия).
+ * @param[in] recv_name  Имя пункта приёма в ITRF2005_2.CAT для TIMEOFS космоса (по умолч. PUSHCH22).
+ *                       Если есть космическая станция — пишется <cfx>_p.cfx с пересчитанными TIMEOFS.
  */
 void process_task(const std::string& cfx_path, const std::string& orbit_path,
                   const std::string& out_dir, const std::string& eop_path,
-                  double block_sec = 60.0, int degree = 5, double sample_sec = 6.0, bool with_tropo = true);
+                  double block_sec = 60.0, int degree = 5, double sample_sec = 6.0, bool with_tropo = true,
+                  const std::string& recv_name = "PUSHCH22");
 
 } // namespace ariadna

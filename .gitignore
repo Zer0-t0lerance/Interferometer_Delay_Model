@@ -22,3 +22,4 @@ tests/*_OUR.TXT
 tests/out_poly/
 out_poly/
 delay_tool.exe
+example/*_p.cfx

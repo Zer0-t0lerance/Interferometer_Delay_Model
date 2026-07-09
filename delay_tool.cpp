@@ -43,11 +43,13 @@ int main(int argc, char** argv) {
     SetConsoleOutputCP(CP_UTF8);
 #endif
     if (argc < 4) {
-        std::printf("Использование: %s <cfx> <scf> <out_dir> [block_sec=60] [degree=5] [tropo=1]\n", argv[0]);
+        std::printf("Использование: %s <cfx> <scf> <out_dir> [block_sec=60] [degree=5] [tropo=1] [recv=PUSHCH22]\n", argv[0]);
         std::printf("  <cfx>     файл задания коррелятора (.cfx)\n");
         std::printf("  <scf>     файл орбиты космической станции (.scf); \"-\" если нет космоса\n");
         std::printf("  <out_dir> каталог для выходных полиномов (.TXT)\n");
         std::printf("  [tropo]   1 = с тропосферой (по умолчанию), 0 = вакуумная геометрия\n");
+        std::printf("  [recv]    имя пункта приёма в ITRF2005_2.CAT (по умолч. PUSHCH22; напр. GBT_VLBA)\n");
+        std::printf("            при наличии космоса пишется <cfx>_p.cfx с пересчитанными TIMEOFS\n");
         return 1;
     }
     std::string cfx = argv[1];
@@ -56,6 +58,7 @@ int main(int argc, char** argv) {
     double block_sec = (argc > 4) ? std::stod(argv[4]) : 60.0;
     int degree = (argc > 5) ? std::stoi(argv[5]) : 5;
     bool with_tropo = (argc > 6) ? (std::stoi(argv[6]) != 0) : true;
+    std::string recv = (argc > 7) ? argv[7] : "PUSHCH22";
 
     // Эфемериды и каталог EOP — автоматически из проекта.
     std::string eph = find_project_file("external/dephem-master/linux_p1550p2650.440t");
@@ -73,7 +76,7 @@ int main(int argc, char** argv) {
                 cfx.c_str(), scf.empty() ? "(нет)" : scf.c_str(), outdir.c_str(), block_sec, degree,
                 with_tropo ? "вкл" : "выкл (вакуум)");
 
-    process_task(cfx, scf, outdir, eop, block_sec, degree, 6.0, with_tropo);
+    process_task(cfx, scf, outdir, eop, block_sec, degree, 6.0, with_tropo, recv);
 
     std::printf("---\nГотово. Полиномы записаны в %s\n", outdir.c_str());
     return 0;
