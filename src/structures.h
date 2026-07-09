@@ -166,15 +166,4 @@ struct CompDebug {
     Eigen::Matrix2d Datmc_w = Eigen::Matrix2d::Zero();  // тропо влажная [с]
     Eigen::Vector3d baseline = Eigen::Vector3d::Zero(); // вектор базы [м]
 };
-
-struct SiteCorrData {
-    Eigen::Vector3d xyz;     // Координаты на эпоху наблюдения ITRF [м]
-    Eigen::Vector3d vel;     // Скорости станции ITRF [м/год]
-    double lat_geod;         // Геодезическая широта [рад]
-    double lon_geod;         // Геодезическая долгота [рад]
-    double h_geod;           // Геодезическая высота над эллипсоидом [м]
-    double u_site;           // Сферический радиус экваториальный (U) [м]
-    double v_site;           // Сферический радиус полярный (V) [м]
-    Eigen::Matrix3d vw_i;    // Матрица перехода VEN (Vertical, East, North) -> ITRF
-};
 } // namespace ariadna

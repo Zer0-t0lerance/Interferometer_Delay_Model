@@ -30,15 +30,4 @@ void jpl_eph(double jd, double ct, Eigen::Matrix3d& earth,
     moon.col(1) = M.col(1) - E.col(1);
 }
 
-// Векторный формат: только позиции. earth — SSB; sun, moon — геоцентрические.
-void jpleph(double jd, double ct, Eigen::Vector3d& earth,
-            Eigen::Vector3d& sun, Eigen::Vector3d& moon) {
-    Eigen::Matrix3d E, S, M;
-    get_celestial_bodies(jd, ct, E, S, M);
-
-    earth = E.col(0);            // SSB позиция Земли
-    sun   = S.col(0) - E.col(0); // геоцентрическая позиция Солнца
-    moon  = M.col(0) - E.col(0); // геоцентрическая позиция Луны
-}
-
 } // namespace ariadna

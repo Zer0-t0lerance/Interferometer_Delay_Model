@@ -303,11 +303,6 @@ void theor_delay(const Eigen::Matrix<double, 3, 2>& base_line,
                  double& t2_t1, double& dt2_t1);
 
 /**
- * @brief Вычисляет поправки к координатам станции из-за температурных деформаций монтировки.
- */
-void therm_def(const Station& station, const Observation& obs, double dtdt, const Eigen::Matrix3d& vw, const Eigen::MatrixXd& r2000, Eigen::Vector3d& dx_temp, Eigen::Vector3d& dv_temp);
-
-/**
  * @brief Вычисляет смещение и скорость станции, вызванные приливом полюса (Pole Tide).
  * Расчет производится в соответствии со стандартами IERS 2000 с учетом векового дрейфа 
  * среднего полюса. Возвращает векторы смещения и скорости в небесной системе J2000.0.
@@ -403,18 +398,6 @@ void SITE_TIDE_OC(double jd, double ut1_sec, const OceanTideData& tide_data,
                   Eigen::Vector3d& dx_octide, Eigen::Vector3d& dv_octide);
 
 /**
- * @brief Расчет координат станции на эпоху наблюдения с учетом движения тектонических плит.
- * Вычисляет геодезические координаты (GEOD) и формирует матрицу перехода 
- * из топоцентрической системы (VEN) в геоцентрическую (ITRF).
- * Для космических телескопов тектоника и геодезия обнуляются.
- *
- * @param[in]  station  Объект станции (содержит базовые xyz и скорости).
- * @param[in]  dYear    Разница в годах между базовой эпохой каталога и эпохой наблюдения.
- * @param[out] out      Структура SiteCorrData с обновленными параметрами и матрицей vw_i.
- */
-void SITE_CORR(const Station& station, double dYear, SiteCorrData& out);
-
-/**
  * @brief Преобразование декартовых геоцентрических координат в геодезические (Borkowski, 1989).
  * Функция реализует точное (не итерационное) решение для пересчета координат точки 
  * относительно земного эллипсоида.
@@ -424,11 +407,6 @@ void SITE_CORR(const Station& station, double dYear, SiteCorrData& out);
  * @param[out] geodetic_height_h    Рассчитанная геодезическая высота над поверхностью эллипсоида [метры].
  */
 void GEOD(double equatorial_radius_r, double z_polar, double& geodetic_latitude_fi, double& geodetic_height_h);
-
-/**
- * @brief Вспомогательная функция для расчета аргументов океанических приливов.
- */
-void calc_tide_angles(int mjd_start, double ut1_sec, Eigen::VectorXd& angle, Eigen::VectorXd& speed_angle);
 
 /**
  * @brief Смещение и скорость станции из-за атмосферной нагрузки в системе J2000.0 (порт SITE_ATM40).
@@ -689,66 +667,9 @@ void orbit_interp(const std::vector<SpaceStation>& orbit, double mjd_utc,
  */
 void jpl_eph(double jd, double ct, Eigen::Matrix3d& earth, Eigen::MatrixXd& sun, Eigen::MatrixXd& moon);
 
-/**
- * @brief Интерфейс к эфемеридам JPL DE, векторный формат (только позиции).
- *
- * @param[in]  jd    Юлианская дата на 0h UTC (целая часть) [сут].
- * @param[in]  ct    Доля координатного времени (TDB/TT) [сут].
- * @param[out] earth SSB позиция Земли [м].
- * @param[out] sun   Геоцентрическая позиция Солнца [м].
- * @param[out] moon  Геоцентрическая позиция Луны [м].
- */
-void jpleph(double jd, double ct, Eigen::Vector3d& earth, Eigen::Vector3d& sun, Eigen::Vector3d& moon);
-
-/**
- * @brief Вычисление наклона эклиптики к экватору по модели IAU 2006.
- */
-void eps_a06(double jd, double ct, double& eps2000, double& eps_p03_2000, Eigen::VectorXd& e_mn);
-
-/**
- * @brief Формирование матрицы прецессии и ее производных.
- */
-void prec_matrix(double jd, double ct, double eps_p03_2000, Eigen::MatrixXd& pr, Eigen::MatrixXd& dpdp_ls, Eigen::MatrixXd& dpdp_pl, Eigen::MatrixXd& dpdp_om);
-
-/**
- * @brief Формирование матрицы смещения (bias) для перехода от GCRS к J2000.
- */
-void bias(double eps2000, Eigen::Matrix3d& bias_matr);
-
-/**
- * @brief Вычисление углов нутации и связанных матриц по моделям IAU 2000/2006.
- */
-void iau_2000_2006(double jd, double ct, const Eigen::VectorXd& f, const Eigen::VectorXd& fd, double eop_int_x, double deop_int_x, double eop_int_y, double deop_int_y, double eps_p03_2000, const Eigen::VectorXd& e_mn, Eigen::VectorXd& dpsir, Eigen::VectorXd& depsr, Eigen::VectorXd& eps, Eigen::MatrixXd& rn, Eigen::MatrixXd& dndpsi, Eigen::MatrixXd& dndeps);
-
-/**
- * @brief Расчет Гринвичского истинного звездного времени (GAST) и матрицы вращения Земли (Earth Rotation).
- */
-void gas_time(double jd, double ut1, double ct, const Eigen::VectorXd& f, const Eigen::VectorXd& fd, const Eigen::VectorXd& dpsir, const Eigen::VectorXd& depsr, const Eigen::VectorXd& e_mn, const Eigen::VectorXd& eps, double dtaidct, double deop_int_ut1, double& diurnv, Eigen::VectorXd& gast, Eigen::MatrixXd& rs, Eigen::MatrixXd& drsdp_ls, Eigen::MatrixXd& drsdp_pl);
-
-/**
- * @brief Формирование матрицы движения полюса (Wobble) и ее производных.
- */
-void wobble(double cent, double eop_x, double eop_y, double deop_x, double deop_y, Eigen::MatrixXd& ryx, Eigen::Matrix3d& ydxdx, Eigen::Matrix3d& dydyx, Eigen::Matrix3d& ddxdyx, Eigen::Matrix3d& ddydyx);
-
-/**
- * @brief Построение полной матрицы перехода от ITRF к J2000 (учет вращения, движения полюса, прецессии и нутации).
- */
-void r2000_matrix(double mjd, double ut1, const Eigen::VectorXd& eop_int, const Eigen::VectorXd& deop_int, int i_choice, Eigen::Matrix3d r2000[3], double& gast);
-
-
 // ============================================================================
 // Расчет задержек, производных и тропосферы
 // ============================================================================
-
-/**
- * @brief Вычисление метеорологических градиентов/производных во времени (для всех станций).
- */
-void dmeteo1_dt(const std::vector<Observation>& observations, const std::vector<Station>& stations, double t_mean, std::vector<Eigen::Vector3d>& site_meteo, int& ndeg, std::vector<Eigen::VectorXd>& t_coef, std::vector<Eigen::VectorXd>& p_coef, std::vector<Eigen::VectorXd>& hum_coef);
-
-/**
- * @brief Вычисление метеорологических градиентов/производных во времени для конкретной станции.
- */
-void dmeteo2_dt(const Station& station, int n_stations, int ndeg, const Observation& obs, double t_mean, const std::vector<Eigen::VectorXd>& t_coef, const std::vector<Eigen::VectorXd>& p_coef, const std::vector<Eigen::VectorXd>& hum_coef, double& dtdt, double& dpdt, double& dhumdt);
 
 /**
  * @brief Вычисляет положение источника, скорректированное за годовую и суточную аберрацию.
@@ -759,72 +680,6 @@ void aber_source(const Observation& obs, const std::vector<Eigen::Matrix3d>& r20
  * @brief Вычисляет вектор базы в инерциальной (J2000) и земной (Crust-fixed) системах координат.
  */
 void baseline(const Eigen::Matrix3d& r2000, const Eigen::MatrixXd& xsta_j2000t, const Eigen::MatrixXd& vsta_j2000t, const Eigen::MatrixXd& asta_j2000, Eigen::MatrixXd& base_line, Eigen::Vector3d& b_cfs);
-
-/**
- * @brief Проекция вектора базы интерферометра на UV-плоскость.
- */
-void uv_plane(const Source& source, const std::vector<Eigen::Vector3d>& base_line, const std::vector<Eigen::Vector3d>& xsta_j2000t, double scale, Eigen::Vector3d& uv_coor);
-
-
-/**
- * @brief Расчет теоретической задержки для баз с участием космических аппаратов (Space VLBI).
- */
-void theor_delay_orb(const std::vector<Eigen::Vector3d>& base_line, const std::vector<Eigen::Vector3d>& xsta_j2000t, const std::vector<Eigen::Vector3d>& vsta_j2000t, const std::vector<Eigen::Vector3d>& asta_j2000, const Eigen::Vector3d& k_s, const Eigen::Vector3d& earth, const Eigen::MatrixXd& sun, const Eigen::MatrixXd& moon, const Eigen::MatrixXd& datmc_d, const Eigen::MatrixXd& datmc_w, const Eigen::MatrixXd& dtau_off, double& t2_t1, double& dt2_t1);
-
-
-// ============================================================================
-// Частные производные для МНК (Least Squares)
-// ============================================================================
-
-/**
- * @brief Вычисление частных производных задержки по координатам радиоисточника.
- */
-void der_star(double jd, double ct, double dyear, const Eigen::Vector3d& k_s, const Eigen::Matrix3d& earth, const std::vector<Eigen::Vector3d>& base_line, Eigen::MatrixXd& dstar, Eigen::MatrixXd& dstar_rate);
-
-/**
- * @brief Вычисление частных производных задержки по координатам станций.
- */
-void der_site(double dyear, const Eigen::MatrixXd& r2000, const Eigen::Vector3d& k_s, const Eigen::Matrix3d& earth, const std::vector<Eigen::Vector3d>& base_line, std::vector<Eigen::MatrixXd>& dsite, std::vector<Eigen::MatrixXd>& dsite_v);
-
-/**
- * @brief Вычисление частных производных задержки по координатам полюса (x_p, y_p).
- */
-void der_polar(const Eigen::MatrixXd& r2000, const Eigen::Vector3d& k_s, const Eigen::Matrix3d& earth, const std::vector<Eigen::Vector3d>& base_line, const Eigen::Vector3d& b_cfs, std::vector<Eigen::MatrixXd>& pr, std::vector<Eigen::MatrixXd>& rn, std::vector<Eigen::MatrixXd>& rs, std::vector<Eigen::MatrixXd>& ryx, std::vector<Eigen::MatrixXd>& ydxdx, std::vector<Eigen::MatrixXd>& dydyx, std::vector<Eigen::MatrixXd>& ddxdyx, std::vector<Eigen::MatrixXd>& ddydyx, std::vector<Eigen::VectorXd>& dx_pol_dx, std::vector<Eigen::VectorXd>& dx_pol_dy, const Eigen::VectorXd& arg_oc_tide, Eigen::MatrixXd& dwob, std::vector<Eigen::MatrixXd>& dx_aj, std::vector<Eigen::MatrixXd>& dx_bj, std::vector<Eigen::MatrixXd>& dy_aj, std::vector<Eigen::MatrixXd>& dy_bj);
-
-/**
- * @brief Вычисление частных производных задержки по параметру вращения Земли (UT1-TAI).
- */
-void der_ut1(const Eigen::MatrixXd& r2000, const Eigen::Vector3d& k_s, const Eigen::Matrix3d& earth, const std::vector<Eigen::Vector3d>& base_line, const Eigen::Vector3d& b_cfs, const Eigen::VectorXd& gast, std::vector<Eigen::MatrixXd>& pr, std::vector<Eigen::MatrixXd>& rn, std::vector<Eigen::MatrixXd>& rs, std::vector<Eigen::MatrixXd>& ryx, const Eigen::VectorXd& arg_oc_tide, double diurnv, Eigen::VectorXd& dut1_tai, std::vector<Eigen::MatrixXd>& dut1_aj, std::vector<Eigen::MatrixXd>& dut1_bj);
-
-/**
- * @brief Вычисление частных производных задержки по углам нутации.
- */
-void der_nut(const Eigen::MatrixXd& r2000, const Eigen::Vector3d& k_s, const Eigen::Matrix3d& earth, const std::vector<Eigen::Vector3d>& base_line, const Eigen::Vector3d& b_cfs, const Eigen::VectorXd& gast, std::vector<Eigen::MatrixXd>& pr, std::vector<Eigen::MatrixXd>& rn, std::vector<Eigen::MatrixXd>& rs, std::vector<Eigen::MatrixXd>& ryx, const Eigen::VectorXd& e_mn, const Eigen::MatrixXd& dndpsi, const Eigen::MatrixXd& dndeps, Eigen::MatrixXd& dnut);
-
-/**
- * @brief Вычисление частных производных задержки по параметрам прецессии.
- */
-void der_prec(const Eigen::MatrixXd& r2000, const Eigen::Vector3d& k_s, const Eigen::Matrix3d& earth, const std::vector<Eigen::Vector3d>& base_line, const Eigen::Vector3d& b_cfs, const Eigen::MatrixXd& pr, const Eigen::MatrixXd& rn, const Eigen::MatrixXd& rs, const Eigen::MatrixXd& ryx, const Eigen::MatrixXd& dpdp_ls, const Eigen::MatrixXd& dpdp_pl, const Eigen::MatrixXd& drsdp_ls, const Eigen::MatrixXd& drsdp_pl, Eigen::MatrixXd& dpr_lspl);
-
-/**
- * @brief Вычисление частных производных задержки по числам Лява (h, l) твердых земных приливов.
- */
-void der_love_number(const Station& sta1, const Station& sta2, const Eigen::MatrixXd& r2000, const Eigen::Vector3d& k_s, const Eigen::Matrix3d& earth, const std::vector<Eigen::Vector3d>& base_line, const std::vector<Eigen::Matrix3d>& drdh0_3, const std::vector<Eigen::Matrix3d>& drdh02_3, const std::vector<Eigen::Matrix3d>& drdrl0_3, const std::vector<Eigen::Matrix3d>& drdl02_3, const std::vector<Eigen::Matrix3d>& drdh3_3, const std::vector<Eigen::Matrix3d>& drdl3_3, const std::vector<Eigen::Matrix3d>& drdl1_1_2000_3, const std::vector<Eigen::Matrix3d>& drdl1_2_2000_3, const std::vector<Eigen::Matrix3d>& drdhi_1_2000_3, const std::vector<Eigen::Matrix3d>& drdhi_2_2000_3, const std::vector<Eigen::Matrix3d>& drdli_1_2000_3, const std::vector<Eigen::Matrix3d>& drdli_2_2000_3, Eigen::VectorXd& d_dh0, Eigen::VectorXd& d_dh02, Eigen::VectorXd& d_dl0, Eigen::VectorXd& d_dl02, Eigen::VectorXd& d_dh3, Eigen::VectorXd& d_dl3, Eigen::VectorXd& d_dl1_1, Eigen::VectorXd& d_dl1_2, Eigen::VectorXd& d_dhi_1, Eigen::VectorXd& d_dhi_2, Eigen::VectorXd& d_dli_1, Eigen::VectorXd& d_dli_2);
-
-/**
- * @brief Вычисление частных производных задержки по параметрам атмосферной нагрузки.
- */
-void der_atm_load(const Station& sta1, const Station& sta2, const Eigen::MatrixXd& r2000, const Eigen::Vector3d& k_s, const Eigen::Matrix3d& earth, const std::vector<Eigen::Vector3d>& base_line, const std::vector<Eigen::Matrix3d>& dr1_da2000, const std::vector<Eigen::Matrix3d>& dr1_db2000, const std::vector<Eigen::Matrix3d>& dv1_da2000, const std::vector<Eigen::Matrix3d>& dv1_db2000, const std::vector<Eigen::Matrix3d>& dr2_da2000, const std::vector<Eigen::Matrix3d>& dr2_db2000, const std::vector<Eigen::Matrix3d>& dv2_da2000, const std::vector<Eigen::Matrix3d>& dv2_db2000, const std::vector<Eigen::Vector3d>& dr_dreg2000, const std::vector<Eigen::Vector3d>& dv_dreg2000, std::vector<Eigen::MatrixXd>& dt_da, std::vector<Eigen::MatrixXd>& dt_db, std::vector<Eigen::MatrixXd>& df_da, std::vector<Eigen::MatrixXd>& df_db, Eigen::VectorXd& dt_dreg, Eigen::VectorXd& df_dreg);
-
-/**
- * @brief Формирование матрицы условных уравнений (design matrix) и вектора невязок для метода наименьших квадратов (МНК).
- */
-void create_matr(const Observation& obs, const Station& sta1, const Station& sta2, int i_good, int nobs, int n_sources, int n_stations, double t_mean, double t2_t1, double dt2_t1, const Eigen::MatrixXd& dwob, const Eigen::VectorXd& dut1_tai, const Eigen::MatrixXd& dnut, const std::vector<Eigen::MatrixXd>& dsite, const std::vector<Eigen::MatrixXd>& dsite_v, const Eigen::MatrixXd& datmp_hmf, const Eigen::MatrixXd& datmp_wmf, const Eigen::MatrixXd& dgrad_n, const Eigen::MatrixXd& dgrad_e, const Eigen::MatrixXd& dstar, const Eigen::MatrixXd& dstar_rate, const Eigen::MatrixXd& dpr_lspl, const Eigen::VectorXd& d_dh0, const Eigen::VectorXd& d_dh02, const Eigen::VectorXd& d_dl0, const Eigen::VectorXd& d_dl02, const Eigen::VectorXd& d_dh3, const Eigen::VectorXd& d_dl3, const Eigen::VectorXd& d_dl1_1, const Eigen::VectorXd& d_dl1_2, const Eigen::VectorXd& d_dhi_1, const Eigen::VectorXd& d_dhi_2, const Eigen::VectorXd& d_dli_1, const Eigen::VectorXd& d_dli_2, const Eigen::MatrixXd& d_dax, const std::vector<Eigen::MatrixXd>& dt_da, const std::vector<Eigen::MatrixXd>& dt_db, const std::vector<Eigen::MatrixXd>& df_da, const std::vector<Eigen::MatrixXd>& df_db, const Eigen::VectorXd& dt_dreg, const Eigen::VectorXd& df_dreg, const std::vector<Eigen::MatrixXd>& dx_aj, const std::vector<Eigen::MatrixXd>& dx_bj, const std::vector<Eigen::MatrixXd>& dy_aj, const std::vector<Eigen::MatrixXd>& dy_bj, const std::vector<Eigen::MatrixXd>& dut1_aj, const std::vector<Eigen::MatrixXd>& dut1_bj, const Eigen::MatrixXd& zen_dry, const Eigen::MatrixXd& zen_wet, Eigen::MatrixXd& m_pd, Eigen::VectorXd& y, Eigen::VectorXd& w);
-
-/**
- * @brief Численное интегрирование орбиты космического аппарата и вычисление фазы для Space VLBI.
- */
-void integr8_asc(const Station& station, const Observation& obs, int nobs, int l_segm, int n_wr_tot, double delta_sec, const std::string& track_site, int mjd_beg, double utc_beg, double ct_beg, double dyear, const Eigen::MatrixXd& r2000, std::vector<Eigen::Vector3d>& xsta_j2000t, std::vector<Eigen::Vector3d>& vsta_j2000t, std::vector<Eigen::Vector3d>& asta_j2000, Eigen::MatrixXd& r_sat_pr, const Eigen::Vector3d& k_s, double& phase1);
 
 /**
  * @brief Верхний слой оркестрации: пакетный расчёт теоретической задержки всех наблюдений сессии.
