@@ -10,7 +10,7 @@
 // Единицы входа: SpaceStation.xyz [км], .vel [км/с]; на выход — метры и м/с, м/с^2.
 
 #include "functions.h"
-#include "..\\external\\spline.h"
+#include "../external/spline.h"
 
 namespace ariadna {
 

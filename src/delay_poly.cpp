@@ -12,7 +12,7 @@
 #include "functions.h"
 #include "catalog_bridge.h"
 #include "READ_CAT.h"
-#include "..\\external\\spline.h"
+#include "../external/spline.h"
 #include <fstream>
 #include <cstdio>
 #include <cmath>
@@ -69,15 +69,18 @@ static SitePrep siteprep_ground(const CfxStation& st, double epoch_mjd_utc) {
     return s;
 }
 
-// Геоцентрическая вакуумная задержка станции на момент.
-static double geocentric_delay(const SitePrep& station, const Eigen::Vector3d& K, const EpochEnv& e) {
+// Геоцентрическая задержка станции на момент. with_tropo=false — вакуумная геометрия
+// (воспроизведение упрощённого эталона); true — с тропосферой (стандартная атмосфера,
+// т.к. метео в задании нет). Солидные земные приливы и прилив полюса считаются всегда.
+static double geocentric_delay(const SitePrep& station, const Eigen::Vector3d& K,
+                               const EpochEnv& e, bool with_tropo) {
     SitePrep geo; geo.is_space = true;
     Observation obs{}; obs.sta1 = 0; obs.sta2 = 1;
     obs.p1 = 1013.25; obs.t1 = 0.0; obs.e1 = 50.0; obs.p2 = 1013.25; obs.t2 = 0.0; obs.e2 = 50.0;
     double tau, dtau;
     compute_delay_obs(geo, station, K, obs, e.mjd, e.utc, e.jd0, e.ct, e.cent, e.ut1_sec,
                       e.f, e.fd, e.gast, e.Earth, e.Sun, e.Moon, e.sun_geo, e.moon_geo,
-                      e.xp, e.yp, 0, 0, e.R, e.dR, e.d2R, tau, dtau, nullptr, false);
+                      e.xp, e.yp, 0, 0, e.R, e.dR, e.d2R, tau, dtau, nullptr, with_tropo);
     return tau;
 }
 
@@ -102,7 +105,7 @@ StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
                                  int mjd0, double utc0, double dur_sec,
                                  const std::vector<EOPData>& eop,
                                  double block_sec, int degree, double sample_sec,
-                                 const std::vector<SpaceStation>& orbit) {
+                                 const std::vector<SpaceStation>& orbit, bool with_tropo) {
     StationPoly poly; poly.telescope = st.name; poly.source = src.name; poly.order = degree + 1;
 
     // Направление на источник (в J2000; для фикс. источника постоянно).
@@ -133,7 +136,7 @@ StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
         int m; double u; to_mjd_utc(t, m, u);
         EpochEnv e = prep_epoch(m, u, eop);
         SitePrep sp = make_siteprep(m, u);
-        xs.push_back(t); ys.push_back(geocentric_delay(sp, K, e));
+        xs.push_back(t); ys.push_back(geocentric_delay(sp, K, e, with_tropo));
     }
     tk::spline sp; sp.set_points(xs, ys);
 
@@ -187,7 +190,7 @@ void write_station_poly(const std::string& path, const StationPoly& poly) {
 
 void process_task(const std::string& cfx_path, const std::string& orbit_path,
                   const std::string& out_dir, const std::string& eop_path,
-                  double block_sec, int degree, double sample_sec) {
+                  double block_sec, int degree, double sample_sec, bool with_tropo) {
     CfxTask task;
     if (!parse_cfx(cfx_path, task)) { std::fprintf(stderr, "process_task: не разобрать %s\n", cfx_path.c_str()); return; }
 
@@ -214,7 +217,7 @@ void process_task(const std::string& cfx_path, const std::string& orbit_path,
 
     // Каждой станции — свой файл полиномов.
     for (const auto& st : task.stations) {
-        StationPoly poly = compute_station_poly(st, src, mjd0, utc0, dur, eop, block_sec, degree, sample_sec, orbit);
+        StationPoly poly = compute_station_poly(st, src, mjd0, utc0, dur, eop, block_sec, degree, sample_sec, orbit, with_tropo);
         std::string out = out_dir; if (!out.empty() && out.back() != '/' && out.back() != '\\') out += "/";
         out += st.poly_file;
         write_station_poly(out, poly);

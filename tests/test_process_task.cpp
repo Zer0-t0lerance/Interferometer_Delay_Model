@@ -45,11 +45,12 @@ int main() {
     try { init_ephemeris(find_eph()); } catch (const std::exception& e) { printf("SKIP: %s\n", e.what()); return 2; }
 
     std::filesystem::create_directories("tests/out_poly");
+    // with_tropo=false: воспроизводим ВАКУУМНЫЙ эталон (в нём нет тропосферы) для сверки.
     process_task("example/GVLBI_RAKS01A0_L_20140423T130000_ASC_V1.cfx",
                  "example/RA140423_1200_v02.scf",
                  "tests/out_poly",
                  "external/catalogs/EOPC04_14_IAU2000_62-now.cat",
-                 60.0, 5, 6.0);
+                 60.0, 5, 6.0, false);
 
     // Сверка P0 с эталонами (имена вывода = POLY_FILE).
     struct Pair { const char* ours; const char* ref; };

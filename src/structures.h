@@ -4,8 +4,8 @@
 #include <cmath>
 #include <cstdio>
 #include "constants.h"
-#include "..\\external\\eigen\\Eigen\\Dense"
-#include "..\\external\\spline.h"
+#include "../external/eigen/Eigen/Dense"
+#include "../external/spline.h"
 
 namespace ariadna {
 // Описание: Данные океанического прилива для одной станции (11 волн, 3 компоненты (Up, North, East))

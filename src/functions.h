@@ -803,7 +803,7 @@ StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
                                  int mjd0, double utc0, double dur_sec,
                                  const std::vector<EOPData>& eop,
                                  double block_sec, int degree, double sample_sec,
-                                 const std::vector<SpaceStation>& orbit);
+                                 const std::vector<SpaceStation>& orbit, bool with_tropo = true);
 
 /**
  * @brief Запись полиномов задержки станции в текстовый файл .TXT (формат эталона).
@@ -828,9 +828,10 @@ void write_station_poly(const std::string& path, const StationPoly& poly);
  * @param[in] block_sec  Длительность блока [с] (по умолчанию 60).
  * @param[in] degree     Степень полинома (по умолчанию 5).
  * @param[in] sample_sec Шаг сетки задержки [с] (по умолчанию 6).
+ * @param[in] with_tropo Подключать тропосферу (по умолчанию true; false = вакуумная геометрия).
  */
 void process_task(const std::string& cfx_path, const std::string& orbit_path,
                   const std::string& out_dir, const std::string& eop_path,
-                  double block_sec = 60.0, int degree = 5, double sample_sec = 6.0);
+                  double block_sec = 60.0, int degree = 5, double sample_sec = 6.0, bool with_tropo = true);
 
 } // namespace ariadna
