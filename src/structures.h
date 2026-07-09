@@ -112,6 +112,70 @@ struct AberrationResult {
     Eigen::MatrixXd azimuth;   // Azimuth angles for two stations (rad, rad/s)
 };
 
+// ============================================================================
+// Задание коррелятора (.cfx) и выходные полиномы задержки
+// ============================================================================
+
+// Станция из файла задания .cfx (блок [$TLSC]).
+struct CfxStation {
+    std::string name;           // полное имя (RASTRON, BADARY, ...)
+    std::string iam;            // короткое имя для сканов (RA, Bd, Kl, Hh)
+    std::string poly_file;      // имя выходного файла полинома (POLY_FILE)
+    std::string mount = "AZEL"; // тип монтировки (AZEL/EQUA)
+    // Наземная станция (TLSC_PAR): координаты ITRF на эпоху + скорости.
+    Eigen::Vector3d xyz = Eigen::Vector3d::Zero(); // [м]
+    Eigen::Vector3d vel = Eigen::Vector3d::Zero(); // [м/год]
+    double axoff = 0.0;         // осевое смещение оси монтировки [м]
+    double epoch_mjd = 0.0;     // опорная эпоха координат [MJD]
+    // Космическая станция (RASTRON): вместо координат — орбита .scf.
+    bool is_space = false;
+    std::string orb_file;       // путь к файлу орбиты (.scf, CCSDS OEM)
+    // Часы станции.
+    double clock_delay = 0.0;   // [с]
+    double clock_rate = 0.0;    // [с/с]
+};
+
+// Источник из задания (блок [$SOURCE]).
+struct CfxSource {
+    std::string name;
+    double ra = 0.0;   // прямое восхождение [рад]
+    double dec = 0.0;  // склонение [рад]
+};
+
+// Скан наблюдения (блок [$skan]): старт, длительность, участвующие станции.
+struct CfxScan {
+    int mjd = 0;               // MJD старта скана
+    double utc = 0.0;          // доля суток UTC старта
+    double dur_sec = 0.0;      // длительность [с]
+    std::string source;        // имя источника
+    std::vector<std::string> tel_iam; // короткие имена участвующих станций
+};
+
+// Полное задание .cfx.
+struct CfxTask {
+    std::vector<CfxStation> stations;
+    std::vector<CfxSource> sources;
+    std::vector<CfxScan> scans;
+    std::string out_path;      // %W — папка для выходных полиномов
+};
+
+// Один блок полинома задержки: интервал [start, stop] и коэффициенты P0..Pn
+// (задержка tau(t) = sum P_k * (t - start)^k, t от начала блока в секундах).
+struct DelayPolyBlock {
+    int mjd = 0;               // MJD начала блока
+    double utc_start = 0.0;    // доля суток UTC начала
+    double utc_stop = 0.0;     // доля суток UTC конца
+    std::vector<double> coef;  // P0..P_order-1 [с, с/с, ...]
+};
+
+// Полиномы задержки одной станции (выходной файл .TXT).
+struct StationPoly {
+    std::string telescope;     // имя станции (RASTRON, BADARY, ...)
+    std::string source;        // имя источника
+    int order = 6;             // число коэффициентов (степень+1)
+    std::vector<DelayPolyBlock> blocks;
+};
+
 struct EOPData {
     double mjd;           // Modified Julian Date
     double ut1_utc;       // UT1-UTC (seconds)

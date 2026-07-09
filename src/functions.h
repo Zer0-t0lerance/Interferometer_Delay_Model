@@ -752,4 +752,29 @@ void baseline(const Eigen::Matrix3d& r2000, const Eigen::MatrixXd& xsta_j2000t, 
  */
 void process_ariadna(const std::vector<Station>& stations, const std::vector<Source>& sources, const std::vector<Observation>& observations, const std::vector<SpaceStation>& space_stations, const std::vector<OrbitData>& orbit_data, int n_segm, int k_ch_c, int k_ch_z, double delta_sec, const std::string& output_path, const std::vector<EOPData>& eop_data, double mjd_mean, double utc_mean, double t_mean, std::vector<DelayResult>& results, std::vector<CompDebug>* debug = nullptr);
 
+// ============================================================================
+// Ввод задания коррелятора (.cfx) и орбиты (.scf)
+// ============================================================================
+
+/**
+ * @brief Разбор файла задания коррелятора (.cfx) в структуру CfxTask.
+ *
+ * Читает блоки [$TLSC] (станции), [$SOURCE] (источники), [$skan] (сканы) и [$OUTPAR].
+ * Наземные станции берут координаты из TLSC_PAR; космическая (RASTRON) — из ORB_FILE.
+ *
+ * @param[in]  path  Путь к файлу .cfx.
+ * @param[out] task  Заполненное задание (станции, источники, сканы, выходная папка).
+ * @return true при успехе (есть станции и сканы).
+ */
+bool parse_cfx(const std::string& path, CfxTask& task);
+
+/**
+ * @brief Чтение орбиты космического телескопа из .scf (CCSDS OEM, EME2000≈J2000, UTC).
+ *
+ * @param[in]  path   Путь к файлу .scf.
+ * @param[out] orbit  Точки орбиты (SpaceStation: mjd, utc, xyz [км], vel [км/с]).
+ * @return true при успехе (орбита непуста).
+ */
+bool read_scf_orbit(const std::string& path, std::vector<SpaceStation>& orbit);
+
 } // namespace ariadna
