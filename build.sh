@@ -13,7 +13,7 @@
 
 set -e
 
-MAIN="${1:-tests/test_final_build.cpp}"
+MAIN="${1:-delay_tool.cpp}"
 OUT="${MAIN%.cpp}.exe"
 
 INC="-I./external/eigen -I./external -I./external/dephem-master/include -I./external/sofa/20190722/c/src"

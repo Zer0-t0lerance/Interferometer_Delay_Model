@@ -20,3 +20,5 @@ tests/out_*.txt
 example/*_OUR.TXT
 tests/*_OUR.TXT
 tests/out_poly/
+out_poly/
+delay_tool.exe

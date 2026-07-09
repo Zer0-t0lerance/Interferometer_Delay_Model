@@ -15,8 +15,8 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 set "MAIN=%~1"
-if "%MAIN%"=="" set "MAIN=tests\verify.cpp"
-for %%F in ("%MAIN%") do set "OUT=tests\%%~nF.exe"
+if "%MAIN%"=="" set "MAIN=delay_tool.cpp"
+for %%F in ("%MAIN%") do set "OUT=%%~dpnF.exe"
 
 set "SOFADIR=external\sofa\20190722\c"
 set "SOFALIB=%SOFADIR%\build\libsofa.a"

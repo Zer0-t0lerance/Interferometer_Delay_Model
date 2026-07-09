@@ -76,22 +76,38 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1 tests\test_xxx.cpp
 
 ```sh
 sh external/sofa/build_libsofa.sh   # один раз: собрать libsofa.a
-sh build.sh                         # собрать tests/verify.exe и запустить
-sh build.sh tests/test_xxx.cpp      # другой main
+sh build.sh                         # собрать delay_tool.exe (главный инструмент) и запустить
+sh build.sh tests/test_xxx.cpp      # другой main (тест)
 ```
 
 ---
 
-## 5. Запуск
+## 5. Запуск — ГЛАВНЫЙ ИНСТРУМЕНТ delay_tool
 
-Exe запускать **из корня репозитория** (модель ищет эфемериды и каталоги по
-относительным путям). Бинарники (`*.exe`, `*.a`) в git не кладутся.
+Сборка по умолчанию (`sh build.sh` / `.\build.ps1` / `.\build.bat`) создаёт **`delay_tool`** —
+CLI-инструмент модели задержки. Эфемериды и каталоги EOP лежат в проекте (`external/`) и
+находятся **автоматически** (относительно каталога запуска и родительских уровней), поэтому
+человеку достаточно указать входные файлы:
 
-Главные программы:
-- **`tests/verify.exe`** — ПОДРОБНАЯ сверка с дампом ARIADNA `tests/Вывод.txt`:
-  таблица «величина | референс | посчитано | ошибка» по всему циклу (элевации,
-  зенитные/тропосферные задержки, итог). Отчёт в консоль И в `tests/verify_report.txt`.
-- **`tests/test_final_build.exe`** — итоговый прогон конвейера (8 станций из Вывод.txt).
+```sh
+./delay_tool <cfx> <scf> <out_dir> [block_sec=60] [degree=5]
+
+# пример:
+./delay_tool example/GVLBI_RAKS01A0_L_20140423T130000_ASC_V1.cfx \
+             example/RA140423_1200_v02.scf  out_poly
+```
+- `<cfx>` — файл задания коррелятора; `<scf>` — орбита космической станции (или `-`, если нет);
+- `<out_dir>` — каталог для выходных полиномов (`.TXT` на каждую станцию, формат коррелятора).
+
+**Из кода** модель — библиотека `namespace ariadna` (`#include "src/functions.h"`); верхняя
+функция — `process_task(cfx, scf, out_dir, eop_cat, block, degree, sample)` (см. `delay_tool.cpp`
+как образец вызова).
+
+### Проверочные программы (тесты)
+- **`tests/verify.exe`** — подробная сверка с дампом ARIADNA `tests/Вывод.txt` (наземный конвейер).
+- **`tests/test_process_task.exe`** — сверка полиномов delay_tool с эталонами `example/`.
+
+Тесты запускать **из корня репозитория**. Бинарники (`*.exe`, `*.a`) в git не кладутся.
 
 ---
 

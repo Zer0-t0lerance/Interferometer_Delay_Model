@@ -16,8 +16,8 @@ $null = & chcp 65001
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-$Main = if ($args.Count -ge 1) { $args[0] } else { "tests\verify.cpp" }
-$Out  = "tests\" + [System.IO.Path]::GetFileNameWithoutExtension($Main) + ".exe"
+$Main = if ($args.Count -ge 1) { $args[0] } else { "delay_tool.cpp" }
+$Out  = [System.IO.Path]::ChangeExtension($Main, ".exe")
 
 $SofaDir = "external\sofa\20190722\c"
 $SofaLib = "$SofaDir\build\libsofa.a"
