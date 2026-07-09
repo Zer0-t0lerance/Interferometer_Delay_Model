@@ -95,21 +95,25 @@ void theor_delay(const Eigen::Matrix<double, 3, 2>& base_line,
     // ===================== SHAPIRO EARTH =====================
     double C_Earth_grav = (1.0 + Gamma) * cnst::GEARTH / C3;
     double w1_e = xsta[0].norm();
-    double numer4 = w1_e + K_s.dot(xsta[0]);
     double w2_e = xsta[1].norm();
-    double denom4 = w2_e + K_s.dot(xsta[1]);
-    double delta_t_grav_Earth = C_Earth_grav * std::log(numer4 / denom4);
+    // Земной Шапиро-член. Если одна из «станций» в геоцентре (r=0, напр. опорная
+    // точка для геоцентрической задержки коррелятора), 1/r-потенциал нефизичен
+    // (точка внутри Земли), а его вклад для геоцентр->станция ~пс -> зануляем.
+    double numer4 = 1.0, denom4 = 1.0;
+    double delta_t_grav_Earth = 0.0, dterm1_Earth = 0.0;
+    if (w1_e > 1.0 && w2_e > 1.0) {
+        numer4 = w1_e + K_s.dot(xsta[0]);
+        denom4 = w2_e + K_s.dot(xsta[1]);
+        delta_t_grav_Earth = C_Earth_grav * std::log(numer4 / denom4);
+        double dR1_Earth = xsta[0].dot(vsta[0]) / w1_e;
+        double dR2_Earth = xsta[1].dot(vsta[1]) / w2_e;
+        dterm1_Earth = C_Earth_grav * ((dR1_Earth + K_s.dot(vsta[0])) / numer4
+                                     - (dR2_Earth + K_s.dot(vsta[1])) / denom4);
+    }
 
     double delta_t_grav_Pl = 0.0; // планеты не учитываются
     double delta_t_grav = delta_t_grav_Sun + delta_t_grav_Moon + delta_t_grav_Pl + delta_t_grav_Earth;
     double term1 = delta_t_grav + add_grav_Sun1;
-
-    // ===================== DTERM1 EARTH =====================
-    double dR1_Earth = xsta[0].dot(vsta[0]) / w1_e;
-    double dR2_Earth = xsta[1].dot(vsta[1]) / w2_e;
-    double dnum4 = dR1_Earth + K_s.dot(vsta[0]);
-    double dden4 = dR2_Earth + K_s.dot(vsta[1]);
-    double dterm1_Earth = C_Earth_grav * (dnum4 / numer4 - dden4 / denom4);
 
     // ===================== DTERM1 SUN =====================
     Eigen::Vector3d dR1_Sun = dotX_1 - Sun.col(1);

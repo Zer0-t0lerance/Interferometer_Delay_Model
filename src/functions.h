@@ -652,7 +652,7 @@ void compute_delay_obs(const SitePrep& s1, const SitePrep& s2,
                        const Eigen::Matrix<double, 3, 2>& sun_geo, const Eigen::Matrix<double, 3, 2>& moon_geo,
                        double xp, double yp, double xp_rate, double yp_rate,
                        const Eigen::Matrix3d& r2000, const Eigen::Matrix3d& dr2000, const Eigen::Matrix3d& d2r2000,
-                       double& tau, double& dtau, CompDebug* dbg = nullptr);
+                       double& tau, double& dtau, CompDebug* dbg = nullptr, bool with_tropo = true);
 
 // ============================================================================
 // Астрометрия и матрицы переходов (Эфемериды, прецессия, нутация)

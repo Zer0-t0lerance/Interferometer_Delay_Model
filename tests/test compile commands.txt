@@ -100,3 +100,6 @@ pipeline_obs (перед конвейера: source_vec + эфемериды + r
 g++ -std=c++17 -I.\external\eigen -I.\external -I.\external\dephem-master\include -I.\external\sofa\20190722\c\src src\jpleph.cpp src\ephemeris.cpp src\t_eph40.cpp src\site_functions.cpp src\GEOD.cpp src\rotation.cpp .\external\dephem-master\include\dephem\EphemerisRelease.cpp .\external\sofa\20190722\c\build\libsofa.a tests\test_pipeline_obs.cpp -o .\tests\test_pipeline_obs.exe
 cfx_scf (разбор задания .cfx и орбиты .scf из example/)
 g++ -std=c++17 -I.xternaligen -I.xternal src\cfx_parser.cpp src\scf_reader.cpp tests	est_cfx_scf.cpp -o .	ests	est_cfx_scf.exe
+
+geodelay (геоцентрическая задержка станции vs эталон .TXT коррелятора; из корня, эфемериды+libsofa.a)
+собирать так же, как verify, но main = tests	est_geodelay.cpp (см. sh build.sh tests/test_geodelay.cpp)

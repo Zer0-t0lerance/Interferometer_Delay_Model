@@ -24,7 +24,7 @@ void compute_delay_obs(const SitePrep& s1, const SitePrep& s2,
                        const Eigen::Matrix<double, 3, 2>& sun_geo, const Eigen::Matrix<double, 3, 2>& moon_geo,
                        double xp, double yp, double xp_rate, double yp_rate,
                        const Eigen::Matrix3d& r2000, const Eigen::Matrix3d& dr2000, const Eigen::Matrix3d& d2r2000,
-                       double& tau, double& dtau, CompDebug* dbg) {
+                       double& tau, double& dtau, CompDebug* dbg, bool with_tropo) {
     // 1. Координаты станций в J2000 со всеми поправками.
     std::vector<Eigen::Vector3d> xs, vs, as_;
     site_pair(s1, s2, mjd, utc, jd0, ut1_sec, cent, f, fd, gast, sun_geo, moon_geo,
@@ -73,6 +73,9 @@ void compute_delay_obs(const SitePrep& s1, const SitePrep& s2,
     // (наземных поправок для орбитального телескопа нет — как THEOR_DELAYcorr_ORB).
     if (s1.is_space) { dd.row(0).setZero(); dw.row(0).setZero(); dtau_mt.row(0).setZero(); }
     if (s2.is_space) { dd.row(1).setZero(); dw.row(1).setZero(); dtau_mt.row(1).setZero(); }
+
+    // Вакуумная геометрия (для полиномов коррелятора): тропосфера исключается.
+    if (!with_tropo) { dd.setZero(); dw.setZero(); }
 
     // Промежуточные величины для подробной сверки с дампом (если запрошено).
     if (dbg) {
