@@ -25,11 +25,13 @@ void orbit_interp(const std::vector<SpaceStation>& orbit, double mjd_utc,
         return;
     }
 
-    // Аргумент — время в сутках; узлы должны быть отсортированы по возрастанию.
-    std::vector<double> t(n);
-    std::vector<double> px(n), py(n), pz(n);
+    // Ось времени — СЕКУНДЫ от первой точки орбиты (НЕ mjd+utc): иначе большие значения
+    // (~56770 сут) при шаге 1с теряют точность в разностях сплайна -> ~1e-7 отн. ошибка,
+    // что на радиусе орбиты ~2e8 м даёт сотни метров. Аргумент запроса — в тех же секундах.
+    const double t0 = static_cast<double>(orbit[0].mjd) + orbit[0].utc; // сутки
+    std::vector<double> t(n), px(n), py(n), pz(n);
     for (int i = 0; i < n; ++i) {
-        t[i]  = static_cast<double>(orbit[i].mjd) + orbit[i].utc;
+        t[i]  = ((static_cast<double>(orbit[i].mjd) - orbit[0].mjd) + (orbit[i].utc - orbit[0].utc)) * cnst::SECDAY;
         px[i] = orbit[i].xyz.x() * 1000.0; // км -> м
         py[i] = orbit[i].xyz.y() * 1000.0;
         pz[i] = orbit[i].xyz.z() * 1000.0;
@@ -40,11 +42,10 @@ void orbit_interp(const std::vector<SpaceStation>& orbit, double mjd_utc,
     sy.set_points(t, py);
     sz.set_points(t, pz);
 
-    const double SPD = cnst::SECDAY; // перевод производных: /сут -> /с
-    x_j2000 << sx(mjd_utc), sy(mjd_utc), sz(mjd_utc);
-    v_j2000 << sx.deriv(1, mjd_utc) / SPD, sy.deriv(1, mjd_utc) / SPD, sz.deriv(1, mjd_utc) / SPD;
-    a_j2000 << sx.deriv(2, mjd_utc) / (SPD * SPD), sy.deriv(2, mjd_utc) / (SPD * SPD),
-               sz.deriv(2, mjd_utc) / (SPD * SPD);
+    const double q = (mjd_utc - t0) * cnst::SECDAY; // момент запроса, сек от старта орбиты
+    x_j2000 << sx(q), sy(q), sz(q);
+    v_j2000 << sx.deriv(1, q), sy.deriv(1, q), sz.deriv(1, q);         // м/с (ось уже в сек)
+    a_j2000 << sx.deriv(2, q), sy.deriv(2, q), sz.deriv(2, q);         // м/с^2
 }
 
 } // namespace ariadna

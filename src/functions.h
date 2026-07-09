@@ -796,12 +796,14 @@ bool read_scf_orbit(const std::string& path, std::vector<SpaceStation>& orbit);
  * @param[in]  block_sec  Длительность блока полинома [с] (эталон = 60).
  * @param[in]  degree     Степень полинома (эталон = 5, т.е. order=6).
  * @param[in]  sample_sec Шаг сетки расчёта задержки [с] (плотнее блока).
+ * @param[in]  orbit      Орбита (для космической станции, is_space); пусто для наземной.
  * @return Полиномы станции (StationPoly).
  */
 StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
                                  int mjd0, double utc0, double dur_sec,
                                  const std::vector<EOPData>& eop,
-                                 double block_sec, int degree, double sample_sec);
+                                 double block_sec, int degree, double sample_sec,
+                                 const std::vector<SpaceStation>& orbit);
 
 /**
  * @brief Запись полиномов задержки станции в текстовый файл .TXT (формат эталона).
@@ -809,5 +811,26 @@ StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
  * @param[in] poly  Полиномы станции.
  */
 void write_station_poly(const std::string& path, const StationPoly& poly);
+
+/**
+ * @brief ГОТОВЫЙ МОДУЛЬ: по заданию .cfx и орбите .scf считает полиномы задержки всех
+ *        станций сеанса и пишет файлы .TXT (формат коррелятора).
+ *
+ * Читает задание (станции/источник/сканы), орбиту космической станции, узлы EOP из
+ * каталога; определяет границы сеанса; для каждой станции считает сшитые полиномы
+ * геоцентрической вакуумной задержки и пишет файл (имя из POLY_FILE) в out_dir.
+ * Эфемериды должны быть инициализированы заранее (init_ephemeris).
+ *
+ * @param[in] cfx_path   Путь к файлу задания .cfx.
+ * @param[in] orbit_path Путь к файлу орбиты .scf (для космической станции; "" если нет).
+ * @param[in] out_dir    Папка для выходных файлов полиномов.
+ * @param[in] eop_path   Путь к каталогу EOP (EOPC04).
+ * @param[in] block_sec  Длительность блока [с] (по умолчанию 60).
+ * @param[in] degree     Степень полинома (по умолчанию 5).
+ * @param[in] sample_sec Шаг сетки задержки [с] (по умолчанию 6).
+ */
+void process_task(const std::string& cfx_path, const std::string& orbit_path,
+                  const std::string& out_dir, const std::string& eop_path,
+                  double block_sec = 60.0, int degree = 5, double sample_sec = 6.0);
 
 } // namespace ariadna

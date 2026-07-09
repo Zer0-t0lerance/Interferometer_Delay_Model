@@ -10,10 +10,13 @@
 // Сшивка: единый кубический сплайн по всей сетке -> C2-непрерывность на стыках блоков.
 
 #include "functions.h"
+#include "catalog_bridge.h"
+#include "READ_CAT.h"
 #include "..\\external\\spline.h"
 #include <fstream>
 #include <cstdio>
 #include <cmath>
+#include <cstring>
 
 namespace ariadna {
 
@@ -78,14 +81,19 @@ static double geocentric_delay(const SitePrep& station, const Eigen::Vector3d& K
     return tau;
 }
 
-// МНК-полином степени deg через точки (x,y). Коэффициенты по возрастанию (deg+1).
+// МНК-полином степени deg через точки (x,y). Коэффициенты P_k при x^k по возрастанию.
+// x НОРМИРУЕТСЯ (u = x/xs) перед подгонкой — иначе Вандермонд с x^5 до ~1e9 чудовищно
+// обусловлен и P0 теряет точность (заметно для большой задержки, напр. RASTRON).
+// Затем P_k = c_k / xs^k возвращает коэффициенты в исходном базисе x.
 static std::vector<double> polyfit_local(const std::vector<double>& x, const std::vector<double>& y, int deg) {
     int n = static_cast<int>(x.size()), d = deg; if (d > n - 1) d = n - 1;
+    double xs = 0; for (double v : x) xs = std::max(xs, std::fabs(v));
+    if (xs <= 0) xs = 1.0;
     Eigen::MatrixXd A(n, d + 1); Eigen::VectorXd b(n);
-    for (int i = 0; i < n; ++i) { double p = 1; for (int k = 0; k <= d; ++k) { A(i, k) = p; p *= x[i]; } b(i) = y[i]; }
+    for (int i = 0; i < n; ++i) { double u = x[i] / xs, p = 1; for (int k = 0; k <= d; ++k) { A(i, k) = p; p *= u; } b(i) = y[i]; }
     Eigen::VectorXd c = A.householderQr().solve(b);
     std::vector<double> out(deg + 1, 0.0);
-    for (int k = 0; k <= d; ++k) out[k] = c(k);
+    double s = 1.0; for (int k = 0; k <= d; ++k) { out[k] = c(k) / s; s *= xs; }
     return out;
 }
 
@@ -93,7 +101,8 @@ static std::vector<double> polyfit_local(const std::vector<double>& x, const std
 StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
                                  int mjd0, double utc0, double dur_sec,
                                  const std::vector<EOPData>& eop,
-                                 double block_sec, int degree, double sample_sec) {
+                                 double block_sec, int degree, double sample_sec,
+                                 const std::vector<SpaceStation>& orbit) {
     StationPoly poly; poly.telescope = st.name; poly.source = src.name; poly.order = degree + 1;
 
     // Направление на источник (в J2000; для фикс. источника постоянно).
@@ -108,12 +117,22 @@ StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
         mjd = mjd0 + add; utc = tot - add;
     };
 
+    // SitePrep станции на момент: наземная (координаты+дрейф) или космическая (орбита).
+    auto make_siteprep = [&](int m, double u) -> SitePrep {
+        if (st.is_space) {
+            SitePrep sp; sp.is_space = true;
+            orbit_interp(orbit, m + u, sp.x_orbit, sp.v_orbit, sp.a_orbit);
+            return sp;
+        }
+        return siteprep_ground(st, m + u);
+    };
+
     // 1) Сетка задержек по сеансу (+ запас на края для сплайна).
     std::vector<double> xs, ys;
     for (double t = -sample_sec; t <= dur_sec + sample_sec + 1e-6; t += sample_sec) {
         int m; double u; to_mjd_utc(t, m, u);
         EpochEnv e = prep_epoch(m, u, eop);
-        SitePrep sp = siteprep_ground(st, m + u);
+        SitePrep sp = make_siteprep(m, u);
         xs.push_back(t); ys.push_back(geocentric_delay(sp, K, e));
     }
     tk::spline sp; sp.set_points(xs, ys);
@@ -163,6 +182,43 @@ void write_station_poly(const std::string& path, const StationPoly& poly) {
         for (size_t k = 0; k < b.coef.size(); ++k) {
             std::snprintf(buf, sizeof(buf), "P%zu = %.14e\n", k, b.coef[k]); f << buf;
         }
+    }
+}
+
+void process_task(const std::string& cfx_path, const std::string& orbit_path,
+                  const std::string& out_dir, const std::string& eop_path,
+                  double block_sec, int degree, double sample_sec) {
+    CfxTask task;
+    if (!parse_cfx(cfx_path, task)) { std::fprintf(stderr, "process_task: не разобрать %s\n", cfx_path.c_str()); return; }
+
+    // Орбита космической станции (если есть).
+    std::vector<SpaceStation> orbit;
+    bool has_space = false; for (const auto& s : task.stations) if (s.is_space) has_space = true;
+    if (has_space && !orbit_path.empty()) read_scf_orbit(orbit_path, orbit);
+
+    // Границы сеанса и источник (первого скана; предполагаем один источник на сеанс).
+    if (task.scans.empty()) { std::fprintf(stderr, "process_task: нет сканов\n"); return; }
+    int mjd0 = task.scans.front().mjd; double utc0 = task.scans.front().utc;
+    double t_end = 0; for (const auto& sc : task.scans) {
+        double e = (sc.mjd - mjd0) * 86400.0 + sc.utc * 86400.0 + sc.dur_sec; if (e > t_end) t_end = e;
+    }
+    double dur = t_end - utc0 * 86400.0;
+    std::string src_name = task.scans.front().source;
+    CfxSource src; for (const auto& s : task.sources) if (s.name == src_name) src = s;
+
+    // EOP: 7 узлов вокруг сеанса из каталога EOPC04.
+    std::vector<eop_record> raw_eop; char epath[256]; std::strncpy(epath, eop_path.c_str(), 255); epath[255] = 0;
+    std::vector<EOPData> eop;
+    if (ReadEOP(raw_eop, epath) == 0 || !raw_eop.empty()) select_eop_nodes(raw_eop, mjd0, cnst::EOP_NDATA, eop);
+    if (eop.size() < (size_t)cnst::EOP_NDATA) { std::fprintf(stderr, "process_task: мало узлов EOP\n"); return; }
+
+    // Каждой станции — свой файл полиномов.
+    for (const auto& st : task.stations) {
+        StationPoly poly = compute_station_poly(st, src, mjd0, utc0, dur, eop, block_sec, degree, sample_sec, orbit);
+        std::string out = out_dir; if (!out.empty() && out.back() != '/' && out.back() != '\\') out += "/";
+        out += st.poly_file;
+        write_station_poly(out, poly);
+        std::printf("  %-9s -> %s (%zu блоков)\n", st.name.c_str(), out.c_str(), poly.blocks.size());
     }
 }
 

@@ -19,3 +19,4 @@ tests/out_*.txt
 # сгенерированные полиномы (тестовый вывод)
 example/*_OUR.TXT
 tests/*_OUR.TXT
+tests/out_poly/
