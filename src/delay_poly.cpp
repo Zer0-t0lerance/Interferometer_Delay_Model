@@ -17,6 +17,8 @@
 #include <cstdio>
 #include <cmath>
 #include <cstring>
+#include <set>
+#include <cctype>
 
 namespace ariadna {
 
@@ -243,41 +245,83 @@ static bool reception_itrf(const std::string& cat, const std::string& name, Eige
     return false;
 }
 
+// Григорианская дата -> MJD на 0h.
+static int dp_ymd_to_mjd(int y, int m, int d) {
+    long a = (14 - m) / 12, yy = y + 4800 - a, mm = m + 12 * a - 3;
+    long jdn = d + (153 * mm + 2) / 5 + 365 * yy + yy / 4 - yy / 100 + yy / 400 - 32045;
+    return static_cast<int>(jdn - 2400001);
+}
+
+// Время старта сегмента из имени файла данных (кодировка YYYYDDDHHMMSS, напр.
+// PUSH_2014113130000). Возвращает MJD+доля суток; false если не распарсить.
+static bool parse_file_mjd_utc(const std::string& fileval, double& mjd_utc) {
+    for (size_t i = 0; i < fileval.size();) {
+        if (std::isdigit(static_cast<unsigned char>(fileval[i]))) {
+            size_t j = i; while (j < fileval.size() && std::isdigit(static_cast<unsigned char>(fileval[j]))) ++j;
+            if (j - i >= 13) {
+                std::string d = fileval.substr(i, 13);
+                int Y = std::stoi(d.substr(0, 4)), DDD = std::stoi(d.substr(4, 3));
+                int HH = std::stoi(d.substr(7, 2)), MM = std::stoi(d.substr(9, 2)), SS = std::stoi(d.substr(11, 2));
+                mjd_utc = dp_ymd_to_mjd(Y, 1, 1) + (DDD - 1) + (HH * 3600.0 + MM * 60.0 + SS) / 86400.0;
+                return true;
+            }
+            i = j;
+        } else ++i;
+    }
+    return false;
+}
+
+// Даунлинк-задержка космос->пункт приёма на момент mjd_utc (пункт приёма движется с Землёй).
+static double timeofs_at(double mjd_utc, const std::vector<SpaceStation>& orbit,
+                         const std::vector<EOPData>& eop, const Eigen::Vector3d& recv_itrf) {
+    int m = static_cast<int>(std::floor(mjd_utc)); double u = mjd_utc - m;
+    EpochEnv e = prep_epoch(m, u, eop);
+    Eigen::Vector3d xr, vr, aa; orbit_interp(orbit, mjd_utc, xr, vr, aa);
+    Eigen::Vector3d recv_j2000 = e.R * recv_itrf; // ITRF -> J2000 на время t (учёт вращения Земли)
+    return -((xr - recv_j2000).norm()) / cnst::C;
+}
+
 // Перезапись задания cfx с пересчитанными TIMEOFS (даунлинк космос->пункт приёма).
-// Копирует cfx построчно; в блоке космической станции строки TIMEOFSxx заменяет на
-// новые: TIMEOFS = -|R_RASTRON(t) - r2000(t)*R_recv_itrf|/c (MJD берётся из строки).
+// TIMEOFS ГЕНЕРИРУЮТСЯ из времени файлов данных (FILExx, кодировка YYYYDDDHHMMSS) — работает
+// и «с нуля» (когда строк TIMEOFS в задании нет). Старые строки TIMEOFS заменяются.
 void write_timeofs_cfx(const std::string& cfx_in, const std::string& cfx_out,
                        const std::vector<SpaceStation>& orbit, const std::vector<EOPData>& eop,
                        const Eigen::Vector3d& recv_itrf, const std::string& space_name) {
     std::ifstream fin(cfx_in); std::ofstream fout(cfx_out);
     if (!fin || !fout) { std::fprintf(stderr, "write_timeofs_cfx: ошибка файла\n"); return; }
-    std::string line; bool in_tlsc = false, is_space = false;
+    std::string line; bool in_tlsc = false, is_space = false; int count = 0;
+    std::set<std::string> written; // индексы TIMEOFS, уже сгенерированные (после FILE)
     while (std::getline(fin, line)) {
         std::string t = line; size_t a = t.find_first_not_of(" \t\r\n"); std::string tl = (a == std::string::npos) ? "" : t.substr(a);
         if (tl.rfind("[$TLSC]", 0) == 0) { in_tlsc = true; is_space = false; }
         else if (tl.rfind("[$end]", 0) == 0 || tl.rfind("[$END]", 0) == 0) { in_tlsc = false; is_space = false; }
-        // Космический блок опознаём по name = <space_name> (идёт ПЕРЕД TIMEOFS) или по ORB_FILE.
         else if (in_tlsc && tl.rfind("name", 0) == 0 && tl.find(space_name) != std::string::npos) is_space = true;
         else if (in_tlsc && tl.rfind("ORB_FILE", 0) == 0) is_space = true;
 
-        if (in_tlsc && is_space && tl.rfind("TIMEOFS", 0) == 0) {
-            // Разбор: TIMEOFSxx = <delay>, <mjd_utc>
-            size_t eq = line.find('='), cm = line.find(',');
-            std::string tag = line.substr(0, eq);
-            double mjd_utc = std::stod(line.substr(cm + 1));
-            int m = static_cast<int>(std::floor(mjd_utc)); double u = mjd_utc - m;
-            EpochEnv e = prep_epoch(m, u, eop);
-            Eigen::Vector3d xr, vr, aa; orbit_interp(orbit, mjd_utc, xr, vr, aa);
-            Eigen::Vector3d recv_j2000 = e.R * recv_itrf;
-            double timeofs = -((xr - recv_j2000).norm()) / cnst::C;
-            char buf[160];
-            std::snprintf(buf, sizeof(buf), "%s= %.15e, %.15e", tag.c_str(), timeofs, mjd_utc);
-            fout << buf << "\n";
-        } else {
+        // FILExx в космоблоке: копируем строку и СРАЗУ пишем сгенерированный TIMEOFSxx.
+        if (in_tlsc && is_space && tl.rfind("FILE", 0) == 0 && tl.size() > 4 && std::isdigit((unsigned char)tl[4])) {
             fout << line << "\n";
+            std::string idx; for (size_t k = 4; k < tl.size() && std::isdigit((unsigned char)tl[k]); ++k) idx += tl[k];
+            std::string val = tl.substr(tl.find('=') + 1);
+            double mjd_utc;
+            if (parse_file_mjd_utc(val, mjd_utc)) {
+                double tof = timeofs_at(mjd_utc, orbit, eop, recv_itrf);
+                char buf[160]; std::snprintf(buf, sizeof(buf), "   TIMEOFS%s = %.15e, %.15e", idx.c_str(), tof, mjd_utc);
+                fout << buf << "\n"; written.insert(idx); ++count;
+            }
+            continue;
         }
+        // Старые TIMEOFS: если уже сгенерировали для этого индекса — пропускаем (заменили).
+        if (in_tlsc && is_space && tl.rfind("TIMEOFS", 0) == 0) {
+            std::string idx; for (size_t k = 7; k < tl.size() && std::isdigit((unsigned char)tl[k]); ++k) idx += tl[k];
+            if (written.count(idx)) continue;
+            fout << line << "\n"; // не смогли сгенерировать -> оставляем как есть
+            continue;
+        }
+        fout << line << "\n";
     }
-    std::printf("  TIMEOFS пересчитаны -> %s (пункт приёма |R|=%.1f км)\n", cfx_out.c_str(), recv_itrf.norm() / 1e3);
+    std::printf("  TIMEOFS сгенерировано: %d -> %s (пункт приёма |R_ITRF|=%.1f км, повёрнут в J2000 на каждый момент)\n",
+                count, cfx_out.c_str(), recv_itrf.norm() / 1e3);
 }
 
 void process_task(const std::string& cfx_path, const std::string& orbit_path,
