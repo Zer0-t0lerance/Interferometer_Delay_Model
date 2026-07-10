@@ -165,6 +165,7 @@ struct DelayPolyBlock {
     int mjd = 0;               // MJD начала блока
     double utc_start = 0.0;    // доля суток UTC начала
     double utc_stop = 0.0;     // доля суток UTC конца
+    std::string source;        // источник этого блока (скана); может меняться по сеансу
     std::vector<double> coef;  // P0..P_order-1 [с, с/с, ...]
 };
 

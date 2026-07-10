@@ -184,6 +184,7 @@ StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
         DelayPolyBlock blk;
         int m; double u; to_mjd_utc(t0, m, u); blk.mjd = m; blk.utc_start = u;
         int m2; double u2; to_mjd_utc(t1, m2, u2); blk.utc_stop = u2;
+        blk.source = src.name; // источник этого скана — блок несёт его сам (мультиисточник)
         blk.coef = polyfit_local(bx, by, degree);
         poly.blocks.push_back(blk);
     }
@@ -207,10 +208,13 @@ void write_station_poly(const std::string& path, const StationPoly& poly) {
         int day = static_cast<int>(ee - (153 * mm + 2) / 5 + 1);
         int mon = static_cast<int>(mm + 3 - 12 * (mm / 10));
         int yr = static_cast<int>(100 * bb + dd - 4800 + mm / 10);
-        auto hms = [](double u, int& h, int& mi, int& s) { double t = u * 86400.0; h = (int)(t / 3600); mi = (int)((t - h * 3600) / 60); s = (int)std::round(t - h * 3600 - mi * 60); };
+        // Округляем к ЦЕЛЫМ секундам с переносом (иначе fp-край даёт «13h12m60s» вместо 13h13m00s).
+        auto hms = [](double u, int& h, int& mi, int& s) { long tot = std::lround(u * 86400.0); h = (int)(tot / 3600); tot -= (long)h * 3600; mi = (int)(tot / 60); s = (int)(tot - (long)mi * 60); };
         int h1, mi1, s1, h2, mi2, s2; hms(b.utc_start, h1, mi1, s1); hms(b.utc_stop, h2, mi2, s2);
         char buf[128];
-        f << "source = " << poly.source << "\n";
+        // Источник блока (у каждого скана свой; fallback — общий источник станции).
+        const std::string& blk_src = b.source.empty() ? poly.source : b.source;
+        f << "source = " << blk_src << "\n";
         std::snprintf(buf, sizeof(buf), "start = %02d/%02d/%04d %02dh%02dm%02ds\n", day, mon, yr, h1, mi1, s1); f << buf;
         std::snprintf(buf, sizeof(buf), "stop = %02d/%02d/%04d %02dh%02dm%02ds\n", day, mon, yr, h2, mi2, s2); f << buf;
         for (size_t k = 0; k < b.coef.size(); ++k) {
@@ -336,15 +340,9 @@ void process_task(const std::string& cfx_path, const std::string& orbit_path,
     bool has_space = false; for (const auto& s : task.stations) if (s.is_space) has_space = true;
     if (has_space && !orbit_path.empty()) read_scf_orbit(orbit_path, orbit);
 
-    // Границы сеанса и источник (первого скана; предполагаем один источник на сеанс).
+    // Начало сеанса (первый скан) — только для выбора узлов EOP на нужную эпоху.
     if (task.scans.empty()) { std::fprintf(stderr, "process_task: нет сканов\n"); return; }
-    int mjd0 = task.scans.front().mjd; double utc0 = task.scans.front().utc;
-    double t_end = 0; for (const auto& sc : task.scans) {
-        double e = (sc.mjd - mjd0) * 86400.0 + sc.utc * 86400.0 + sc.dur_sec; if (e > t_end) t_end = e;
-    }
-    double dur = t_end - utc0 * 86400.0;
-    std::string src_name = task.scans.front().source;
-    CfxSource src; for (const auto& s : task.sources) if (s.name == src_name) src = s;
+    int mjd0 = task.scans.front().mjd;
 
     // EOP: 7 узлов вокруг сеанса из каталога EOPC04.
     std::vector<eop_record> raw_eop; char epath[256]; std::strncpy(epath, eop_path.c_str(), 255); epath[255] = 0;
@@ -368,14 +366,39 @@ void process_task(const std::string& cfx_path, const std::string& orbit_path,
         ReadANT_INFO(an, p_an);  build_def_par_from_ant_info(an, phys);
     }
 
-    // Каждой станции — свой файл полиномов.
+    // Источник по имени из динамического списка [$SOURCE] (не найден -> нулевой).
+    auto find_source = [&](const std::string& nm) -> CfxSource {
+        for (const auto& s : task.sources) if (s.name == nm) return s;
+        CfxSource z; z.name = nm; return z;
+    };
+    // Участвует ли станция в скане (по короткому имени iam; пустой список -> участвуют все).
+    auto participates = [&](const CfxStation& st, const CfxScan& sc) -> bool {
+        if (sc.tel_iam.empty()) return true;
+        for (const auto& t : sc.tel_iam) if (t == st.iam) return true;
+        return false;
+    };
+
+    // Каждой станции — свой файл полиномов. Расчёт ПОСКАННО: каждый скан считается вдоль
+    // направления на СВОЙ источник, блоки скана несут его имя. Станция обрабатывается только
+    // в тех сканах, где она участвует (telescopes). Источников в сеансе может быть много.
     for (size_t i = 0; i < task.stations.size(); ++i) {
         const CfxStation& st = task.stations[i];
-        StationPoly poly = compute_station_poly(st, src, mjd0, utc0, dur, eop, block_sec, degree, sample_sec, orbit, with_tropo, phys[i]);
+        StationPoly poly; poly.telescope = st.name; poly.order = degree + 1;
+        int nscan = 0; std::set<std::string> srcs;
+        for (const auto& sc : task.scans) {
+            if (!participates(st, sc)) continue;
+            CfxSource src = find_source(sc.source);
+            StationPoly sp = compute_station_poly(st, src, sc.mjd, sc.utc, sc.dur_sec,
+                                                  eop, block_sec, degree, sample_sec, orbit, with_tropo, phys[i]);
+            for (const auto& b : sp.blocks) poly.blocks.push_back(b);
+            if (poly.source.empty()) poly.source = src.name;
+            srcs.insert(sc.source); ++nscan;
+        }
         std::string out = out_dir; if (!out.empty() && out.back() != '/' && out.back() != '\\') out += "/";
         out += st.poly_file;
         write_station_poly(out, poly);
-        std::printf("  %-9s -> %s (%zu блоков)\n", st.name.c_str(), out.c_str(), poly.blocks.size());
+        std::printf("  %-9s -> %s (%zu блоков, сканов=%d, источников=%zu)\n",
+                    st.name.c_str(), out.c_str(), poly.blocks.size(), nscan, srcs.size());
     }
 
     // TIMEOFS (даунлинк космос->пункт приёма): пересчитать и записать новый *_p.cfx.

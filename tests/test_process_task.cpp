@@ -23,16 +23,24 @@ static std::string find_eph() {
     const char* c[] = {"external/dephem-master/linux_p1550p2650.440t", "../external/dephem-master/linux_p1550p2650.440t"};
     for (auto p : c) { std::ifstream f(p, std::ios::binary); if (f.good()) return p; } return c[0];
 }
-static std::vector<double> read_P0(const std::string& path) {
-    std::vector<double> p0; std::ifstream f(path); std::string line;
-    while (std::getline(f, line)) if (line.rfind("P0", 0) == 0) { size_t e = line.find('='); if (e != std::string::npos) p0.push_back(std::stod(line.substr(e + 1))); }
-    return p0;
+// Читаем блоки как пары (время старта -> P0). Ключ = строка start (сравнение по времени,
+// а не по индексу): посканова модель может пропускать сканы (станция участвует не везде),
+// поэтому число блоков у нас и в эталоне может отличаться — сверяем по совпадающим стартам.
+static std::vector<std::pair<std::string,double>> read_P0(const std::string& path) {
+    std::vector<std::pair<std::string,double>> v; std::ifstream f(path); std::string line, cur;
+    while (std::getline(f, line)) {
+        if (line.rfind("start", 0) == 0) cur = line;
+        else if (line.rfind("P0", 0) == 0) { size_t e = line.find('='); if (e != std::string::npos) v.push_back({cur, std::stod(line.substr(e + 1))}); }
+    }
+    return v;
 }
 static double max_P0_err(const std::string& ours, const std::string& ref) {
     auto a = read_P0(ours), b = read_P0(ref);
-    if (a.empty() || a.size() != b.size()) return 1e9;
-    double m = 0; for (size_t i = 0; i < a.size(); ++i) m = std::max(m, std::fabs(a[i] - b[i]));
-    return m;
+    if (a.empty()) return 1e9;
+    double m = 0; int matched = 0;
+    for (const auto& pa : a) for (const auto& pb : b)
+        if (pa.first == pb.first) { m = std::max(m, std::fabs(pa.second - pb.second)); ++matched; break; }
+    return matched > 0 ? m : 1e9;
 }
 
 int main() {
