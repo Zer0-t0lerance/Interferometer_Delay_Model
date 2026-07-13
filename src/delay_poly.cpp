@@ -162,12 +162,32 @@ StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
     };
 
     // 1) Сетка задержек по сеансу (+ запас на края для сплайна).
-    std::vector<double> xs, ys;
+    // Для КОСМИЧЕСКОЙ станции добавляем релятивистский ход бортовых часов относительно
+    // наземных (шкала TT): rate(t) = L_G + L_orb(t), где L_orb = -GM_e/(r c^2) - v^2/(2 c^2)
+    // (собственное время борта относительно геоцентр. коорд. времени), L_G — TT<->TCG.
+    // Борт ВЫШЕ в гравитац. яме -> его часы идут быстрее наземных на ~6.7e-10. Положение и
+    // скорость борта МЕНЯЮТСЯ в течение сеанса -> rate считаем В КАЖДОЙ точке сетки.
+    std::vector<double> xs, ys, rate;
     for (double t = -sample_sec; t <= dur_sec + sample_sec + 1e-6; t += sample_sec) {
         int m; double u; to_mjd_utc(t, m, u);
         EpochEnv e = prep_epoch(m, u, eop);
         SitePrep sp = make_siteprep(m, u);
         xs.push_back(t); ys.push_back(geocentric_delay(sp, K, e, with_tropo));
+        if (st.is_space) {
+            double r = sp.x_orbit.norm(), v2 = sp.v_orbit.squaredNorm();
+            rate.push_back(cnst::L_G - cnst::GEARTH / (r * cnst::C * cnst::C) - v2 / (2.0 * cnst::C * cnst::C));
+        }
+    }
+    // Космос: прибавляем накопленный ход часов dtau_clock(t) = ∫_0^t rate dt' (трапеции),
+    // с НУЛЁМ на старте скана (= старт файла данных RadioAstron; коррелятор отсчитывает
+    // задержку борта пофайлово от TIMEOFS). Влияет на ВСЕ коэффициенты полинома (через сетку).
+    if (st.is_space && rate.size() == xs.size() && !xs.empty()) {
+        std::vector<double> cum(xs.size(), 0.0);
+        for (size_t i = 1; i < xs.size(); ++i)
+            cum[i] = cum[i - 1] + 0.5 * (rate[i] + rate[i - 1]) * (xs[i] - xs[i - 1]);
+        double c0 = 0.0; // якорь: dtau_clock = 0 в точке t=0 (старт скана)
+        for (size_t i = 0; i < xs.size(); ++i) if (std::fabs(xs[i]) < 1e-6) { c0 = cum[i]; break; }
+        for (size_t i = 0; i < xs.size(); ++i) ys[i] += cum[i] - c0;
     }
     tk::spline sp; sp.set_points(xs, ys);
 

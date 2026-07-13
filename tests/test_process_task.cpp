@@ -69,19 +69,19 @@ int main() {
         {"tests/out_poly/RA_L.txt",      "example/RA_L.TXT"},
     };
     printf("\n  Сверка P0 блоков с эталонами:\n");
-    double worst_ground = 0; bool ok = true;
+    double worst = 0; bool ok = true;
     for (auto& p : pairs) {
         double e = max_P0_err(p.ours, p.ref);
         bool is_ra = std::string(p.ref).find("RA_L") != std::string::npos;
         printf("    %-24s макс |ΔP0| = %.3e с (%.2f м)%s\n",
                std::filesystem::path(p.ref).filename().string().c_str(), e, e * 3e8,
-               is_ra ? "  [космос: ретардация орбиты — доработка]" : "");
-        if (!is_ra) { worst_ground = std::max(worst_ground, e); if (e > 2e-8) ok = false; } // наземные < ~6 м
+               is_ra ? "  [космос: геометрия + ход бортовых часов]" : "");
+        worst = std::max(worst, e); if (e > 2e-8) ok = false; // все станции (вкл. RASTRON) < ~6 м
     }
-    printf("  НАЗЕМНЫЕ худшее: %.3e с (%.2f м)\n", worst_ground, worst_ground * 3e8);
+    printf("  ХУДШЕЕ по всем станциям: %.3e с (%.2f м)\n", worst, worst * 3e8);
     printf("---------------------------------------------------------------------\n");
-    printf("  РЕЗУЛЬТАТ (наземные станции): %s\n", ok ? "PASS" : "FAIL");
-    printf("  ПРИМ.: RASTRON структурно работает, но требует ретардации орбиты (0.2м в начале\n");
-    printf("         скана -> растёт; космос за 0.7с хода сигнала смещается ~860 м).\n");
+    printf("  РЕЗУЛЬТАТ: %s\n", ok ? "PASS" : "FAIL");
+    printf("  ПРИМ.: RASTRON — со 167 м до ~1.2 м: добавлен релятивистский ход бортовых\n");
+    printf("         часов относительно наземных (L_G + L_orb, борт выше в гравитац. яме).\n");
     return ok ? 0 : 1;
 }
