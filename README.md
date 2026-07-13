@@ -78,3 +78,68 @@ powershell -ExecutionPolicy Bypass -File .\test.ps1
 Собирает и запускает `test_process_task`: считает полиномы всех станций примера и сверяет
 P0 каждого блока с эталонами `example/*.TXT`. Ожидаемо PASS, максимальная невязка ~1–4 м
 по всем станциям (включая космический RASTRON). Код возврата 0 = PASS.
+
+## Встраивание в свой код (библиотека C/C++)
+
+Модель — это C++-библиотека в пространстве имён `ariadna`. Весь публичный API объявлен в
+**`src/functions.h`** (структуры — в `src/structures.h`, константы — в `src/constants.h`).
+Чтобы встроить, ничего в модели менять не нужно: подключаешь заголовок, собираешь свой код
+со всеми модулями `src/*.cpp` (+ SOFA + dephem) и вызываешь функции.
+
+**Точки входа (от высокоуровневой к низкой):**
+
+| функция | что делает |
+|---|---|
+| `init_ephemeris(path)` | загрузить эфемериды JPL — **один раз** за процесс, до остальных вызовов |
+| `process_task(cfx, scf, out_dir, eop, block, degree, sample, tropo, recv)` | по заданию + орбите посчитать полиномы задержки и `u,v,w` **всех** станций и записать файлы (то же, что делает `delay_tool`) |
+| `compute_station_poly(st, src, …, &uvw)` | полиномы **одной** станции **в памяти** → `StationPoly` (задержка) + `StationUvw` (координаты); коэффициенты в `poly.blocks[b].coef[k]`, `uvw.blocks[b].u/v/w[k]` |
+| `process_ariadna(…, results)` / `compute_delay_obs(…)` | сами **значения задержки** (не полиномы) на заданные моменты → `std::vector<DelayResult>` / одно наблюдение |
+
+То есть можно получать **и полиномы, и сами задержки — по потребности**. Рабочий пример —
+[`examples/use_as_library.cpp`](examples/use_as_library.cpp).
+
+**Сборка своего кода.** Внутри репозитория build-скрипт собирает любой main с полным набором
+модулей:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build.ps1 examples\use_as_library.cpp
+```
+Для **внешнего** проекта соберите статическую библиотеку из всех модулей `src/*.cpp` и
+линкуйте её вместе с `libsofa.a`:
+```sh
+g++ -std=c++17 -c -I./external/eigen -I./external -I./external/dephem-master/include \
+    -I./external/sofa/20190722/c/src \
+    src/*.cpp external/dephem-master/include/dephem/EphemerisRelease.cpp
+ar rcs libariadna.a *.o
+# ваша программа:
+g++ -std=c++17 -I<пути выше> your_program.cpp libariadna.a \
+    external/sofa/20190722/c/build/libsofa.a -o your_program
+```
+
+## Использование из Python
+
+Модель нативная (C++), поэтому Python подключается через мост. Три способа:
+
+1. **Через CLI (проще всего, работает уже сейчас).** Вызвать `delay_tool` из Python
+   (`subprocess`), затем прочитать выходные `<станция>.txt` / `<станция>_uvw.txt`. Годится
+   для «посчитать полиномы по заданию» и построения uv-покрытия из `*_uvw.txt`:
+   ```python
+   import subprocess, pathlib
+   subprocess.run(["./delay_tool.exe", "task.cfx", "my.scf", "out_dir"], check=True)
+   # разобрать блоки: telescope/order, затем source/start/stop/P0..P5 (для uvw: "Pk = u, v, w")
+   for f in pathlib.Path("out_dir").glob("*.txt"):
+       text = f.read_text(encoding="utf-8")
+       ...
+   ```
+2. **pybind11 (нативно, рекомендуется для плотной интеграции).** Обёртка (~50 строк) над
+   `process_task` / `compute_station_poly` / `compute_delay_obs` даёт коэффициенты прямо в
+   Python как numpy-массивы, без файлов — можно считать «по требованию» и полиномы, и
+   отдельные задержки. Собирается в модуль `.pyd`/`.so`, импортируется как обычный пакет.
+3. **ctypes / cffi.** Требует тонкого `extern "C"` слоя (имена C++ искажаются) — менее удобно,
+   чем pybind11; оправдано, если pybind11 недоступен.
+
+Где это полезно в Python: пакетная обработка заданий, построение uv-покрытия (u,v из
+`*_uvw.txt`), сравнение с эталоном, встраивание в питон-пайплайн планировщика/коррелятора.
+
+Для варианта 2 нужно написать и собрать модуль pybind11 (и, при желании, добавить в модель
+чистый «в память для всех станций» вызов, возвращающий векторы вместо файлов). Если нужно —
+могу это сделать.
