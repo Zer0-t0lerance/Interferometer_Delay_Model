@@ -177,6 +177,24 @@ struct StationPoly {
     std::vector<DelayPolyBlock> blocks;
 };
 
+// Один блок полиномов координат (u,v,w) — проекция геоцентрического вектора станции на оси
+// источника (u — восток по RA, v — север, w — на источник), в СЕКУНДАХ (как задержка; w≈-tau).
+// Строка файла: Pk = <коэфф.u>, <коэфф.v>, <коэфф.w>. Формат эталона *_uvw.txt.
+struct UvwPolyBlock {
+    int mjd = 0;               // MJD начала блока
+    double utc_start = 0.0;    // доля суток UTC начала
+    double utc_stop = 0.0;     // доля суток UTC конца
+    std::string source;        // источник этого блока (скана)
+    std::vector<double> u, v, w; // коэффициенты P0..P_order-1 по осям u, v, w [с]
+};
+
+// Полиномы координат (u,v,w) одной станции (выходной файл *_uvw.txt).
+struct StationUvw {
+    std::string telescope;
+    int order = 6;
+    std::vector<UvwPolyBlock> blocks;
+};
+
 struct EOPData {
     double mjd;           // Modified Julian Date
     double ut1_utc;       // UT1-UTC (seconds)

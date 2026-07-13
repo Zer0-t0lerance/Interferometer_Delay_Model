@@ -799,6 +799,8 @@ bool read_scf_orbit(const std::string& path, std::vector<SpaceStation>& orbit);
  * @param[in]  orbit      Орбита (для космической станции, is_space); пусто для наземной.
  * @param[in]  with_tropo Подключать тропосферу (по умолчанию true).
  * @param[in]  phys       Station с физикой из каталогов (tide_data/atm_load/def_par) для наземной.
+ * @param[out] uvw        Если не nullptr — заполняется полиномами координат (u,v,w) станции
+ *                        (проекция геоцентрического вектора на оси источника, в секундах).
  * @return Полиномы станции (StationPoly).
  */
 StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
@@ -806,7 +808,7 @@ StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
                                  const std::vector<EOPData>& eop,
                                  double block_sec, int degree, double sample_sec,
                                  const std::vector<SpaceStation>& orbit, bool with_tropo,
-                                 const Station& phys);
+                                 const Station& phys, StationUvw* uvw = nullptr);
 
 /**
  * @brief Запись полиномов задержки станции в текстовый файл .TXT (формат эталона).
@@ -814,6 +816,13 @@ StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
  * @param[in] poly  Полиномы станции.
  */
 void write_station_poly(const std::string& path, const StationPoly& poly);
+
+/**
+ * @brief Запись полиномов координат (u,v,w) станции в текстовый файл (формат эталона *_uvw.txt).
+ * @param[in] path  Путь к выходному файлу.
+ * @param[in] uvw   Полиномы координат станции.
+ */
+void write_station_uvw(const std::string& path, const StationUvw& uvw);
 
 /**
  * @brief ГОТОВЫЙ МОДУЛЬ: по заданию .cfx и орбите .scf считает полиномы задержки всех

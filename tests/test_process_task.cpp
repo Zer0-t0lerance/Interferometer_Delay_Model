@@ -13,8 +13,10 @@
 #include <cstdio>
 #include <cmath>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
+#include <array>
 #include <filesystem>
 
 using namespace ariadna;
@@ -40,6 +42,28 @@ static double max_P0_err(const std::string& ours, const std::string& ref) {
     double m = 0; int matched = 0;
     for (const auto& pa : a) for (const auto& pb : b)
         if (pa.first == pb.first) { m = std::max(m, std::fabs(pa.second - pb.second)); ++matched; break; }
+    return matched > 0 ? m : 1e9;
+}
+// P0 файла *_uvw: (время старта -> [u,v,w]).
+static std::vector<std::pair<std::string,std::array<double,3>>> read_uvw(const std::string& path) {
+    std::vector<std::pair<std::string,std::array<double,3>>> v; std::ifstream f(path); std::string line, cur;
+    while (std::getline(f, line)) {
+        if (line.rfind("start", 0) == 0) cur = line;
+        else if (line.rfind("P0", 0) == 0) {
+            size_t e = line.find('='); if (e == std::string::npos) continue;
+            std::array<double,3> a{}; std::stringstream ss(line.substr(e + 1)); std::string tok; int k = 0;
+            while (std::getline(ss, tok, ',') && k < 3) a[k++] = std::stod(tok);
+            v.push_back({cur, a});
+        }
+    }
+    return v;
+}
+static double max_uvw_err(const std::string& ours, const std::string& ref) {
+    auto a = read_uvw(ours), b = read_uvw(ref);
+    if (a.empty()) return 1e9;
+    double m = 0; int matched = 0;
+    for (const auto& pa : a) for (const auto& pb : b)
+        if (pa.first == pb.first) { for (int k = 0; k < 3; ++k) m = std::max(m, std::fabs(pa.second[k] - pb.second[k])); ++matched; break; }
     return matched > 0 ? m : 1e9;
 }
 
@@ -79,6 +103,24 @@ int main() {
         worst = std::max(worst, e); if (e > 2e-8) ok = false; // все станции (вкл. RASTRON) < ~6 м
     }
     printf("  ХУДШЕЕ по всем станциям: %.3e с (%.2f м)\n", worst, worst * 3e8);
+
+    // Сверка полиномов координат u,v,w с эталонами *_uvw.txt (то же посканое совпадение по старту).
+    struct UPair { const char* ours; const char* ref; };
+    UPair upairs[] = {
+        {"tests/out_poly/BADARY_uvw.txt",    "example/BADARY_uvw.txt"},
+        {"tests/out_poly/KALYAZIN_L_uvw.txt","example/KALYAZIN_L_uvw.txt"},
+        {"tests/out_poly/HARTRAO_L_uvw.txt", "example/HARTRAO_L_uvw.txt"},
+        {"tests/out_poly/RA_L_uvw.txt",      "example/RA_L_uvw.txt"},
+    };
+    printf("\n  Сверка uvw (P0: u,v,w) с эталонами:\n");
+    double worst_uvw = 0;
+    for (auto& p : upairs) {
+        double e = max_uvw_err(p.ours, p.ref);
+        printf("    %-28s макс |Δ(u,v,w)| = %.3e с (%.2f м)\n",
+               std::filesystem::path(p.ref).filename().string().c_str(), e, e * 3e8);
+        worst_uvw = std::max(worst_uvw, e); if (e > 2e-8) ok = false; // все < ~6 м
+    }
+    printf("  ХУДШЕЕ uvw: %.3e с (%.2f м)\n", worst_uvw, worst_uvw * 3e8);
     printf("---------------------------------------------------------------------\n");
     printf("  РЕЗУЛЬТАТ: %s\n", ok ? "PASS" : "FAIL");
     printf("  ПРИМ.: RASTRON — со 167 м до ~1.2 м: добавлен релятивистский ход бортовых\n");

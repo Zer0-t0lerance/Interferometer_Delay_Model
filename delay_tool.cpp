@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 #include <cctype>
+#include <cstdlib>
 #include <filesystem>
 
 using namespace ariadna;
@@ -45,20 +46,20 @@ int main(int argc, char** argv) {
     SetConsoleOutputCP(CP_UTF8);
 #endif
     std::vector<std::string> a(argv + 1, argv + argc);
-    if (a.size() < 2) {
-        std::printf("Использование: %s <cfx> [scf] <out_dir> [block_sec=60] [degree=5] [tropo=1] [recv=PUSHCH22]\n", argv[0]);
-        std::printf("  <cfx>     файл задания коррелятора (.cfx)\n");
-        std::printf("  [scf]     файл орбиты космической станции (.scf). НЕОБЯЗАТЕЛЕН: если не указан\n");
-        std::printf("            (или \"-\"), орбита берётся из cfx (ORB_FILE). Указывайте, чтобы\n");
-        std::printf("            подставить свой файл (напр. при проверке на своём компьютере).\n");
-        std::printf("  <out_dir> каталог для выходных полиномов (.TXT)\n");
-        std::printf("  [tropo]   1 = с тропосферой (по умолчанию), 0 = только геометрия в вакууме\n");
-        std::printf("  [recv]    имя пункта приёма в ITRF2005_2.CAT (по умолч. PUSHCH22; напр. GBT_VLBA)\n");
-        std::printf("            при наличии космоса пишется <cfx>_p.cfx с пересчитанными TIMEOFS\n");
+    if (a.size() < 1) {
+        std::printf("Использование: %s <cfx> [scf] [out_dir] [block_sec=60] [degree=5] [tropo=1] [recv=PUSHCH22]\n", argv[0]);
+        std::printf("  <cfx>      файл задания коррелятора (.cfx)\n");
+        std::printf("  [scf]      файл орбиты (.scf). НЕОБЯЗАТЕЛЕН: если не указан (или \"-\"), орбита\n");
+        std::printf("             берётся из cfx (ORB_FILE). Указывайте, чтобы подставить свой файл.\n");
+        std::printf("  [out_dir]  каталог для выходных полиномов. НЕОБЯЗАТЕЛЕН: если не указан (или \"-\"),\n");
+        std::printf("             берётся из cfx (%%W); имена файлов — из cfx (POLY_FILE).\n");
+        std::printf("  [tropo]    1 = с тропосферой (по умолчанию), 0 = только геометрия в вакууме\n");
+        std::printf("  [recv]     имя пункта приёма в ITRF2005_2.CAT (по умолч. PUSHCH22; напр. GBT_VLBA)\n");
+        std::printf("             при наличии космоса пишется <cfx>_p.cfx с пересчитанными TIMEOFS.\n");
+        std::printf("  Для каждой станции пишется файл полиномов задержки и файл координат *_uvw.\n");
         return 1;
     }
-    // <scf> опционален. Слот присутствует, если 2-й аргумент оканчивается на .scf или равен "-".
-    // "-" или отсутствие -> орбиту берёт process_task из cfx (ORB_FILE); иначе -> из этого файла.
+    // <scf> опционален: слот есть, если аргумент оканчивается на .scf или равен "-".
     auto is_scf_slot = [](const std::string& s) {
         if (s == "-") return true;
         if (s.size() < 4) return false;
@@ -66,16 +67,21 @@ int main(int argc, char** argv) {
         for (char& c : e) c = (char)std::tolower((unsigned char)c);
         return e == ".scf";
     };
+    // Число (block/degree/tropo) — чтобы отличить их от [out_dir] (нечисловой) при разборе.
+    auto is_number = [](const std::string& s) {
+        if (s.empty()) return false;
+        char* end = nullptr; std::strtod(s.c_str(), &end); return end != s.c_str() && *end == '\0'; };
+
     std::string cfx = a[0];
-    std::string scf; size_t p = 1;
-    if (a.size() >= 3 && is_scf_slot(a[1])) { scf = (a[1] == "-") ? "" : a[1]; p = 2; }
-    if (p >= a.size()) { std::fprintf(stderr, "Не указан <out_dir>.\n"); return 1; }
-    std::string outdir = a[p];
-    size_t o = p + 1; // индекс первого необязательного аргумента (block_sec)
-    double block_sec = (a.size() > o + 0) ? std::stod(a[o + 0]) : 60.0;
-    int degree       = (a.size() > o + 1) ? std::stoi(a[o + 1]) : 5;
-    bool with_tropo  = (a.size() > o + 2) ? (std::stoi(a[o + 2]) != 0) : true;
-    std::string recv = (a.size() > o + 3) ? a[o + 3] : "PUSHCH22";
+    size_t i = 1;
+    std::string scf;    // "" = орбита из cfx (ORB_FILE)
+    if (i < a.size() && is_scf_slot(a[i])) { scf = (a[i] == "-") ? "" : a[i]; ++i; }
+    std::string outdir; // "" = каталог из cfx (%W)
+    if (i < a.size() && !is_number(a[i])) { outdir = (a[i] == "-") ? "" : a[i]; ++i; }
+    double block_sec = (i < a.size()) ? std::stod(a[i++]) : 60.0;
+    int degree       = (i < a.size()) ? std::stoi(a[i++]) : 5;
+    bool with_tropo  = (i < a.size()) ? (std::stoi(a[i++]) != 0) : true;
+    std::string recv = (i < a.size()) ? a[i++] : "PUSHCH22";
 
     // Эфемериды и каталог EOP — автоматически из проекта.
     std::string eph = find_project_file("external/dephem-master/linux_p1550p2650.440t");
@@ -88,9 +94,10 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    std::error_code ec; std::filesystem::create_directories(outdir, ec);
+    std::error_code ec; if (!outdir.empty()) std::filesystem::create_directories(outdir, ec);
     std::printf("Задание: %s\nОрбита:  %s\nВыход:   %s\nБлок=%.0f с, степень=%d, тропосфера=%s\n---\n",
-                cfx.c_str(), scf.empty() ? "из cfx (ORB_FILE)" : scf.c_str(), outdir.c_str(), block_sec, degree,
+                cfx.c_str(), scf.empty() ? "из cfx (ORB_FILE)" : scf.c_str(),
+                outdir.empty() ? "из cfx (%W)" : outdir.c_str(), block_sec, degree,
                 with_tropo ? "вкл" : "выкл (только геометрия в вакууме)");
 
     process_task(cfx, scf, outdir, eop, block_sec, degree, 6.0, with_tropo, recv);

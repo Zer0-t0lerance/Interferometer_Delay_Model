@@ -19,6 +19,7 @@
 #include <cstring>
 #include <set>
 #include <cctype>
+#include <filesystem>
 
 namespace ariadna {
 
@@ -84,14 +85,18 @@ static SitePrep siteprep_ground(const CfxStation& st, double epoch_mjd_utc, cons
 // (воспроизведение упрощённого эталона); true — с тропосферой (стандартная атмосфера,
 // т.к. метео в задании нет). Твердотельные приливы и прилив полюса считаются всегда.
 static double geocentric_delay(const SitePrep& station, const Eigen::Vector3d& K,
-                               const EpochEnv& e, bool with_tropo) {
+                               const EpochEnv& e, bool with_tropo,
+                               Eigen::Vector3d* baseline = nullptr) {
     SitePrep geo; geo.is_space = true;
     Observation obs{}; obs.sta1 = 0; obs.sta2 = 1;
     obs.p1 = 1013.25; obs.t1 = 0.0; obs.e1 = 50.0; obs.p2 = 1013.25; obs.t2 = 0.0; obs.e2 = 50.0;
     double tau, dtau;
+    // baseline (J2000-вектор станции относительно геоцентра) нужен для uvw — берём из CompDebug.
+    CompDebug dbg; CompDebug* pd = baseline ? &dbg : nullptr;
     compute_delay_obs(geo, station, K, obs, e.mjd, e.utc, e.jd0, e.ct, e.cent, e.ut1_sec,
                       e.f, e.fd, e.gast, e.Earth, e.Sun, e.Moon, e.sun_geo, e.moon_geo,
-                      e.xp, e.yp, 0, 0, e.R, e.dR, e.d2R, tau, dtau, nullptr, with_tropo);
+                      e.xp, e.yp, 0, 0, e.R, e.dR, e.d2R, tau, dtau, pd, with_tropo);
+    if (baseline) *baseline = dbg.baseline;
     return tau;
 }
 
@@ -117,13 +122,20 @@ StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
                                  const std::vector<EOPData>& eop,
                                  double block_sec, int degree, double sample_sec,
                                  const std::vector<SpaceStation>& orbit, bool with_tropo,
-                                 const Station& phys) {
+                                 const Station& phys, StationUvw* uvw) {
     StationPoly poly; poly.telescope = st.name; poly.source = src.name; poly.order = degree + 1;
 
     // Направление на источник (в J2000; для фикс. источника постоянно).
     std::vector<Source> ss(1); ss[0].ra = src.ra; ss[0].dec = src.dec;
     std::vector<Eigen::Vector3d> kv; source_vec(ss, mjd0 + utc0, kv);
     const Eigen::Vector3d K = kv[0];
+
+    // Оси координат (u,v,w) источника для uvw-полиномов: u — на восток (рост RA), v — на север,
+    // w = K (на источник). Проекция геоцентрического вектора станции на них даёт (u,v,w) в метрах,
+    // делим на c -> в секундах (как задержка; w ≈ -tau).
+    double ca = std::cos(src.ra), sa = std::sin(src.ra), cd = std::cos(src.dec), sd = std::sin(src.dec);
+    const Eigen::Vector3d e_u(-sa, ca, 0.0);
+    const Eigen::Vector3d e_v(-sd * ca, -sd * sa, cd);
 
     // Момент t (сек от начала) -> (mjd, utc).
     auto to_mjd_utc = [&](double t_sec, int& mjd, double& utc) {
@@ -167,12 +179,15 @@ StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
     // (собственное время борта относительно геоцентр. коорд. времени), L_G — TT<->TCG.
     // Борт ВЫШЕ в гравитац. яме -> его часы идут быстрее наземных на ~6.7e-10. Положение и
     // скорость борта МЕНЯЮТСЯ в течение сеанса -> rate считаем В КАЖДОЙ точке сетки.
-    std::vector<double> xs, ys, rate;
+    std::vector<double> xs, ys, rate, us, vs, ws;
     for (double t = -sample_sec; t <= dur_sec + sample_sec + 1e-6; t += sample_sec) {
         int m; double u; to_mjd_utc(t, m, u);
         EpochEnv e = prep_epoch(m, u, eop);
         SitePrep sp = make_siteprep(m, u);
-        xs.push_back(t); ys.push_back(geocentric_delay(sp, K, e, with_tropo));
+        Eigen::Vector3d b;
+        double tau = geocentric_delay(sp, K, e, with_tropo, uvw ? &b : nullptr);
+        xs.push_back(t); ys.push_back(tau);
+        if (uvw) { us.push_back(e_u.dot(b) / cnst::C); vs.push_back(e_v.dot(b) / cnst::C); ws.push_back(K.dot(b) / cnst::C); }
         if (st.is_space) {
             double r = sp.x_orbit.norm(), v2 = sp.v_orbit.squaredNorm();
             rate.push_back(cnst::L_G - cnst::GEARTH / (r * cnst::C * cnst::C) - v2 / (2.0 * cnst::C * cnst::C));
@@ -190,6 +205,8 @@ StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
         for (size_t i = 0; i < xs.size(); ++i) ys[i] += cum[i] - c0;
     }
     tk::spline sp; sp.set_points(xs, ys);
+    tk::spline spu, spv, spw; // сплайны координат u,v,w (только если запрошены)
+    if (uvw) { spu.set_points(xs, us); spv.set_points(xs, vs); spw.set_points(xs, ws); }
 
     // 2) Блоки: на каждый — МНК-полином степени degree по сплайну (аргумент = сек от начала блока).
     int nblk = static_cast<int>(std::ceil(dur_sec / block_sec - 1e-9));
@@ -207,38 +224,67 @@ StationPoly compute_station_poly(const CfxStation& st, const CfxSource& src,
         blk.source = src.name; // источник этого скана — блок несёт его сам (мультиисточник)
         blk.coef = polyfit_local(bx, by, degree);
         poly.blocks.push_back(blk);
+
+        // Тот же блок для координат (u,v,w): подгоняем 3 полинома по своим сплайнам.
+        if (uvw) {
+            std::vector<double> byu, byv, byw;
+            for (int i = 0; i <= fine; ++i) { double tt = t0 + (t1 - t0) * i / fine; byu.push_back(spu(tt)); byv.push_back(spv(tt)); byw.push_back(spw(tt)); }
+            UvwPolyBlock ub; ub.mjd = m; ub.utc_start = u; ub.utc_stop = u2; ub.source = src.name;
+            ub.u = polyfit_local(bx, byu, degree);
+            ub.v = polyfit_local(bx, byv, degree);
+            ub.w = polyfit_local(bx, byw, degree);
+            uvw->blocks.push_back(ub);
+        }
     }
+    if (uvw) { uvw->telescope = st.name; uvw->order = degree + 1; }
     return poly;
 }
 
-// Запись полиномов станции в .TXT (формат эталона example/).
+// Форматирование строк "start ...\nstop ..." блока по mjd + доле суток (общее для полиномов и uvw).
+// MJD -> Y/M/D (обратный Fliegel); секунды округляем к целым с переносом (иначе fp-край даёт «13h12m60s»).
+static void fmt_block_dates(int mjd, double utc_start, double utc_stop, char* start, char* stop, size_t n) {
+    long jdn = mjd + 2400001; long a = jdn + 32044, bb = (4 * a + 3) / 146097, c = a - 146097 * bb / 4;
+    long dd = (4 * c + 3) / 1461, ee = c - 1461 * dd / 4, mm = (5 * ee + 2) / 153;
+    int day = static_cast<int>(ee - (153 * mm + 2) / 5 + 1);
+    int mon = static_cast<int>(mm + 3 - 12 * (mm / 10));
+    int yr = static_cast<int>(100 * bb + dd - 4800 + mm / 10);
+    auto hms = [](double u, int& h, int& mi, int& s) { long tot = std::lround(u * 86400.0); h = (int)(tot / 3600); tot -= (long)h * 3600; mi = (int)(tot / 60); s = (int)(tot - (long)mi * 60); };
+    int h1, mi1, s1, h2, mi2, s2; hms(utc_start, h1, mi1, s1); hms(utc_stop, h2, mi2, s2);
+    std::snprintf(start, n, "start = %02d/%02d/%04d %02dh%02dm%02ds", day, mon, yr, h1, mi1, s1);
+    std::snprintf(stop,  n, "stop = %02d/%02d/%04d %02dh%02dm%02ds", day, mon, yr, h2, mi2, s2);
+}
+
+// Запись полиномов задержки станции в .TXT (формат эталона example/).
 void write_station_poly(const std::string& path, const StationPoly& poly) {
     std::ofstream f(path);
     if (!f) { std::fprintf(stderr, "write_station_poly: не открыть %s\n", path.c_str()); return; }
     f << "telescope = " << poly.telescope << "\n";
     f << "order = " << poly.order << "\n\n";
-    auto wr_time = [&](std::FILE*, int mjd, double utc) {};
-    (void)wr_time;
+    char sbuf[128], pbuf[128];
     for (const auto& b : poly.blocks) {
-        // Дата/время из mjd+utc.
-        int mjd = b.mjd; double utc = b.utc_start;
-        // MJD -> Y/M/D (обратный Fliegel).
-        long jdn = mjd + 2400001; long a = jdn + 32044, bb = (4 * a + 3) / 146097, c = a - 146097 * bb / 4;
-        long dd = (4 * c + 3) / 1461, ee = c - 1461 * dd / 4, mm = (5 * ee + 2) / 153;
-        int day = static_cast<int>(ee - (153 * mm + 2) / 5 + 1);
-        int mon = static_cast<int>(mm + 3 - 12 * (mm / 10));
-        int yr = static_cast<int>(100 * bb + dd - 4800 + mm / 10);
-        // Округляем к ЦЕЛЫМ секундам с переносом (иначе fp-край даёт «13h12m60s» вместо 13h13m00s).
-        auto hms = [](double u, int& h, int& mi, int& s) { long tot = std::lround(u * 86400.0); h = (int)(tot / 3600); tot -= (long)h * 3600; mi = (int)(tot / 60); s = (int)(tot - (long)mi * 60); };
-        int h1, mi1, s1, h2, mi2, s2; hms(b.utc_start, h1, mi1, s1); hms(b.utc_stop, h2, mi2, s2);
-        char buf[128];
-        // Источник блока (у каждого скана свой; fallback — общий источник станции).
-        const std::string& blk_src = b.source.empty() ? poly.source : b.source;
-        f << "source = " << blk_src << "\n";
-        std::snprintf(buf, sizeof(buf), "start = %02d/%02d/%04d %02dh%02dm%02ds\n", day, mon, yr, h1, mi1, s1); f << buf;
-        std::snprintf(buf, sizeof(buf), "stop = %02d/%02d/%04d %02dh%02dm%02ds\n", day, mon, yr, h2, mi2, s2); f << buf;
+        char stt[96], stp[96]; fmt_block_dates(b.mjd, b.utc_start, b.utc_stop, stt, stp, sizeof(stt));
+        const std::string& blk_src = b.source.empty() ? poly.source : b.source; // источник блока (скана)
+        f << "source = " << blk_src << "\n" << stt << "\n" << stp << "\n";
+        (void)sbuf;
         for (size_t k = 0; k < b.coef.size(); ++k) {
-            std::snprintf(buf, sizeof(buf), "P%zu = %.14e\n", k, b.coef[k]); f << buf;
+            std::snprintf(pbuf, sizeof(pbuf), "P%zu = %.14e\n", k, b.coef[k]); f << pbuf;
+        }
+    }
+}
+
+// Запись полиномов координат (u,v,w) станции в *_uvw.txt (формат эталона: Pk = u, v, w).
+void write_station_uvw(const std::string& path, const StationUvw& uvw) {
+    std::ofstream f(path);
+    if (!f) { std::fprintf(stderr, "write_station_uvw: не открыть %s\n", path.c_str()); return; }
+    f << "telescope = " << uvw.telescope << "\n";
+    f << "order = " << uvw.order << "\n\n";
+    char pbuf[192];
+    for (const auto& b : uvw.blocks) {
+        char stt[96], stp[96]; fmt_block_dates(b.mjd, b.utc_start, b.utc_stop, stt, stp, sizeof(stt));
+        f << "source = " << b.source << "\n" << stt << "\n" << stp << "\n";
+        size_t n = b.u.size();
+        for (size_t k = 0; k < n; ++k) {
+            std::snprintf(pbuf, sizeof(pbuf), "P%zu = %.14e, %.14e, %.14e\n", k, b.u[k], b.v[k], b.w[k]); f << pbuf;
         }
     }
 }
@@ -409,27 +455,57 @@ void process_task(const std::string& cfx_path, const std::string& orbit_path,
         return false;
     };
 
-    // Каждой станции — свой файл полиномов. Расчёт ПОСКАННО: каждый скан считается вдоль
-    // направления на СВОЙ источник, блоки скана несут его имя. Станция обрабатывается только
-    // в тех сканах, где она участвует (telescopes). Источников в сеансе может быть много.
+    // Выходной каталог: из параметра out_dir (если задан), иначе из cfx (%W). Имена файлов —
+    // из POLY_FILE; если у станции имя не задано — генерируем <станция>[_<диапазон>].txt.
+    std::string outbase = out_dir.empty() ? task.out_path : out_dir;
+    if (outbase.empty()) outbase = ".";
+    std::error_code ec; std::filesystem::create_directories(outbase, ec);
+    std::printf("  выходной каталог: %s (%s)\n", outbase.c_str(),
+                out_dir.empty() ? "из cfx %W" : "из параметра");
+
+    // Диапазон из имени файла cfx (для генерации имени, если POLY_FILE не задан): первый
+    // односимвольный буквенный токен между разделителями '_'/'.' (напр. ..._L_... -> "L").
+    std::string band;
+    {
+        std::string bn = cfx_path; size_t s2 = bn.find_last_of("/\\"); if (s2 != std::string::npos) bn = bn.substr(s2 + 1);
+        std::string tok;
+        for (size_t k = 0; k <= bn.size(); ++k) {
+            char ch = (k < bn.size()) ? bn[k] : '_';
+            if (ch == '_' || ch == '.') { if (tok.size() == 1 && std::isalpha((unsigned char)tok[0])) { band = tok; break; } tok.clear(); }
+            else tok += ch;
+        }
+    }
+    auto join = [](std::string d, const std::string& name) {
+        if (!d.empty() && d.back() != '/' && d.back() != '\\') d += '/'; return d + name; };
+    auto uvw_name = [](const std::string& fn) -> std::string {
+        size_t dot = fn.find_last_of('.');
+        return (dot == std::string::npos) ? (fn + "_uvw") : (fn.substr(0, dot) + "_uvw" + fn.substr(dot)); };
+
+    // Каждой станции — свой файл полиномов задержки + файл координат (u,v,w). Расчёт ПОСКАННО:
+    // каждый скан считается вдоль направления на СВОЙ источник, блоки скана несут его имя.
+    // Станция обрабатывается только в тех сканах, где она участвует (telescopes).
     for (size_t i = 0; i < task.stations.size(); ++i) {
         const CfxStation& st = task.stations[i];
         StationPoly poly; poly.telescope = st.name; poly.order = degree + 1;
+        StationUvw uvw; uvw.telescope = st.name; uvw.order = degree + 1;
         int nscan = 0; std::set<std::string> srcs;
         for (const auto& sc : task.scans) {
             if (!participates(st, sc)) continue;
             CfxSource src = find_source(sc.source);
             StationPoly sp = compute_station_poly(st, src, sc.mjd, sc.utc, sc.dur_sec,
-                                                  eop, block_sec, degree, sample_sec, orbit, with_tropo, phys[i]);
+                                                  eop, block_sec, degree, sample_sec, orbit, with_tropo, phys[i], &uvw);
             for (const auto& b : sp.blocks) poly.blocks.push_back(b);
             if (poly.source.empty()) poly.source = src.name;
             srcs.insert(sc.source); ++nscan;
         }
-        std::string out = out_dir; if (!out.empty() && out.back() != '/' && out.back() != '\\') out += "/";
-        out += st.poly_file;
-        write_station_poly(out, poly);
-        std::printf("  %-9s -> %s (%zu блоков, сканов=%d, источников=%zu)\n",
-                    st.name.c_str(), out.c_str(), poly.blocks.size(), nscan, srcs.size());
+        std::string fname = st.poly_file.empty()
+            ? (st.name + (band.empty() ? std::string() : "_" + band) + ".txt")
+            : st.poly_file;
+        std::string outp = join(outbase, fname), outu = join(outbase, uvw_name(fname));
+        write_station_poly(outp, poly);
+        write_station_uvw(outu, uvw);
+        std::printf("  %-9s -> %s (+ %s) (%zu блоков, сканов=%d, источников=%zu)\n",
+                    st.name.c_str(), fname.c_str(), uvw_name(fname).c_str(), poly.blocks.size(), nscan, srcs.size());
     }
 
     // TIMEOFS (сброс сигнала космос->пункт приёма): пересчитать и записать новый *_p.cfx.
