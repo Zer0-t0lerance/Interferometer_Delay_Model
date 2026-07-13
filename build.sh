@@ -31,7 +31,7 @@ src/site_functions.cpp src/rotation.cpp \
 src/dmeteo.cpp src/orbit_interp.cpp src/t_eph40.cpp src/tai_time40.cpp src/nsec.cpp \
 src/interp_eop.cpp src/terms_71.cpp src/terms_lib.cpp src/UT1R_2010.cpp \
 src/READ_CAT.cpp src/catalog_bridge.cpp \
-src/delay_poly.cpp src/cfx_parser.cpp src/scf_reader.cpp"
+src/delay_poly.cpp src/cfx_parser.cpp src/scf_reader.cpp src/delay_api.cpp"
 
 echo "Собираю $OUT ..."
 g++ -std=c++17 $INC $SRC "$DEP" "$MAIN" "$SOFA" -o "$OUT"

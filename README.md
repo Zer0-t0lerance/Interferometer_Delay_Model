@@ -92,7 +92,8 @@ P0 каждого блока с эталонами `example/*.TXT`. Ожидае
 |---|---|
 | `init_ephemeris(path)` | загрузить эфемериды JPL — **один раз** за процесс, до остальных вызовов |
 | `process_task(cfx, scf, out_dir, eop, block, degree, sample, tropo, recv)` | по заданию + орбите посчитать полиномы задержки и `u,v,w` **всех** станций и записать файлы (то же, что делает `delay_tool`) |
-| `compute_station_poly(st, src, …, &uvw)` | полиномы **одной** станции **в памяти** → `StationPoly` (задержка) + `StationUvw` (координаты); коэффициенты в `poly.blocks[b].coef[k]`, `uvw.blocks[b].u/v/w[k]` |
+| `compute_task_polys(cfx, scf, eop, block, degree, sample, tropo, out)` | то же **в памяти, без файлов** → `TaskPolys{delay, uvw}` (векторы `StationPoly`/`StationUvw` по станциям). Отдельный модуль-адаптер [`src/delay_api.h`](src/delay_api.h); на нём же построен Python-модуль |
+| `compute_station_poly(st, src, …, &uvw)` | полиномы **одной** станции в памяти → `StationPoly` + `StationUvw`; коэффициенты в `poly.blocks[b].coef[k]`, `uvw.blocks[b].u/v/w[k]` |
 | `process_ariadna(…, results)` / `compute_delay_obs(…)` | сами **значения задержки** (не полиномы) на заданные моменты → `std::vector<DelayResult>` / одно наблюдение |
 
 То есть можно получать **и полиномы, и сами задержки — по потребности**. Рабочий пример —
@@ -117,29 +118,39 @@ g++ -std=c++17 -I<пути выше> your_program.cpp libariadna.a \
 
 ## Использование из Python
 
-Модель нативная (C++), поэтому Python подключается через мост. Три способа:
+Есть **готовый нативный модуль** `ariadna` (pybind11) поверх адаптера
+[`compute_task_polys`](src/delay_api.h) — считает полиномы **в памяти, без файлов**, и
+отдаёт их прямо в Python. Отдельный модуль-адаптер (`src/delay_api.cpp`) не меняет остальной
+код модели.
 
-1. **Через CLI (проще всего, работает уже сейчас).** Вызвать `delay_tool` из Python
-   (`subprocess`), затем прочитать выходные `<станция>.txt` / `<станция>_uvw.txt`. Годится
-   для «посчитать полиномы по заданию» и построения uv-покрытия из `*_uvw.txt`:
-   ```python
-   import subprocess, pathlib
-   subprocess.run(["./delay_tool.exe", "task.cfx", "my.scf", "out_dir"], check=True)
-   # разобрать блоки: telescope/order, затем source/start/stop/P0..P5 (для uvw: "Pk = u, v, w")
-   for f in pathlib.Path("out_dir").glob("*.txt"):
-       text = f.read_text(encoding="utf-8")
-       ...
-   ```
-2. **pybind11 (нативно, рекомендуется для плотной интеграции).** Обёртка (~50 строк) над
-   `process_task` / `compute_station_poly` / `compute_delay_obs` даёт коэффициенты прямо в
-   Python как numpy-массивы, без файлов — можно считать «по требованию» и полиномы, и
-   отдельные задержки. Собирается в модуль `.pyd`/`.so`, импортируется как обычный пакет.
-3. **ctypes / cffi.** Требует тонкого `extern "C"` слоя (имена C++ искажаются) — менее удобно,
-   чем pybind11; оправдано, если pybind11 недоступен.
+**Сборка модуля** (нужны `g++`, `pip install pybind11`, Python с dev-заголовками):
+```powershell
+powershell -ExecutionPolicy Bypass -File .\python\build_pybind.ps1   # Windows
+sh python/build_pybind.sh                                            # Linux / Git Bash
+```
+Соберётся `ariadna.pyd` (на Linux — `ariadna.so`) в корне репозитория.
 
-Где это полезно в Python: пакетная обработка заданий, построение uv-покрытия (u,v из
-`*_uvw.txt`), сравнение с эталоном, встраивание в питон-пайплайн планировщика/коррелятора.
+**Использование:**
+```python
+import ariadna
+ariadna.init_ephemeris("external/dephem-master/linux_p1550p2650.440t")   # один раз
+res = ariadna.compute_task_polys("task.cfx", "orbit.scf",               # orbit="" -> из cfx
+        eop="external/catalogs/EOPC04_14_IAU2000_62-now.cat",
+        block=60, degree=5, sample=6.0, tropo=True)
+for sp, uv in zip(res.delay, res.uvw):       # по станциям
+    for b in sp.blocks:                      # блоки полинома задержки
+        b.mjd, b.utc_start, b.source, b.coef # coef = [P0..P5] (список float -> np.array)
+    for b in uv.blocks:                      # блоки координат u,v,w
+        b.u, b.v, b.w                        # по осям, списки [P0..P5]
+```
+Полный пример — [`python/example.py`](python/example.py) (`python python/example.py`).
+Так можно получать в Python **и полиномы, и сами задержки** (значение полинома в момент `t`:
+`sum(P_k * t**k)`).
 
-Для варианта 2 нужно написать и собрать модуль pybind11 (и, при желании, добавить в модель
-чистый «в память для всех станций» вызов, возвращающий векторы вместо файлов). Если нужно —
-могу это сделать.
+**Альтернативы без сборки модуля:**
+- **CLI + `subprocess`** — вызвать `delay_tool` и прочитать `<станция>.txt` / `*_uvw.txt`
+  (парсинг: `telescope/order`, затем блоки `source/start/stop/P0..P5`). Работает всегда.
+- **ctypes/cffi** — потребует `extern "C"` слоя; менее удобно, чем готовый `ariadna`.
+
+Где полезно: пакетная обработка заданий, построение uv-покрытия (u,v из uvw), сверка
+с эталоном, встраивание в питоновый пайплайн планировщика/коррелятора.
