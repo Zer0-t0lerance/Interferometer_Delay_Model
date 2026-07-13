@@ -1,12 +1,12 @@
 // delay_poly.cpp
 //
-// Слой полиномов задержки для коррелятора: считает геоцентрическую вакуумную задержку
+// Слой полиномов задержки для коррелятора: считает геоцентрическую задержку в вакууме
 // станции на сетке времён сеанса, сшивает кубическим сплайном и раскладывает по блокам
 // в полиномы (P0..P_degree) — формат эталонных .TXT (см. example/).
 //
-// Модель полинома (установлена сверкой с example/BADARY.TXT до 0.3 м): ВАКУУМНАЯ
-// геометрия + релятивизм, задержка станции ОТНОСИТЕЛЬНО ЦЕНТРА ЗЕМЛИ, БЕЗ тропосферы и
-// БЕЗ clock. Геоцентр моделируется как station1 (is_space в r=0), станция — station2.
+// Модель полинома (установлена сверкой с example/BADARY.TXT до 0.3 м): геометрическая
+// задержка В ВАКУУМЕ + релятивизм, задержка станции ОТНОСИТЕЛЬНО ЦЕНТРА ЗЕМЛИ, БЕЗ тропосферы
+// и БЕЗ clock. Геоцентр моделируется как station1 (is_space в r=0), станция — station2.
 // Сшивка: единый кубический сплайн по всей сетке -> C2-непрерывность на стыках блоков.
 
 #include "functions.h"
@@ -53,7 +53,7 @@ static EpochEnv prep_epoch(int mjd, double utc, const std::vector<EOPData>& eop)
 
 // SitePrep наземной станции на эпоху: координаты + дрейф + физика из каталогов
 // (океан/атм нагрузка, термопараметры). phys — Station с заполненными tide_data/
-// atm_load/def_par (из каталогов); солидные приливы и прилив полюса считаются всегда.
+// atm_load/def_par (из каталогов); твердотельные приливы и прилив полюса считаются всегда.
 static SitePrep siteprep_ground(const CfxStation& st, double epoch_mjd_utc, const Station& phys) {
     SitePrep s;
     double drift_epoch = (st.epoch_mjd > 1.0) ? st.epoch_mjd : cnst::MJD_J2000;
@@ -80,9 +80,9 @@ static SitePrep siteprep_ground(const CfxStation& st, double epoch_mjd_utc, cons
     return s;
 }
 
-// Геоцентрическая задержка станции на момент. with_tropo=false — вакуумная геометрия
+// Геоцентрическая задержка станции на момент. with_tropo=false — только геометрия в вакууме
 // (воспроизведение упрощённого эталона); true — с тропосферой (стандартная атмосфера,
-// т.к. метео в задании нет). Солидные земные приливы и прилив полюса считаются всегда.
+// т.к. метео в задании нет). Твердотельные приливы и прилив полюса считаются всегда.
 static double geocentric_delay(const SitePrep& station, const Eigen::Vector3d& K,
                                const EpochEnv& e, bool with_tropo) {
     SitePrep geo; geo.is_space = true;
@@ -295,7 +295,7 @@ static bool parse_file_mjd_utc(const std::string& fileval, double& mjd_utc) {
     return false;
 }
 
-// Даунлинк-задержка космос->пункт приёма на момент mjd_utc (пункт приёма движется с Землёй).
+// Задержка сброса сигнала космос->пункт приёма на момент mjd_utc (пункт приёма движется с Землёй).
 static double timeofs_at(double mjd_utc, const std::vector<SpaceStation>& orbit,
                          const std::vector<EOPData>& eop, const Eigen::Vector3d& recv_itrf) {
     int m = static_cast<int>(std::floor(mjd_utc)); double u = mjd_utc - m;
@@ -305,7 +305,7 @@ static double timeofs_at(double mjd_utc, const std::vector<SpaceStation>& orbit,
     return -((xr - recv_j2000).norm()) / cnst::C;
 }
 
-// Перезапись задания cfx с пересчитанными TIMEOFS (даунлинк космос->пункт приёма).
+// Перезапись задания cfx с пересчитанными TIMEOFS (сброс сигнала космос->пункт приёма).
 // TIMEOFS ГЕНЕРИРУЮТСЯ из времени файлов данных (FILExx, кодировка YYYYDDDHHMMSS) — работает
 // и «с нуля» (когда строк TIMEOFS в задании нет). Старые строки TIMEOFS заменяются.
 void write_timeofs_cfx(const std::string& cfx_in, const std::string& cfx_out,
@@ -355,10 +355,21 @@ void process_task(const std::string& cfx_path, const std::string& orbit_path,
     CfxTask task;
     if (!parse_cfx(cfx_path, task)) { std::fprintf(stderr, "process_task: не разобрать %s\n", cfx_path.c_str()); return; }
 
-    // Орбита космической станции (если есть).
+    // Орбита космической станции. Путь: из параметра orbit_path (если задан — напр. локальный
+    // файл при проверке на своём компьютере), иначе из cfx (ORB_FILE — путь коррелятора).
     std::vector<SpaceStation> orbit;
-    bool has_space = false; for (const auto& s : task.stations) if (s.is_space) has_space = true;
-    if (has_space && !orbit_path.empty()) read_scf_orbit(orbit_path, orbit);
+    bool has_space = false; std::string cfx_orb;
+    for (const auto& s : task.stations) if (s.is_space) { has_space = true; if (!s.orb_file.empty()) cfx_orb = s.orb_file; }
+    std::string orb = orbit_path.empty() ? cfx_orb : orbit_path;
+    if (has_space) {
+        if (orb.empty())
+            std::fprintf(stderr, "process_task: орбита не задана (нет параметра и нет ORB_FILE в cfx)\n");
+        else {
+            std::printf("  орбита: %s (%s)\n", orb.c_str(), orbit_path.empty() ? "из cfx ORB_FILE" : "из параметра");
+            read_scf_orbit(orb, orbit);
+            if (orbit.empty()) std::fprintf(stderr, "process_task: не удалось прочитать орбиту '%s'\n", orb.c_str());
+        }
+    }
 
     // Начало сеанса (первый скан) — только для выбора узлов EOP на нужную эпоху.
     if (task.scans.empty()) { std::fprintf(stderr, "process_task: нет сканов\n"); return; }
@@ -421,7 +432,7 @@ void process_task(const std::string& cfx_path, const std::string& orbit_path,
                     st.name.c_str(), out.c_str(), poly.blocks.size(), nscan, srcs.size());
     }
 
-    // TIMEOFS (даунлинк космос->пункт приёма): пересчитать и записать новый *_p.cfx.
+    // TIMEOFS (сброс сигнала космос->пункт приёма): пересчитать и записать новый *_p.cfx.
     if (has_space && !orbit.empty()) {
         char itrf[256]; std::snprintf(itrf, 256, "%sITRF2005_2.CAT", catdir.c_str());
         Eigen::Vector3d recv;

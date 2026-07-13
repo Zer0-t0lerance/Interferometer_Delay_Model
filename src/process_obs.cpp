@@ -74,7 +74,7 @@ void compute_delay_obs(const SitePrep& s1, const SitePrep& s2,
     if (s1.is_space) { dd.row(0).setZero(); dw.row(0).setZero(); dtau_mt.row(0).setZero(); }
     if (s2.is_space) { dd.row(1).setZero(); dw.row(1).setZero(); dtau_mt.row(1).setZero(); }
 
-    // Вакуумная геометрия (для полиномов коррелятора): тропосфера исключается.
+    // Только геометрия в вакууме (для полиномов коррелятора): тропосфера исключается.
     if (!with_tropo) { dd.setZero(); dw.setZero(); }
 
     // Промежуточные величины для подробной сверки с дампом (если запрошено).
