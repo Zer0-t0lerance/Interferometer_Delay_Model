@@ -7,7 +7,7 @@
 #   (or simply  .\build.ps1  if local scripts are allowed)
 #
 # Needs MinGW in PATH (g++, gcc, ar). Check:  g++ --version
-# Builds libsofa.a (if missing) + the given main (default tests\verify.cpp) and runs it.
+# Builds libsofa.a (if missing) + the given main (default delay_tool.cpp) and runs it.
 # The programs themselves set the console to UTF-8, so Russian output shows correctly.
 
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}

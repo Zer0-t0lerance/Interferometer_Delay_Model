@@ -2,7 +2,7 @@
 # build.sh — сборка итогового конвейера задержки (process_ariadna) с тестом.
 #
 # Запуск (из корня репозитория, в Git Bash / sh):
-#   sh build.sh                      # собрать tests/test_final_build.exe и запустить
+#   sh build.sh                      # собрать delay_tool.exe и запустить (покажет справку)
 #   sh build.sh tests/test_xxx.cpp   # собрать другой main/тест с тем же набором модулей
 #
 # ВНИМАНИЕ: это sh-скрипт. НЕ вставляйте его тело построчно в PowerShell/cmd —

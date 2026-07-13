@@ -4,7 +4,7 @@ rem build.bat - Windows build (cmd/PowerShell). MinGW g++/gcc/ar in PATH.
 rem ASCII-only + CRLF on purpose (cmd mis-parses non-ASCII / LF-only batch files).
 rem
 rem Run from the repository root:
-rem   .\build.bat                     build libsofa.a (if missing) + tests\verify.exe and run
+rem   .\build.bat                     build libsofa.a (if missing) + delay_tool.exe and run
 rem   .\build.bat tests\test_xxx.cpp  build another main with the same module set
 rem
 rem Prefer build.ps1 in PowerShell/VS Code. Programs set the console to UTF-8 themselves,
