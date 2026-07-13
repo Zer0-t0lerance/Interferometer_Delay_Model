@@ -23,3 +23,6 @@ tests/out_poly/
 out_poly/
 delay_tool.exe
 example/*_p.cfx
+# выходные каталоги полиномов пользователя (прогоны delay_tool)
+tst_polynoms/
+out_*/
