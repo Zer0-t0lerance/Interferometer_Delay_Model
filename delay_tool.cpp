@@ -54,7 +54,8 @@ int main(int argc, char** argv) {
         std::printf("  [out_dir]  каталог для выходных полиномов. НЕОБЯЗАТЕЛЕН: если не указан (или \"-\"),\n");
         std::printf("             берётся из cfx (%%W); имена файлов — из cfx (POLY_FILE).\n");
         std::printf("  [tropo]    1 = с тропосферой (по умолчанию), 0 = только геометрия в вакууме\n");
-        std::printf("  [recv]     имя пункта приёма в ITRF2005_2.CAT (по умолч. PUSHCH22; напр. GBT_VLBA)\n");
+        std::printf("  [recv]     имя пункта приёма в ITRF2005_2.CAT. По умолчанию auto: определяется\n");
+        std::printf("             по префиксу файлов космоса (PUSH->PUSHCH22, GBT->GBT_VLBA). Можно задать явно.\n");
         std::printf("             при наличии космоса пишется <cfx>_p.cfx с пересчитанными TIMEOFS.\n");
         std::printf("  Для каждой станции пишется файл полиномов задержки и файл координат *_uvw.\n");
         return 1;
@@ -78,10 +79,20 @@ int main(int argc, char** argv) {
     if (i < a.size() && is_scf_slot(a[i])) { scf = (a[i] == "-") ? "" : a[i]; ++i; }
     std::string outdir; // "" = каталог из cfx (%W)
     if (i < a.size() && !is_number(a[i])) { outdir = (a[i] == "-") ? "" : a[i]; ++i; }
-    double block_sec = (i < a.size()) ? std::stod(a[i++]) : 60.0;
-    int degree       = (i < a.size()) ? std::stoi(a[i++]) : 5;
-    bool with_tropo  = (i < a.size()) ? (std::stoi(a[i++]) != 0) : true;
-    std::string recv = (i < a.size()) ? a[i++] : "PUSHCH22";
+    // Безопасный разбор числовых аргументов: при нечисле — понятная ошибка вместо краха stod.
+    auto need_num = [&](size_t idx, const char* what) -> std::string {
+        if (!is_number(a[idx])) {
+            std::fprintf(stderr, "Ошибка: аргумент #%zu '%s' должен быть числом (%s).\n", idx + 2, a[idx].c_str(), what);
+            std::fprintf(stderr, "Порядок аргументов: <cfx> [scf.scf] [out_dir] [block] [degree] [tropo] [recv].\n");
+            std::fprintf(stderr, "Похоже, указан лишний путь. Пример:\n  delay_tool task.cfx orbit.scf out_dir\n");
+            std::exit(1);
+        }
+        return a[idx];
+    };
+    double block_sec = (i < a.size()) ? std::stod(need_num(i++, "block_sec")) : 60.0;
+    int degree       = (i < a.size()) ? std::stoi(need_num(i++, "degree")) : 5;
+    bool with_tropo  = (i < a.size()) ? (std::stoi(need_num(i++, "tropo")) != 0) : true;
+    std::string recv = (i < a.size()) ? a[i++] : "auto"; // auto = определить по префиксу файлов (PUSH/GBT)
 
     // Эфемериды и каталог EOP — автоматически из проекта.
     std::string eph = find_project_file("external/dephem-master/linux_p1550p2650.440t");

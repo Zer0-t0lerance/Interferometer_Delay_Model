@@ -394,6 +394,28 @@ void write_timeofs_cfx(const std::string& cfx_in, const std::string& cfx_out,
                 count, cfx_out.c_str(), recv_itrf.norm() / 1e3);
 }
 
+// Определение пункта приёма по префиксу файлов данных КОСМИЧЕСКОЙ станции в cfx:
+// PUSH* -> PUSHCH22 (Пущино), GBT*/GBTS* -> GBT_VLBA (Грин-Бэнк). "" если не распознано.
+static std::string detect_recv_from_cfx(const std::string& cfx, const std::string& space_name) {
+    std::ifstream f(cfx); if (!f) return "";
+    std::string line, cur;
+    auto trim = [](std::string s) { size_t a = s.find_first_not_of(" \t\r\n"); if (a == std::string::npos) return std::string();
+        size_t b = s.find_last_not_of(" \t\r\n"); return s.substr(a, b - a + 1); };
+    while (std::getline(f, line)) {
+        std::string tl = trim(line);
+        if (tl.rfind("name", 0) == 0 && tl.find('=') != std::string::npos) cur = trim(tl.substr(tl.find('=') + 1));
+        if (cur == space_name && tl.rfind("FILE", 0) == 0 && tl.size() > 4 && std::isdigit((unsigned char)tl[4])) {
+            std::string val = tl.substr(tl.find('=') + 1);
+            size_t sl = val.find_last_of(":\\/"); std::string nm = trim((sl == std::string::npos) ? val : val.substr(sl + 1));
+            std::string up; for (char c : nm) up += (char)std::toupper((unsigned char)c);
+            if (up.rfind("PUSH", 0) == 0) return "PUSHCH22";
+            if (up.rfind("GBT", 0) == 0)  return "GBT_VLBA";
+            return "";
+        }
+    }
+    return "";
+}
+
 void process_task(const std::string& cfx_path, const std::string& orbit_path,
                   const std::string& out_dir, const std::string& eop_path,
                   double block_sec, int degree, double sample_sec, bool with_tropo,
@@ -513,13 +535,22 @@ void process_task(const std::string& cfx_path, const std::string& orbit_path,
         char itrf[256]; std::snprintf(itrf, 256, "%sITRF2005_2.CAT", catdir.c_str());
         Eigen::Vector3d recv;
         std::string space_name; for (const auto& s : task.stations) if (s.is_space) space_name = s.name;
-        if (reception_itrf(itrf, recv_name, recv)) {
-            std::string cfx_out = cfx_path;
-            size_t dot = cfx_out.rfind(".cfx");
-            cfx_out = (dot == std::string::npos) ? (cfx_out + "_p.cfx") : (cfx_out.substr(0, dot) + "_p.cfx");
+        // recv_name = "auto"/"" -> определить пункт приёма по префиксу файлов космоса (PUSH/GBT).
+        std::string recv_use = recv_name;
+        if (recv_use.empty() || recv_use == "auto") {
+            recv_use = detect_recv_from_cfx(cfx_path, space_name);
+            if (recv_use.empty()) { recv_use = "PUSHCH22"; std::printf("  пункт приёма: не распознан -> по умолчанию PUSHCH22\n"); }
+            else std::printf("  пункт приёма: %s (определён по префиксу файлов космоса)\n", recv_use.c_str());
+        }
+        if (reception_itrf(itrf, recv_use, recv)) {
+            // Новый cfx с TIMEOFS кладём В ВЫХОДНОЙ каталог (рядом с полиномами), а не в папку входа.
+            std::string base = cfx_path; size_t s2 = base.find_last_of("/\\"); if (s2 != std::string::npos) base = base.substr(s2 + 1);
+            size_t dot = base.rfind(".cfx");
+            base = (dot == std::string::npos) ? (base + "_p.cfx") : (base.substr(0, dot) + "_p.cfx");
+            std::string cfx_out = join(outbase, base);
             write_timeofs_cfx(cfx_path, cfx_out, orbit, eop, recv, space_name);
         } else {
-            std::fprintf(stderr, "process_task: пункт приёма '%s' не найден в %s (TIMEOFS пропущены)\n", recv_name.c_str(), itrf);
+            std::fprintf(stderr, "process_task: пункт приёма '%s' не найден в %s (TIMEOFS пропущены)\n", recv_use.c_str(), itrf);
         }
     }
 }
