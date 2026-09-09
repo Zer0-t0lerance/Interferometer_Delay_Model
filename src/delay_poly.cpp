@@ -354,9 +354,26 @@ static double timeofs_at(double mjd_utc, const std::vector<SpaceStation>& orbit,
 // Перезапись задания cfx с пересчитанными TIMEOFS (сброс сигнала космос->пункт приёма).
 // TIMEOFS ГЕНЕРИРУЮТСЯ из времени файлов данных (FILExx, кодировка YYYYDDDHHMMSS) — работает
 // и «с нуля» (когда строк TIMEOFS в задании нет). Старые строки TIMEOFS заменяются.
+// Имя файла полинома С ДИАПАЗОНОМ: <станция>_<ДИАПАЗОН>.txt (P, L, C, K, Ka, Q, W и выше).
+// Идемпотентно: если диапазон уже дописан (RA_L.txt при band=L) — не дублируем.
+// Зачем: в cfx РАЗНЫХ диапазонов одного сеанса POLY_FILE часто совпадают (напр. EFLSBERG.txt).
+// Без разведения по диапазону файлы затирают друг друга, и у станции, набор сканов которой
+// в диапазонах разный, пропадает покрытие по времени -> коррелятор теряет отклик.
+static std::string with_band(const std::string& fname, const std::string& band) {
+    if (band.empty()) return fname;
+    size_t dot = fname.rfind('.');
+    std::string base = (dot == std::string::npos) ? fname : fname.substr(0, dot);
+    std::string ext  = (dot == std::string::npos) ? std::string(".txt") : fname.substr(dot);
+    std::string suf = "_" + band;
+    if (base.size() >= suf.size() && base.compare(base.size() - suf.size(), suf.size(), suf) == 0)
+        return base + ext;
+    return base + suf + ext;
+}
+
 void write_timeofs_cfx(const std::string& cfx_in, const std::string& cfx_out,
                        const std::vector<SpaceStation>& orbit, const std::vector<EOPData>& eop,
-                       const Eigen::Vector3d& recv_itrf, const std::string& space_name) {
+                       const Eigen::Vector3d& recv_itrf, const std::string& space_name,
+                       const std::string& band) {
     std::ifstream fin(cfx_in); std::ofstream fout(cfx_out);
     if (!fin || !fout) { std::fprintf(stderr, "write_timeofs_cfx: ошибка файла\n"); return; }
     std::string line; bool in_tlsc = false, is_space = false; int count = 0;
@@ -387,6 +404,22 @@ void write_timeofs_cfx(const std::string& cfx_in, const std::string& cfx_out,
             if (written.count(idx)) continue;
             fout << line << "\n"; // не смогли сгенерировать -> оставляем как есть
             continue;
+        }
+        // POLY_FILE: имя приводим к <станция>_<ДИАПАЗОН>.txt — коррелятор читает имя отсюда.
+        if (in_tlsc && tl.rfind("POLY_FILE", 0) == 0 && !band.empty()) {
+            size_t eq = line.find('=');
+            if (eq != std::string::npos) {
+                std::string head = line.substr(0, eq + 1), val = line.substr(eq + 1);
+                size_t b0 = val.find_first_not_of(" \t");
+                std::string lead = (b0 == std::string::npos) ? "" : val.substr(0, b0);
+                std::string v = (b0 == std::string::npos) ? "" : val.substr(b0);
+                while (!v.empty() && (v.back()=='\r' || v.back()=='\n' || v.back()==' ' || v.back()=='\t')) v.pop_back();
+                size_t sl = v.find_last_of(":/\\");
+                std::string pre = (sl == std::string::npos) ? "" : v.substr(0, sl + 1);
+                std::string nm  = (sl == std::string::npos) ? v : v.substr(sl + 1);
+                fout << head << lead << pre << with_band(nm, band) << "\n";
+                continue;
+            }
         }
         fout << line << "\n";
     }
@@ -493,7 +526,12 @@ void process_task(const std::string& cfx_path, const std::string& orbit_path,
         std::string tok;
         for (size_t k = 0; k <= bn.size(); ++k) {
             char ch = (k < bn.size()) ? bn[k] : '_';
-            if (ch == '_' || ch == '.') { if (tok.size() == 1 && std::isalpha((unsigned char)tok[0])) { band = tok; break; } tok.clear(); }
+            if (ch == '_' || ch == '.') {
+                bool ok = !tok.empty() && tok.size() <= 2;
+                for (char c2 : tok) if (!std::isalpha((unsigned char)c2)) ok = false;
+                if (ok) { band = tok; break; }
+                tok.clear();
+            }
             else tok += ch;
         }
     }
@@ -520,9 +558,9 @@ void process_task(const std::string& cfx_path, const std::string& orbit_path,
             if (poly.source.empty()) poly.source = src.name;
             srcs.insert(sc.source); ++nscan;
         }
-        std::string fname = st.poly_file.empty()
-            ? (st.name + (band.empty() ? std::string() : "_" + band) + ".txt")
-            : st.poly_file;
+        // Имя ВСЕГДА с диапазоном: <станция>_<ДИАПАЗОН>.txt (иначе диапазоны одного сеанса
+        // пишутся под одним именем и затирают друг друга).
+        std::string fname = with_band(st.poly_file.empty() ? (st.name + ".txt") : st.poly_file, band);
         std::string outp = join(outbase, fname), outu = join(outbase, uvw_name(fname));
         write_station_poly(outp, poly);
         write_station_uvw(outu, uvw);
@@ -548,7 +586,7 @@ void process_task(const std::string& cfx_path, const std::string& orbit_path,
             size_t dot = base.rfind(".cfx");
             base = (dot == std::string::npos) ? (base + "_p.cfx") : (base.substr(0, dot) + "_p.cfx");
             std::string cfx_out = join(outbase, base);
-            write_timeofs_cfx(cfx_path, cfx_out, orbit, eop, recv, space_name);
+            write_timeofs_cfx(cfx_path, cfx_out, orbit, eop, recv, space_name, band);
         } else {
             std::fprintf(stderr, "process_task: пункт приёма '%s' не найден в %s (TIMEOFS пропущены)\n", recv_use.c_str(), itrf);
         }
