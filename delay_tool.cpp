@@ -46,6 +46,22 @@ int main(int argc, char** argv) {
     SetConsoleOutputCP(CP_UTF8);
 #endif
     std::vector<std::string> a(argv + 1, argv + argc);
+    // Именованный флаг --timemark=... вынимаем из списка до разбора позиционных аргументов,
+    // чтобы он мог стоять в любом месте командной строки.
+    bool tm_from_cfx = true;
+    for (size_t k = 0; k < a.size(); ) {
+        if (a[k].rfind("--timemark=", 0) == 0) {
+            std::string v = a[k].substr(11);
+            if (v == "cfx") tm_from_cfx = true;
+            else if (v == "hook" || v == "stub") tm_from_cfx = false;
+            else {
+                std::fprintf(stderr, "Ошибка: --timemark=%s. Допустимо: cfx (по умолчанию) или hook.\n", v.c_str());
+                return 1;
+            }
+            a.erase(a.begin() + k);
+        } else ++k;
+    }
+    set_time_mark_from_cfx(tm_from_cfx);
     if (a.size() < 1) {
         std::printf("Использование: %s <cfx> [scf] [out_dir] [block_sec=60] [degree=5] [tropo=1] [recv=PUSHCH22]\n", argv[0]);
         std::printf("  <cfx>      файл задания коррелятора (.cfx)\n");
@@ -57,6 +73,10 @@ int main(int argc, char** argv) {
         std::printf("  [recv]     имя пункта приёма в ITRF2005_2.CAT. По умолчанию auto: определяется\n");
         std::printf("             по префиксу файлов космоса (PUSH->PUSHCH22, GBT->GBT_VLBA). Можно задать явно.\n");
         std::printf("             при наличии космоса пишется <cfx>_p.cfx с пересчитанными TIMEOFS.\n");
+        std::printf("  --timemark=cfx|hook   источник метки времени для TIMEOFS. cfx (по умолчанию) —\n");
+        std::printf("             метка читается из задания (строка FILExx космической станции);\n");
+        std::printf("             hook — метку выдаёт обработчик постороннего кода, а пока он не\n");
+        std::printf("             установлен (set_time_mark_hook) работает заглушка и TIMEOFS не пишутся.\n");
         std::printf("  Для каждой станции пишется файл полиномов задержки и файл координат *_uvw.\n");
         return 1;
     }

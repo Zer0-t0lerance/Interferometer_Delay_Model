@@ -850,4 +850,56 @@ void process_task(const std::string& cfx_path, const std::string& orbit_path,
                   double block_sec = 60.0, int degree = 5, double sample_sec = 6.0, bool with_tropo = true,
                   const std::string& recv_name = "PUSHCH22");
 
+// ============================ Метка времени для TIMEOFS ============================
+// Точка расширения. TIMEOFS (задержка сброса сигнала космос -> пункт приёма) считается
+// на момент времени, который здесь называется МЕТКОЙ ВРЕМЕНИ. Источник метки переключается:
+//
+//   включено (по умолчанию) — метка читается из текущего задания .cfx: значение строки
+//                             FILExx космической станции, кодировка YYYYDDDHHMMSS;
+//   выключено              — вызывается обработчик, установленный set_time_mark_hook().
+//                             Пока обработчик не установлен, работает встроенная ЗАГЛУШКА:
+//                             она метку не выдаёт, TIMEOFS для этого файла не пишется.
+//
+// Посторонний код подключается через set_time_mark_hook() и set_time_mark_from_cfx(false).
+
+/**
+ * @brief Тип обработчика метки времени для TIMEOFS (реализуется посторонним кодом).
+ * @param[in]  req      Описание запроса: задание, космическая станция, файл данных.
+ * @param[out] mjd_utc  Метка времени UTC в MJD (сутки), заполняется обработчиком.
+ * @return true — метка получена и записана в mjd_utc; false — метки нет, TIMEOFS
+ *         для этого файла данных не будет записан.
+ */
+using TimeMarkHook = bool (*)(const TimeMarkRequest& req, double& mjd_utc);
+
+/**
+ * @brief Установить обработчик метки времени (посторонний код).
+ * @param[in] hook Указатель на обработчик. nullptr возвращает встроенную заглушку.
+ * @note Сам по себе вызов ничего не меняет: обработчик используется, только когда
+ *       источник метки переключён на него — set_time_mark_from_cfx(false).
+ */
+void set_time_mark_hook(TimeMarkHook hook);
+
+/**
+ * @brief Переключить источник метки времени для TIMEOFS.
+ * @param[in] enabled true (по умолчанию) — метка берётся из текущего .cfx (строка FILExx);
+ *                    false — метку выдаёт обработчик, а без него — заглушка.
+ */
+void set_time_mark_from_cfx(bool enabled);
+
+/**
+ * @brief Текущее состояние переключателя источника метки времени.
+ * @return true — источник .cfx; false — обработчик/заглушка.
+ */
+bool time_mark_from_cfx();
+
+/**
+ * @brief Получить метку времени для TIMEOFS по текущему состоянию переключателя.
+ * @param[in]  req     Описание запроса: задание, космическая станция, файл данных.
+ * @param[out] mjd_utc Метка времени UTC в MJD (сутки).
+ * @return true — метка получена; false — метки нет.
+ * @note Вызывается из write_timeofs_cfx на каждую строку FILExx космической станции.
+ *       Отдельно используется в тестах для проверки переключателя.
+ */
+bool get_time_mark(const TimeMarkRequest& req, double& mjd_utc);
+
 } // namespace ariadna

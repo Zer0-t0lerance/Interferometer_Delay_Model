@@ -341,6 +341,36 @@ static bool parse_file_mjd_utc(const std::string& fileval, double& mjd_utc) {
     return false;
 }
 
+// ---------------------------- Метка времени для TIMEOFS ----------------------------
+// Точка расширения (описание и контракт — в functions.h). Переключатель по умолчанию
+// стоит на .cfx, поэтому поведение модели без вмешательства постороннего кода прежнее.
+
+// Встроенная заглушка: метку не выдаёт. Предупреждение печатается один раз, чтобы
+// не засорять вывод на каждой строке FILExx.
+static bool time_mark_stub(const TimeMarkRequest& req, double& /*mjd_utc*/) {
+    static bool warned = false;
+    if (!warned) {
+        std::fprintf(stderr,
+                     "  метка времени: источник .cfx выключен, обработчик не установлен — "
+                     "работает заглушка, TIMEOFS не генерируется (станция %s, %s)\n",
+                     req.station.c_str(), req.cfx_path.c_str());
+        warned = true;
+    }
+    return false;
+}
+
+static TimeMarkHook g_time_mark_hook = &time_mark_stub;
+static bool g_time_mark_from_cfx = true;
+
+void set_time_mark_hook(TimeMarkHook hook) { g_time_mark_hook = hook ? hook : &time_mark_stub; }
+void set_time_mark_from_cfx(bool enabled)  { g_time_mark_from_cfx = enabled; }
+bool time_mark_from_cfx()                  { return g_time_mark_from_cfx; }
+
+bool get_time_mark(const TimeMarkRequest& req, double& mjd_utc) {
+    if (g_time_mark_from_cfx) return parse_file_mjd_utc(req.file_value, mjd_utc);
+    return g_time_mark_hook ? g_time_mark_hook(req, mjd_utc) : false;
+}
+
 // Задержка сброса сигнала космос->пункт приёма на момент mjd_utc (пункт приёма движется с Землёй).
 static double timeofs_at(double mjd_utc, const std::vector<SpaceStation>& orbit,
                          const std::vector<EOPData>& eop, const Eigen::Vector3d& recv_itrf) {
@@ -391,7 +421,10 @@ void write_timeofs_cfx(const std::string& cfx_in, const std::string& cfx_out,
             std::string idx; for (size_t k = 4; k < tl.size() && std::isdigit((unsigned char)tl[k]); ++k) idx += tl[k];
             std::string val = tl.substr(tl.find('=') + 1);
             double mjd_utc;
-            if (parse_file_mjd_utc(val, mjd_utc)) {
+            // Метка времени берётся через точку расширения: .cfx или посторонний обработчик.
+            TimeMarkRequest req; req.cfx_path = cfx_in; req.station = space_name;
+            req.file_index = idx; req.file_value = val;
+            if (get_time_mark(req, mjd_utc)) {
                 double tof = timeofs_at(mjd_utc, orbit, eop, recv_itrf);
                 char buf[160]; std::snprintf(buf, sizeof(buf), "   TIMEOFS%s = %.15e, %.15e", idx.c_str(), tof, mjd_utc);
                 fout << buf << "\n"; written.insert(idx); ++count;
