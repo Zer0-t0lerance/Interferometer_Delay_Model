@@ -87,7 +87,7 @@ int main() {
     // Сверка P0 с эталонами (имена вывода = POLY_FILE).
     struct Pair { const char* ours; const char* ref; };
     Pair pairs[] = {
-        {"tests/out_poly/BADARY.txt",    "example/BADARY.TXT"},
+        {"tests/out_poly/BADARY_L.txt",  "example/BADARY_L.TXT"},
         {"tests/out_poly/KALYAZIN_L.txt","example/KALYAZIN_L.TXT"},
         {"tests/out_poly/HARTRAO_L.txt", "example/HARTRAO_L.TXT"},
         {"tests/out_poly/RA_L.txt",      "example/RA_L.TXT"},
@@ -107,7 +107,7 @@ int main() {
     // Сверка полиномов координат u,v,w с эталонами *_uvw.txt (то же посканое совпадение по старту).
     struct UPair { const char* ours; const char* ref; };
     UPair upairs[] = {
-        {"tests/out_poly/BADARY_uvw.txt",    "example/BADARY_uvw.txt"},
+        {"tests/out_poly/BADARY_L_uvw.txt",  "example/BADARY_L_uvw.txt"},
         {"tests/out_poly/KALYAZIN_L_uvw.txt","example/KALYAZIN_L_uvw.txt"},
         {"tests/out_poly/HARTRAO_L_uvw.txt", "example/HARTRAO_L_uvw.txt"},
         {"tests/out_poly/RA_L_uvw.txt",      "example/RA_L_uvw.txt"},
