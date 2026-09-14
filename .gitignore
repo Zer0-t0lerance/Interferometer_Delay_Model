@@ -28,3 +28,20 @@ example/*_p.cfx
 # выходные каталоги полиномов пользователя (прогоны delay_tool)
 tst_polynoms/
 out_*/
+
+# --- Материалы проверки по данным коррелятора ---
+# Сами данные коррелятора (сотни МБ: *_ffr.txt, .cfx, .scf, полиномы прогонов)
+# в репозиторий не кладём. Внутри храним только код анализа и итоговый отчёт.
+/Correlator_Tests/*
+!/Correlator_Tests/new/
+/Correlator_Tests/new/*
+!/Correlator_Tests/new/analysis2/
+# Внутри analysis2 не храним пересчитываемое и рабочие копии
+/Correlator_Tests/new/analysis2/poly/
+/Correlator_Tests/new/analysis2/__pycache__/
+/Correlator_Tests/new/analysis2/OTCHET_backup_*.docx
+/Correlator_Tests/new/analysis2/OTCHET.html
+/Correlator_Tests.zip
+/validation/
+# Устаревший экспорт отчёта от 10.09 (актуальный — OTCHET.docx)
+/Correlator_Tests/new/analysis2/Отчёт по результатам проверки новой модели задержки.docx
