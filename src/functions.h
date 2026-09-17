@@ -844,11 +844,18 @@ void write_station_uvw(const std::string& path, const StationUvw& uvw);
  * @param[in] with_tropo Подключать тропосферу (по умолчанию true; false = только геометрия в вакууме).
  * @param[in] recv_name  Имя пункта приёма в ITRF2005_2.CAT для TIMEOFS космоса (по умолч. PUSHCH22).
  *                       Если есть космическая станция — пишется <cfx>_p.cfx с пересчитанными TIMEOFS.
+ * @param[in] poly_prefix Подпапка, которая дописывается в строки POLY_FILE нового задания:
+ *                       `%W:<poly_prefix>\<станция>_<ДИАПАЗОН>.txt`. Нужна, когда полиномы
+ *                       лягут НЕ в корень %W. По умолчанию "" — строка остаётся `%W:<имя>`.
+ *                       Модель подпапку не угадывает: out_dir — путь на вашей машине, %W —
+ *                       путь на стороне коррелятора, и как они соотносятся, знаете только вы.
+ *                       Разделители в начале и конце можно не ставить. Идемпотентно: если
+ *                       путь в задании уже ведёт в эту подпапку, второй раз не дописывается.
  */
 void process_task(const std::string& cfx_path, const std::string& orbit_path,
                   const std::string& out_dir, const std::string& eop_path,
                   double block_sec = 60.0, int degree = 5, double sample_sec = 6.0, bool with_tropo = true,
-                  const std::string& recv_name = "PUSHCH22");
+                  const std::string& recv_name = "PUSHCH22", const std::string& poly_prefix = "");
 
 // ============================ Метка времени для TIMEOFS ============================
 // Точка расширения. TIMEOFS (задержка сброса сигнала космос -> пункт приёма) считается

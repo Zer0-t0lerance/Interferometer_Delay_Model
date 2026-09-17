@@ -49,7 +49,9 @@ int main(int argc, char** argv) {
     // Именованный флаг --timemark=... вынимаем из списка до разбора позиционных аргументов,
     // чтобы он мог стоять в любом месте командной строки.
     bool tm_from_cfx = true;
+    std::string poly_prefix;
     for (size_t k = 0; k < a.size(); ) {
+        if (a[k].rfind("--poly-prefix=", 0) == 0) { poly_prefix = a[k].substr(14); a.erase(a.begin() + k); continue; }
         if (a[k].rfind("--timemark=", 0) == 0) {
             std::string v = a[k].substr(11);
             if (v == "cfx") tm_from_cfx = true;
@@ -77,6 +79,9 @@ int main(int argc, char** argv) {
         std::printf("             метка читается из задания (строка FILExx космической станции);\n");
         std::printf("             hook — метку выдаёт обработчик постороннего кода, а пока он не\n");
         std::printf("             установлен (set_time_mark_hook) работает заглушка и TIMEOFS не пишутся.\n");
+        std::printf("  --poly-prefix=<подпапка>  дописать подпапку в строки POLY_FILE нового задания:\n");
+        std::printf("             %%W:<подпапка>\\<станция>_<ДИАПАЗОН>.txt. Нужно, когда полиномы лягут\n");
+        std::printf("             не в корень %%W. По умолчанию не дописывается.\n");
         std::printf("  Для каждой станции пишется файл полиномов задержки и файл координат *_uvw.\n");
         return 1;
     }
@@ -131,7 +136,7 @@ int main(int argc, char** argv) {
                 outdir.empty() ? "из cfx (%W)" : outdir.c_str(), block_sec, degree,
                 with_tropo ? "вкл" : "выкл (только геометрия в вакууме)");
 
-    process_task(cfx, scf, outdir, eop, block_sec, degree, 6.0, with_tropo, recv);
+    process_task(cfx, scf, outdir, eop, block_sec, degree, 6.0, with_tropo, recv, poly_prefix);
 
     std::printf("---\nГотово. Полиномы записаны в %s\n", outdir.c_str());
     return 0;

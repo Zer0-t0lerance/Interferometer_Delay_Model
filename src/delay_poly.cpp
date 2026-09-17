@@ -389,6 +389,17 @@ static double timeofs_at(double mjd_utc, const std::vector<SpaceStation>& orbit,
 // Зачем: в cfx РАЗНЫХ диапазонов одного сеанса POLY_FILE часто совпадают (напр. EFLSBERG.txt).
 // Без разведения по диапазону файлы затирают друг друга, и у станции, набор сканов которой
 // в диапазонах разный, пропадает покрытие по времени -> коррелятор теряет отклик.
+// Подпапка для POLY_FILE в нормальном виде: без ведущих разделителей, ровно с одним
+// замыкающим '\'. Пустая строка означает «полиномы в корне %W, подпапку не дописывать».
+static std::string norm_poly_prefix(const std::string& p) {
+    size_t a = p.find_first_not_of(" \t/\\");
+    if (a == std::string::npos) return "";
+    std::string s = p.substr(a);
+    while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '/' || s.back() == '\\'))
+        s.pop_back();
+    return s.empty() ? "" : s + "\\";
+}
+
 static std::string with_band(const std::string& fname, const std::string& band) {
     if (band.empty()) return fname;
     size_t dot = fname.rfind('.');
@@ -403,7 +414,7 @@ static std::string with_band(const std::string& fname, const std::string& band) 
 void write_timeofs_cfx(const std::string& cfx_in, const std::string& cfx_out,
                        const std::vector<SpaceStation>& orbit, const std::vector<EOPData>& eop,
                        const Eigen::Vector3d& recv_itrf, const std::string& space_name,
-                       const std::string& band) {
+                       const std::string& band, const std::string& poly_prefix) {
     std::ifstream fin(cfx_in); std::ofstream fout(cfx_out);
     if (!fin || !fout) { std::fprintf(stderr, "write_timeofs_cfx: ошибка файла\n"); return; }
     std::string line; bool in_tlsc = false, is_space = false; int count = 0;
@@ -439,7 +450,11 @@ void write_timeofs_cfx(const std::string& cfx_in, const std::string& cfx_out,
             continue;
         }
         // POLY_FILE: имя приводим к <станция>_<ДИАПАЗОН>.txt — коррелятор читает имя отсюда.
-        if (in_tlsc && tl.rfind("POLY_FILE", 0) == 0 && !band.empty()) {
+        // Плюс, если задан poly_prefix, дописываем подпапку: %W:<подпапка>\<станция>_<ДИАПАЗОН>.txt.
+        // Это нужно, когда полиномы лежат не в корне %W. Сама модель подпапку НЕ УГАДЫВАЕТ:
+        // выходной каталог — путь на нашей машине, %W — путь на стороне коррелятора, и как они
+        // соотносятся, знает только вызывающий. Поэтому prefix приходит параметром, а не выводится.
+        if (in_tlsc && tl.rfind("POLY_FILE", 0) == 0 && (!band.empty() || !poly_prefix.empty())) {
             size_t eq = line.find('=');
             if (eq != std::string::npos) {
                 std::string head = line.substr(0, eq + 1), val = line.substr(eq + 1);
@@ -450,7 +465,11 @@ void write_timeofs_cfx(const std::string& cfx_in, const std::string& cfx_out,
                 size_t sl = v.find_last_of(":/\\");
                 std::string pre = (sl == std::string::npos) ? "" : v.substr(0, sl + 1);
                 std::string nm  = (sl == std::string::npos) ? v : v.substr(sl + 1);
-                fout << head << lead << pre << with_band(nm, band) << "\n";
+                // Идемпотентность: если путь уже ведёт в ту же подпапку, второй раз не дописываем.
+                std::string pfx = norm_poly_prefix(poly_prefix);
+                if (!pfx.empty() && pre.size() >= pfx.size() &&
+                    pre.compare(pre.size() - pfx.size(), pfx.size(), pfx) == 0) pfx.clear();
+                fout << head << lead << pre << pfx << with_band(nm, band) << "\n";
                 continue;
             }
         }
@@ -485,7 +504,7 @@ static std::string detect_recv_from_cfx(const std::string& cfx, const std::strin
 void process_task(const std::string& cfx_path, const std::string& orbit_path,
                   const std::string& out_dir, const std::string& eop_path,
                   double block_sec, int degree, double sample_sec, bool with_tropo,
-                  const std::string& recv_name) {
+                  const std::string& recv_name, const std::string& poly_prefix) {
     CfxTask task;
     if (!parse_cfx(cfx_path, task)) { std::fprintf(stderr, "process_task: не разобрать %s\n", cfx_path.c_str()); return; }
 
@@ -619,7 +638,7 @@ void process_task(const std::string& cfx_path, const std::string& orbit_path,
             size_t dot = base.rfind(".cfx");
             base = (dot == std::string::npos) ? (base + "_p.cfx") : (base.substr(0, dot) + "_p.cfx");
             std::string cfx_out = join(outbase, base);
-            write_timeofs_cfx(cfx_path, cfx_out, orbit, eop, recv, space_name, band);
+            write_timeofs_cfx(cfx_path, cfx_out, orbit, eop, recv, space_name, band, poly_prefix);
         } else {
             std::fprintf(stderr, "process_task: пункт приёма '%s' не найден в %s (TIMEOFS пропущены)\n", recv_use.c_str(), itrf);
         }

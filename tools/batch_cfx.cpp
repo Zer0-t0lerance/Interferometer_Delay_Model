@@ -118,54 +118,32 @@ static bool read_marks(const fs::path& cfx, std::map<std::string, double>& marks
     return false;
 }
 
-// ------------------------------------------------------- правка готового задания *_p.cfx
-// Две правки, обе идемпотентные:
+// ------------------------------------------------- правка имени выходного файла коррелятора
+// Строка «OUT FILE = %W:ИМЯ.uvx» -> «... ИМЯ_p.uvx». Идемпотентно.
 //
-//   POLY_FILE = %W:ИМЯ.txt  ->  %W:<подпапка>\ИМЯ.txt
-//       Полиномы пишутся не в саму %W, а в подпапку внутри неё, поэтому задание должно
-//       указывать на неё же. Само значение %W не трогается — оно у коррелятора своё.
-//       Имя подпапки берётся из того же параметра, что задаёт каталог вывода, так что
-//       разъехаться они не могут.
-//
-//   OUT FILE = %W:ИМЯ.uvx   ->  %W:ИМЯ_p.uvx
-//       Вывод коррелятора остаётся в %W, только получает суффикс.
-//
-// Строки, где вместо %W: стоит что-то другое, не трогаются — о них сообщается отдельно.
-static bool patch_new_cfx(const fs::path& cfx, const std::string& poly_subdir,
-                          int& n_poly, int& n_skipped, bool& uvx_done) {
+// Строки POLY_FILE здесь НЕ трогаются: подпапку с полиномами дописывает сама модель по
+// параметру poly_prefix (см. process_task). У строки один владелец — так она не может
+// разъехаться между моделью и инструментом.
+static bool patch_out_file(const fs::path& cfx) {
     std::ifstream in(cfx);
     if (!in) return false;
     std::vector<std::string> lines;
     std::string line;
-    const std::string pref = poly_subdir + "\\";
+    bool patched = false;
     while (std::getline(in, line)) {
         while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
         size_t a = line.find_first_not_of(" \t");
         std::string t = (a == std::string::npos) ? "" : line.substr(a);
-        // ключ без пробелов и в верхнем регистре: «OUT FILE» пишут по-разному
         std::string key;
         for (char c : t.substr(0, 10)) if (!std::isspace((unsigned char)c)) key += (char)std::toupper((unsigned char)c);
-
-        if (key.rfind("POLY_FILE", 0) == 0 && !poly_subdir.empty()) {
-            size_t w = line.find("%W:");
-            if (w == std::string::npos) {
-                ++n_skipped;
-            } else {
-                size_t v = w + 3;                       // сразу после «%W:»
-                if (line.compare(v, pref.size(), pref) != 0) {
-                    line.insert(v, pref);
-                    ++n_poly;
-                }
-            }
-        } else if (key.rfind("OUTFILE", 0) == 0) {
+        if (key.rfind("OUTFILE", 0) == 0) {
             size_t dot = line.rfind(".uvx");
             if (dot == std::string::npos) dot = line.rfind(".UVX");
             if (dot != std::string::npos) {
                 std::string stem = line.substr(0, dot);
-                if (stem.size() < 2 || stem.compare(stem.size() - 2, 2, "_p") != 0) {
+                if (stem.size() < 2 || stem.compare(stem.size() - 2, 2, "_p") != 0)
                     line = stem + "_p" + line.substr(dot);
-                }
-                uvx_done = true;
+                patched = true;
             }
         }
         lines.push_back(line);
@@ -174,7 +152,7 @@ static bool patch_new_cfx(const fs::path& cfx, const std::string& poly_subdir,
     std::ofstream out(cfx);
     if (!out) return false;
     for (const auto& l : lines) out << l << "\n";
-    return true;
+    return patched;
 }
 
 int main(int argc, char** argv) {
@@ -224,7 +202,6 @@ int main(int argc, char** argv) {
     }
 
     int tasks = 0, done = 0, failed = 0, files_tot = 0, marks_tot = 0, no_mark = 0, uvx = 0;
-    int poly_patched = 0, poly_skipped = 0;
     std::vector<std::string> gaps;
 
     std::vector<fs::path> exps;
@@ -271,7 +248,7 @@ int main(int argc, char** argv) {
 
             std::error_code ec; fs::create_directories(outdir, ec);
             try {
-                process_task(cfx.string(), scf, outdir.string(), eop, 60.0, 5, 6.0, true, "auto");
+                process_task(cfx.string(), scf, outdir.string(), eop, 60.0, 5, 6.0, true, "auto", g_poly_dir);
             } catch (const std::exception& e) {
                 std::fprintf(stderr, "  ОШИБКА на %s: %s\n", cfx.filename().string().c_str(), e.what());
                 ++failed; continue;
@@ -284,13 +261,9 @@ int main(int argc, char** argv) {
                 fs::remove(dest, ec);
                 fs::rename(made, dest, ec);
                 if (ec) { fs::copy_file(made, dest, fs::copy_options::overwrite_existing, ec); fs::remove(made, ec); }
-                int np = 0, nsk = 0; bool uv = false;
-                patch_new_cfx(dest, g_poly_dir, np, nsk, uv);
-                if (uv) ++uvx;
-                poly_patched += np; poly_skipped += nsk;
-                std::printf("  задание -> %s (POLY_FILE -> %%W:%s\\..., строк %d%s)\n",
-                            dest.filename().string().c_str(), g_poly_dir.c_str(), np,
-                            nsk ? ", строк без %W пропущено" : "");
+                if (patch_out_file(dest)) ++uvx;
+                std::printf("  задание -> %s (POLY_FILE -> %%W:%s\\...)\n",
+                            dest.filename().string().c_str(), g_poly_dir.c_str());
                 ++done;
             } else {
                 std::fprintf(stderr, "  %s: _p.cfx не создан (нет космоса или не найден пункт приёма)\n",
@@ -306,8 +279,7 @@ int main(int argc, char** argv) {
     std::printf("Файлов без метки в задании: %d (%s)\n", no_mark,
                 g_fallback_name ? "время взято из имени файла" : "TIMEOFS для них не записан");
     std::printf("Имя вывода коррелятора исправлено на *_p.uvx: в %d заданиях\n", uvx);
-    std::printf("Строк POLY_FILE переписано на %%W:%s\\...: %d%s\n", g_poly_dir.c_str(), poly_patched,
-                poly_skipped ? " (строк без %W: пропущено — см. выше)" : "");
+    std::printf("POLY_FILE в заданиях ведёт на %%W:%s\\... (дописано моделью)\n", g_poly_dir.c_str());
     if (!gaps.empty()) {
         std::printf("\nЗадания, где меток меньше, чем файлов данных:\n");
         for (const auto& g : gaps) std::printf("  %s\n", g.c_str());
