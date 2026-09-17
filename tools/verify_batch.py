@@ -3,13 +3,15 @@
 #   1) у каждого исходного задания есть <имя>_p.cfx рядом с ним;
 #   2) метки времени в TIMEOFS нового задания СОВПАДАЮТ с метками исходного;
 #   3) строка вывода коррелятора переименована в *_p.uvx;
-#   4) полиномы лежат в <эксперимент>/new_poly и покрывают все станции задания.
+#   4) POLY_FILE ссылается в подпапку с полиномами и все эти файлы на месте.
 #
 # Запуск (из корня репозитория):
-#   python tools/verify_batch.py [корень]       # по умолчанию корень = Correlator_Tests
+#   python tools/verify_batch.py [корень] [подпапка-полиномов]
+#       по умолчанию: корень = Correlator_Tests, подпапка = new_poly
 import os, re, glob, sys
 
 ROOT = sys.argv[1] if len(sys.argv) > 1 else "Correlator_Tests"
+POLY_DIR = sys.argv[2] if len(sys.argv) > 2 else "new_poly"   # как у batch_cfx --poly-dir
 if not os.path.isdir(ROOT):
     sys.exit("Нет такой папки: %s (запускать из корня репозитория)" % ROOT)
 
@@ -34,13 +36,18 @@ def marks(path):
         if g: m[g.group(1)] = (float(g.group(2)), float(g.group(3)))
     return m
 
-def poly_names(path):
-    names = []
+def poly_refs(path):
+    """Ссылки POLY_FILE как ПУТИ ОТНОСИТЕЛЬНО %W (папки эксперимента у коррелятора).
+    Значение имеет вид «%W:подпапка\\ИМЯ.txt» — берём всё после «%W:»."""
+    refs = []
     for b in blocks(path):
         for t in b:
             g = re.match(r'POLY_FILE\s*=\s*(.*)', t)
-            if g: names.append(g.group(1).strip().split(":")[-1].strip())
-    return names
+            if not g: continue
+            v = g.group(1).strip()
+            w = v.find("%W:")
+            refs.append(v[w + 3:] if w >= 0 else v)
+    return refs
 
 def out_file(path):
     for raw in open(path, encoding="utf-8", errors="replace"):
@@ -82,19 +89,32 @@ for d in sorted(glob.glob(os.path.join(ROOT, "*"))):
         if o.lower().endswith("_p.uvx"): n_uvx += 1
         else: bad.append("%s %s: вывод коррелятора не переименован: %s" % (exp, os.path.basename(dst), o))
 
-        npd = os.path.join(d, "new_poly")
-        for nm in poly_names(dst):
+        # %W у коррелятора соответствует папке эксперимента, поэтому ссылку проверяем от неё
+        for ref in poly_refs(dst):
             n_poly += 1
-            f = os.path.join(npd, nm)
+            rel = ref.replace("\\", os.sep).replace("/", os.sep)
+            if os.sep not in rel:
+                bad.append("%s %s: POLY_FILE без подпапки: %s (полиномы лежат в %s)" %
+                           (exp, os.path.basename(dst), ref, POLY_DIR))
+                continue
+            sub = rel.split(os.sep)[0]
+            if sub != POLY_DIR:
+                bad.append("%s %s: POLY_FILE указывает в «%s», а полиномы в «%s»" %
+                           (exp, os.path.basename(dst), sub, POLY_DIR))
+            f = os.path.join(d, rel)
             if not os.path.exists(f):
                 # регистр имени в cfx и на диске может отличаться
-                alt = [x for x in os.listdir(npd) if x.lower() == nm.lower()] if os.path.isdir(npd) else []
-                if not alt: bad.append("%s: нет полинома new_poly/%s" % (exp, nm)); n_polymiss += 1
+                dirp = os.path.dirname(f)
+                alt = [x for x in os.listdir(dirp) if x.lower() == os.path.basename(f).lower()] \
+                      if os.path.isdir(dirp) else []
+                if not alt:
+                    bad.append("%s: нет файла полинома %s" % (exp, rel)); n_polymiss += 1
 
 print("заданий проверено: %d" % n_task)
 print("строк TIMEOFS в новых заданиях: %d, метка совпала с исходной: %d" % (n_mark, n_same))
 print("заданий с выводом *_p.uvx: %d" % n_uvx)
-print("ссылок на полиномы: %d, отсутствует файлов: %d" % (n_poly, n_polymiss))
+print("ссылок POLY_FILE: %d (ожидались в %%W:%s\\...), отсутствует файлов: %d"
+      % (n_poly, POLY_DIR, n_polymiss))
 print()
 if note:
     print("ШТАТНЫЕ ОТЛИЧИЯ (%d) — не ошибки:" % len(note))

@@ -10,7 +10,12 @@
 //      не меняется;
 //   2) кладёт полиномы в <эксперимент>/new_poly (рядом с имеющейся папкой poly);
 //   3) переносит готовый <имя>_p.cfx из new_poly в папку эксперимента, рядом с исходным;
-//   4) в этом _p.cfx правит строку вывода коррелятора: <...>.uvx -> <...>_p.uvx.
+//   4) в этом _p.cfx правит две вещи:
+//        POLY_FILE = %W:ИМЯ.txt -> %W:new_poly\ИМЯ.txt  — полиномы лежат в подпапке %W,
+//                                  само значение %W не трогается;
+//        OUT FILE  = %W:ИМЯ.uvx -> %W:ИМЯ_p.uvx          — вывод коррелятора остаётся в %W.
+//      Имя подпапки в POLY_FILE и каталог, куда пишутся полиномы, — это один и тот же
+//      параметр (--poly-dir), разъехаться они не могут.
 //
 // ПОЧЕМУ МЕТКА ИМЕННО ИЗ ЗАДАНИЯ, А НЕ ИЗ ИМЕНИ ФАЙЛА. Метку в строку TIMEOFS записывает
 // отдельная программа коррелятора: она читает сами файлы данных и вычисляет фактическое
@@ -29,6 +34,8 @@
 // Ключи:
 //   --no-fallback     без строки TIMEOFS не писать TIMEOFS вовсе (не брать время из имени)
 //   --only=<подстрока> обработать только задания, чей путь содержит подстроку
+//   --poly-dir=<имя>  подпапка для полиномов внутри папки эксперимента (по умолчанию
+//                     new_poly); это же имя подставляется в POLY_FILE
 //   --dry-run         только разобрать задания и показать план, ничего не писать
 
 #ifdef _WIN32
@@ -52,6 +59,7 @@ namespace fs = std::filesystem;
 // ------------------------------------------------------------------ метки текущего задания
 static std::map<std::string, double> g_marks;   // индекс FILExx -> метка UTC в MJD
 static bool g_fallback_name = true;             // нет метки -> брать время из имени файла
+static std::string g_poly_dir = "new_poly";     // подпапка внутри %W: и куда пишем, и что в POLY_FILE
 static int  g_used = 0, g_missing = 0;
 
 // Обработчик метки времени: отдаёт модели метку из строки TIMEOFS текущего задания.
@@ -110,30 +118,54 @@ static bool read_marks(const fs::path& cfx, std::map<std::string, double>& marks
     return false;
 }
 
-// ------------------------------------------------- правка имени выходного файла коррелятора
-// Строка вида «OUT FILE = %W:ИМЯ.uvx» -> «... ИМЯ_p.uvx». Идемпотентно.
-static bool patch_out_file(const fs::path& cfx) {
+// ------------------------------------------------------- правка готового задания *_p.cfx
+// Две правки, обе идемпотентные:
+//
+//   POLY_FILE = %W:ИМЯ.txt  ->  %W:<подпапка>\ИМЯ.txt
+//       Полиномы пишутся не в саму %W, а в подпапку внутри неё, поэтому задание должно
+//       указывать на неё же. Само значение %W не трогается — оно у коррелятора своё.
+//       Имя подпапки берётся из того же параметра, что задаёт каталог вывода, так что
+//       разъехаться они не могут.
+//
+//   OUT FILE = %W:ИМЯ.uvx   ->  %W:ИМЯ_p.uvx
+//       Вывод коррелятора остаётся в %W, только получает суффикс.
+//
+// Строки, где вместо %W: стоит что-то другое, не трогаются — о них сообщается отдельно.
+static bool patch_new_cfx(const fs::path& cfx, const std::string& poly_subdir,
+                          int& n_poly, int& n_skipped, bool& uvx_done) {
     std::ifstream in(cfx);
     if (!in) return false;
     std::vector<std::string> lines;
     std::string line;
-    bool patched = false;
+    const std::string pref = poly_subdir + "\\";
     while (std::getline(in, line)) {
         while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
         size_t a = line.find_first_not_of(" \t");
         std::string t = (a == std::string::npos) ? "" : line.substr(a);
-        // «OUT FILE» может быть записано с разным числом пробелов — сравниваем без них
+        // ключ без пробелов и в верхнем регистре: «OUT FILE» пишут по-разному
         std::string key;
         for (char c : t.substr(0, 10)) if (!std::isspace((unsigned char)c)) key += (char)std::toupper((unsigned char)c);
-        if (key.rfind("OUTFILE", 0) == 0) {
+
+        if (key.rfind("POLY_FILE", 0) == 0 && !poly_subdir.empty()) {
+            size_t w = line.find("%W:");
+            if (w == std::string::npos) {
+                ++n_skipped;
+            } else {
+                size_t v = w + 3;                       // сразу после «%W:»
+                if (line.compare(v, pref.size(), pref) != 0) {
+                    line.insert(v, pref);
+                    ++n_poly;
+                }
+            }
+        } else if (key.rfind("OUTFILE", 0) == 0) {
             size_t dot = line.rfind(".uvx");
             if (dot == std::string::npos) dot = line.rfind(".UVX");
             if (dot != std::string::npos) {
                 std::string stem = line.substr(0, dot);
                 if (stem.size() < 2 || stem.compare(stem.size() - 2, 2, "_p") != 0) {
                     line = stem + "_p" + line.substr(dot);
-                    patched = true;
                 }
+                uvx_done = true;
             }
         }
         lines.push_back(line);
@@ -142,7 +174,7 @@ static bool patch_out_file(const fs::path& cfx) {
     std::ofstream out(cfx);
     if (!out) return false;
     for (const auto& l : lines) out << l << "\n";
-    return patched;
+    return true;
 }
 
 int main(int argc, char** argv) {
@@ -155,18 +187,22 @@ int main(int argc, char** argv) {
     for (const auto& s : a) {
         if (s == "--no-fallback") g_fallback_name = false;
         else if (s.rfind("--only=", 0) == 0) only = s.substr(7);
+        else if (s.rfind("--poly-dir=", 0) == 0) g_poly_dir = s.substr(11);
         else if (s == "--dry-run") dry = true;
         else if (s.rfind("--", 0) == 0) { std::fprintf(stderr, "Неизвестный ключ: %s\n", s.c_str()); return 1; }
         else root = s;
     }
     if (root.empty()) {
-        std::printf("Использование: %s <корень> [--no-fallback] [--only=<подстрока>] [--dry-run]\n", argv[0]);
+        std::printf("Использование: %s <корень> [--no-fallback] [--only=<подстрока>] [--poly-dir=<имя>] [--dry-run]\n", argv[0]);
         std::printf("  <корень>           папка с подпапками экспериментов (напр. Correlator_Tests)\n");
         std::printf("  По умолчанию метка берётся из строки TIMEOFS задания (её пишет отдельная\n");
         std::printf("  программа коррелятора по самим данным — она точнее имени файла). Если строки\n");
         std::printf("  нет, время берётся из имени файла данных с предупреждением.\n");
         std::printf("  --no-fallback      без строки TIMEOFS не писать TIMEOFS вовсе\n");
         std::printf("  --only=<подстрока> обработать только задания, чей путь содержит подстроку\n");
+        std::printf("  --poly-dir=<имя>   подпапка для полиномов внутри папки эксперимента\n");
+        std::printf("                     (по умолчанию new_poly). Это же имя подставляется\n");
+        std::printf("                     в POLY_FILE: %%W:<имя>\\СТАНЦИЯ.txt\n");
         std::printf("  --dry-run          показать план, ничего не писать\n");
         std::printf("\nДля каждого <корень>/<эксперимент>/*.cfx: полиномы -> <эксперимент>/new_poly,\n");
         std::printf("новое задание -> <эксперимент>/<имя>_p.cfx, вывод коррелятора -> *_p.uvx.\n");
@@ -188,6 +224,7 @@ int main(int argc, char** argv) {
     }
 
     int tasks = 0, done = 0, failed = 0, files_tot = 0, marks_tot = 0, no_mark = 0, uvx = 0;
+    int poly_patched = 0, poly_skipped = 0;
     std::vector<std::string> gaps;
 
     std::vector<fs::path> exps;
@@ -213,7 +250,7 @@ int main(int argc, char** argv) {
         std::printf("\n=== %s === (заданий: %zu, орбита: %s)\n", exp.filename().string().c_str(),
                     cfxs.size(), scf.empty() ? "из cfx (ORB_FILE)" : scfs.front().filename().string().c_str());
 
-        fs::path outdir = exp / "new_poly";
+        fs::path outdir = exp / g_poly_dir;
         for (const auto& cfx : cfxs) {
             ++tasks;
             g_marks.clear(); g_used = g_missing = 0;
@@ -247,8 +284,13 @@ int main(int argc, char** argv) {
                 fs::remove(dest, ec);
                 fs::rename(made, dest, ec);
                 if (ec) { fs::copy_file(made, dest, fs::copy_options::overwrite_existing, ec); fs::remove(made, ec); }
-                if (patch_out_file(dest)) ++uvx;
-                std::printf("  задание -> %s\n", dest.filename().string().c_str());
+                int np = 0, nsk = 0; bool uv = false;
+                patch_new_cfx(dest, g_poly_dir, np, nsk, uv);
+                if (uv) ++uvx;
+                poly_patched += np; poly_skipped += nsk;
+                std::printf("  задание -> %s (POLY_FILE -> %%W:%s\\..., строк %d%s)\n",
+                            dest.filename().string().c_str(), g_poly_dir.c_str(), np,
+                            nsk ? ", строк без %W пропущено" : "");
                 ++done;
             } else {
                 std::fprintf(stderr, "  %s: _p.cfx не создан (нет космоса или не найден пункт приёма)\n",
@@ -264,6 +306,8 @@ int main(int argc, char** argv) {
     std::printf("Файлов без метки в задании: %d (%s)\n", no_mark,
                 g_fallback_name ? "время взято из имени файла" : "TIMEOFS для них не записан");
     std::printf("Имя вывода коррелятора исправлено на *_p.uvx: в %d заданиях\n", uvx);
+    std::printf("Строк POLY_FILE переписано на %%W:%s\\...: %d%s\n", g_poly_dir.c_str(), poly_patched,
+                poly_skipped ? " (строк без %W: пропущено — см. выше)" : "");
     if (!gaps.empty()) {
         std::printf("\nЗадания, где меток меньше, чем файлов данных:\n");
         for (const auto& g : gaps) std::printf("  %s\n", g.c_str());
